@@ -1,0 +1,44 @@
+\documentclass[11pt,a4paper]{article}
+\usepackage[T1]{fontenc}
+\usepackage{amssymb}
+\usepackage{isabelle,isabellesym}
+\usepackage{railsetup}
+\usepackage{mathpartir}
+\usepackage[skip=0.5ex]{parskip}
+\usepackage{enumitem}
+\setlist[description]{leftmargin=0.6em, labelindent=0pt}
+
+\usepackage{pdfsetup}
+
+\urlstyle{rm}
+\isabellestyle{it}
+
+\isadroptag{theory}
+
+\newenvironment{matharray}[1]{\[\begin{array}{#1}}{\end{array}\]}
+
+\begin{document}
+
+
+\title{The \isakeyword{grammar} and \isakeyword{parser} commands}
+\author{Basil F\"urer}
+\maketitle
+
+\begin{abstract}
+  A definitional package for indentation-sensitive, context-free grammars in
+  Isabelle/HOL. \isakeyword{grammar} elaborates a grammar specification with
+  semantic actions into a grammar constant, per-nonterminal decoders and a
+  mutual inductive relation. \isakeyword{parser} emits an executable parser
+  for it together with soundness and completeness theorems. The parser
+  generator backends are extensible; this package provides an LALR(1)-style
+  backend with layout-aware lookahead out of the box.
+\end{abstract}
+
+\tableofcontents
+
+\input{Grammar_Command.tex}
+
+\bibliographystyle{abbrv}
+\bibliography{root}
+
+\end{document}
