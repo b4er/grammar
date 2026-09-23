@@ -87,6 +87,22 @@ lemma case_ast_Nt_None:
   \<open>asym a = Nt B \<Longrightarrow> (case a of Leaf x \<Rightarrow> f x | Node n xs \<Rightarrow> None) = None\<close>
   by (cases a) auto
 
+text \<open>The decoders of a grammar are defined through this recursion combinator,
+  which restricts the recursive calls to the children of a node: the functional
+  of a grammar is then an ordinary definition.\<close>
+
+function ast_rec ::
+  \<open>(('i \<Rightarrow> ('m, 'ch, 'n, 'tok) ast \<Rightarrow> 'r) \<Rightarrow> 'i \<Rightarrow> 'n \<Rightarrow> ('m, 'ch, 'n, 'tok) ast list \<Rightarrow> 'r) \<Rightarrow>
+    'r \<Rightarrow> 'i \<Rightarrow> ('m, 'ch, 'n, 'tok) ast \<Rightarrow> 'r\<close> where
+  \<open>ast_rec F d i (Node n xs) = F (\<lambda>j c. if c \<in> set xs then ast_rec F d j c else d) i n xs\<close>
+| \<open>ast_rec F d i (Leaf w) = d\<close>
+  by pat_completeness auto
+termination
+  by (relation \<open>measure (\<lambda>(F, d, i, t). size t)\<close>)
+    (auto intro: le_imp_less_Suc size_list_estimation')
+
+declare ast_rec.simps [simp del, code del]
+
 ML_file \<open>grammar_common.ML\<close>
 ML_file \<open>grammar_ptree_induct.ML\<close>
 ML_file \<open>grammar_defs.ML\<close>

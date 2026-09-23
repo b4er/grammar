@@ -336,11 +336,10 @@ fun length_dispatch_dec astT outT ks body_at_length xs_var =
       end;
   in go 0 [] xs_var end;
 
-fun eqns_for_nt_dec (gram: Grammar_Common.grammar) lthy carrier_of dec_of A =
+(* the decoder of A on Node n xs, for the decoders dec_of of the nonterminals *)
+fun node_body_dec (gram: Grammar_Common.grammar) lthy carrier_of dec_of A n_v xs_v =
   let
-    val {tokenT, astT, ...} = Grammar_Common.get_desc gram;
-    val astListT = HOLogic.listT astT;
-    val dec_free = dec_of A;
+    val {astT, ...} = Grammar_Common.get_desc gram;
     val outT = carrier_of A;
     val outOptT = mk_optionT outT;
 
@@ -351,8 +350,6 @@ fun eqns_for_nt_dec (gram: Grammar_Common.grammar) lthy carrier_of dec_of A =
         prods_A [];
     val ks = map fst by_len;
 
-    val n_v = Free ("dnv_" ^ A, HOLogic.stringT);
-    val xs_v = Free ("dxs_" ^ A, astListT);
     val name_lit = HOLogic.mk_string A;
 
     fun body_at_length k cs =
@@ -373,11 +370,23 @@ fun eqns_for_nt_dec (gram: Grammar_Common.grammar) lthy carrier_of dec_of A =
           in go prods_k all_names end;
       in chain_prods_dec outT bodies end;
 
-    val node_body =
-      mk_if_c outOptT
-        $ HOLogic.mk_eq (n_v, name_lit)
-        $ length_dispatch_dec astT outT ks body_at_length xs_v
-        $ mk_None outT;
+  in
+    mk_if_c outOptT
+      $ HOLogic.mk_eq (n_v, name_lit)
+      $ length_dispatch_dec astT outT ks body_at_length xs_v
+      $ mk_None outT
+  end;
+
+(* the equations of the decoder of A, one for Node and one for Leaf *)
+fun eqns_for_nt_dec (gram: Grammar_Common.grammar) lthy carrier_of dec_of A =
+  let
+    val {tokenT, astT, ...} = Grammar_Common.get_desc gram;
+    val astListT = HOLogic.listT astT;
+    val dec_free = dec_of A;
+    val outT = carrier_of A;
+    val n_v = Free ("dnv_" ^ A, HOLogic.stringT);
+    val xs_v = Free ("dxs_" ^ A, astListT);
+    val node_body = node_body_dec gram lthy carrier_of dec_of A n_v xs_v;
 
     val Leaf_c = Const (\<^const_name>\<open>Leaf\<close>, tokenT --> astT);
     val Node_c = Const (\<^const_name>\<open>Node\<close>, HOLogic.stringT --> astListT --> astT);
@@ -390,45 +399,163 @@ fun eqns_for_nt_dec (gram: Grammar_Common.grammar) lthy carrier_of dec_of A =
     val eq_leaf = HOLogic.mk_Trueprop (HOLogic.mk_eq (lhs_leaf, mk_None outT));
   in [eq_node, eq_leaf] end;
 
+(* a balanced sum type over the types Ts, with an injection and a projection
+   for each of them *)
+fun mk_val_sum [U] = (U, [(U, (Abs ("x", U, Bound 0), mk_Some U))])
+  | mk_val_sum Ts =
+      let
+        val (ls, rs) = chop (length Ts div 2) Ts;
+        val (LTy, linjs) = mk_val_sum ls;
+        val (RTy, rinjs) = mk_val_sum rs;
+        val VT = Type (\<^type_name>\<open>sum\<close>, [LTy, RTy]);
+        fun lift left (U, (inj, proj)) =
+          let
+            val optT = mk_optionT U;
+            val none = Abs ("v", if left then RTy else LTy, mk_None U);
+            val inj_c =
+              if left then Const (\<^const_name>\<open>Inl\<close>, LTy --> VT)
+              else Const (\<^const_name>\<open>Inr\<close>, RTy --> VT);
+            val case_c =
+              Const (\<^const_name>\<open>case_sum\<close>,
+                (LTy --> optT) --> (RTy --> optT) --> VT --> optT);
+            val proj' =
+              if left then case_c $ proj $ none else case_c $ none $ proj;
+          in
+            (U, (Envir.beta_eta_contract (Abs ("x", U, inj_c $ (inj $ Bound 0))),
+              proj'))
+          end;
+      in
+        (VT,
+          map (lift true) linjs @ map (lift false) rinjs)
+      end;
+
+(* The decoders are defined through a single functional G__disp on a selector
+   (the index of the nonterminal) and a tree, with values in a sum of the
+   carriers, closed by ast_rec: a mutual function over all nonterminals is much
+   slower to define. The decoder of A is G__disp's fixpoint at the index of A
+   followed by the projection to the carrier of A; its Node and Leaf equations
+   are derived. *)
 fun define_decoders (gram: Grammar_Common.grammar) lthy =
   let
-    val {astT, ...} = Grammar_Common.get_desc gram;
+    val {tokenT, astT, ...} = Grammar_Common.get_desc gram;
+    val astListT = HOLogic.listT astT;
     val gram_b = #name gram;
     val nts = Grammar_Common.nonterms_list gram;
     val nnames = map fst nts;
     val carriers = map (#carrier o snd) nts;
     val carrier_of = Grammar_Common.carrier_of gram;
-    (* G__dec_A: distinct from every relation name G_<nonterminal>, as a
-       nonterminal cannot start with an underscore *)
-    val dec_bindings = map (fn nm => suffix_bind ("__dec_" ^ nm) gram_b) nnames;
-    val dec_types = map (fn cT => astT --> mk_optionT cT) carriers;
-    val dec_frees =
-      map2 (fn b => fn T => Free (Binding.name_of b, T)) dec_bindings dec_types;
-    fun dec_of A = nth dec_frees (find_index (curry (op =) A) nnames);
+    fun index_of A = HOLogic.mk_nat (find_index (curry (op =) A) nnames);
+    fun timed label f x =
+      Grammar_Common.timed lthy (Binding.name_of (#name gram)) ("decoders: " ^ label) f x;
 
-    val all_eqns =
-      maps (fn A => eqns_for_nt_dec gram lthy carrier_of dec_of A) nnames;
-    val eqns : Specification.multi_specs =
-      map (fn e => ((Binding.empty_atts, e), [], [])) all_eqns;
-    val fixes = map2 (fn b => fn T => (b, SOME T, NoSyn)) dec_bindings dec_types;
-    (* as the fun command: pattern completeness by auto, termination by the
-       default prover; the info record holds the constants and the simps *)
-    fun pat_completeness_auto ctxt =
-      Pat_Completeness.pat_completeness_tac ctxt 1 THEN auto_tac ctxt;
-    val lthy' =
-      Function.add_function fixes eqns Function_Common.default_config
-        pat_completeness_auto lthy |> snd;
-    val (info, lthy') =
-      Function.prove_termination NONE
-        (Function_Common.termination_prover_tac false lthy') lthy';
-    val simps =
-      (case #simps info of
-        SOME ths => ths
-      | NONE => raise Fail "define_decoders: no simps after termination");
-    (* the simps are the code equations; inside a locale with assumptions they
-       stay conditional and are not declared globally *)
-    val lthy' = Grammar_Common.declare_code_global {default = true} simps lthy';
-  in ((nnames ~~ #fs info), lthy') end;
+    val (valT, injs) = mk_val_sum (distinct (op =) carriers);
+    val valOptT = mk_optionT valT;
+    fun inj_of A = fst (the (AList.lookup (op =) injs (carrier_of A)));
+    fun proj_of A = snd (the (AList.lookup (op =) injs (carrier_of A)));
+    fun mk_map_option_c U =
+      Const (\<^const_name>\<open>map_option\<close>, (U --> valT) --> mk_optionT U --> valOptT);
+    fun dec_via decode A =
+      let val c = Free ("c", astT) in
+        Term.lambda c
+          (mk_bind_c valT (carrier_of A) $ (decode $ index_of A $ c) $ proj_of A)
+      end;
+
+    (* G__disp, G__dec_A: distinct from every relation name G_<nonterminal>,
+       as a nonterminal cannot start with an underscore *)
+    val recT = HOLogic.natT --> astT --> valOptT;
+    val dispT = recT --> HOLogic.natT --> HOLogic.stringT --> astListT --> valOptT;
+    val f_v = Free ("dfun", recT);
+    val sel_v = Free ("dsel", HOLogic.natT);
+    val n_v = Free ("dnv", HOLogic.stringT);
+    val xs_v = Free ("dxs", astListT);
+    val dispatch =
+      fold_rev (fn A => fn rest =>
+          mk_if_c valOptT $ HOLogic.mk_eq (sel_v, index_of A)
+            $ (mk_map_option_c (carrier_of A) $ inj_of A
+                $ node_body_dec gram lthy carrier_of (dec_via f_v) A n_v xs_v)
+            $ rest)
+        nnames (mk_None valT)
+      |> Envir.beta_norm;
+    val disp_b = suffix_bind "__disp" gram_b;
+    val ((disp, disp_def), lthy1) =
+      define_const false
+        (disp_b, Thm.def_binding disp_b, fold_rev Term.lambda [f_v, sel_v, n_v, xs_v] dispatch)
+        lthy;
+    val ast_rec_c =
+      Const (\<^const_name>\<open>ast_rec\<close>, dispT --> valOptT --> recT);
+    val decode = ast_rec_c $ disp $ mk_None valT;
+
+    val dec_bindings = map (fn nm => suffix_bind ("__dec_" ^ nm) gram_b) nnames;
+    val (dec_defs, lthy2) =
+      fold_map (fn (b, A) =>
+          define_const false (b, Thm.def_binding b, dec_via decode A))
+        (dec_bindings ~~ nnames) lthy1;
+    val decs = map fst dec_defs;
+    val dec_def_eqs = map snd dec_defs;
+    fun dec_of A = nth decs (find_index (curry (op =) A) nnames);
+
+    (* bind (map_option inj x) proj = x, for each carrier *)
+    fun bind_map_lemma (U, (inj, proj)) =
+      let
+        val x = Free ("x", mk_optionT U);
+        val goal =
+          HOLogic.mk_Trueprop (HOLogic.mk_eq
+            (mk_bind_c valT U $ (mk_map_option_c U $ inj $ x) $ proj, x));
+      in
+        (U, Goal.prove lthy2 ["x"] [] goal (fn {context = ctxt, ...} =>
+          HEADGOAL (Induct_Tacs.case_tac ctxt "x" [] NONE) THEN
+          ALLGOALS (asm_full_simp_tac ctxt)) |> mk_meta_eq)
+      end;
+    val bind_maps = map bind_map_lemma injs;
+
+    (* decide the selector conditions of the dispatch one by one *)
+    fun dispatch_conv ctxt ct =
+      (Conv.fun_conv (Conv.fun_conv (Conv.arg_conv (Simplifier.rewrite ctxt))) then_conv
+        (Conv.rewr_conv @{thm if_True[THEN eq_reflection]} else_conv
+          (Conv.rewr_conv @{thm if_False[THEN eq_reflection]} then_conv
+            dispatch_conv ctxt))) ct;
+    fun lhs_conv ctxt A =
+      (Conv.arg1_conv
+        (Conv.rewr_conv @{thm ast_rec.simps(1)[THEN eq_reflection]} then_conv
+          funpow 4 Conv.fun_conv (Conv.rewr_conv disp_def) then_conv
+          Thm.beta_conversion true then_conv
+          dispatch_conv ctxt) then_conv
+        Conv.rewr_conv (the (AList.lookup (op =) bind_maps (carrier_of A))))
+      else_conv
+      (Conv.arg1_conv (Conv.rewr_conv @{thm ast_rec.simps(2)[THEN eq_reflection]}) then_conv
+        Conv.rewr_conv @{thm Option.bind_lzero[THEN eq_reflection]});
+    (* the recursive calls of the functional are on children: decided by the
+       case distinctions on the children list *)
+    fun children_ctxt ctxt =
+      put_simpset HOL_basic_ss ctxt
+        addsimps @{thms list.set insert_iff simp_thms if_True}
+      |> Simplifier.add_cong @{thm list.case_cong};
+    fun prove_eqn A goal =
+      let
+        val frees =
+          Term.add_free_names goal [] |> filter_out (Variable.is_fixed lthy2);
+      in
+        Goal.prove lthy2 frees [] goal (fn {context = ctxt, ...} =>
+          rewrite_goal_tac ctxt dec_def_eqs 1 THEN
+          CONVERSION (HOLogic.Trueprop_conv (Conv.arg1_conv (lhs_conv ctxt A))) 1 THEN
+          asm_full_simp_tac (children_ctxt ctxt) 1)
+      end;
+    val eqns = timed "derive equations" (fn () =>
+      map (fn A => map (prove_eqn A) (eqns_for_nt_dec gram lthy2 carrier_of dec_of A))
+        nnames) ();
+    val (_, lthy3) =
+      fold_map (fn (b, ths) =>
+          Local_Theory.note
+            ((Binding.qualify_name true b "simps",
+              [Attrib.internal \<^here> (K Simplifier.simp_add)]), ths))
+        (dec_bindings ~~ eqns) lthy2;
+    (* the equations are the code equations, also of interpretations; inside a
+       locale with assumptions they stay conditional and are not declared
+       globally *)
+    val lthy3 = lthy3
+      |> Code.declare_default_eqns (map (rpair true) (flat eqns))
+      |> Grammar_Common.declare_code_global {default = true} (flat eqns);
+  in ((nnames ~~ decs), lthy3) end;
 
 (* the decoder of nonterminal A of grammar G, from the registered artifacts *)
 fun decoder_of _ (gram: Grammar_Common.grammar) A =
