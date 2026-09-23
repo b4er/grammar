@@ -26,18 +26,23 @@ text \<open>The least \<open>n\<close> with \<open>P n\<close>, by \<^const>\<op
 definition nat_search :: \<open>(nat \<Rightarrow> bool) \<Rightarrow> nat\<close> where
   \<open>nat_search P = the (while_option (\<lambda>n. \<not> P n) Suc 0)\<close>
 
-lemma nat_search_sat:
+lemma nat_search_Some:
   assumes \<open>P k\<close>
-  shows \<open>P (nat_search P)\<close>
+  shows \<open>while_option (\<lambda>n. \<not> P n) Suc 0 = Some (nat_search P)\<close>
 proof -
   have \<open>n \<le> k \<Longrightarrow> \<not> P n \<Longrightarrow> Suc n \<le> k \<and> k - Suc n < k - n\<close> for n
     using assms by (cases \<open>n = k\<close>) auto
   then obtain t where t: \<open>while_option (\<lambda>n. \<not> P n) Suc 0 = Some t\<close>
     using measure_while_option_Some[of \<open>\<lambda>n. n \<le> k\<close> \<open>\<lambda>n. \<not> P n\<close> Suc \<open>\<lambda>n. k - n\<close> 0]
     by auto
-  with while_option_stop[OF t] show ?thesis
+  then show ?thesis
     by (simp add: nat_search_def)
 qed
+
+lemma nat_search_sat:
+  assumes \<open>P k\<close>
+  shows \<open>P (nat_search P)\<close>
+  using while_option_stop[OF nat_search_Some[of P, OF assms]] by simp
 
 subsection \<open>Fuel-free closure\<close>
 
@@ -58,6 +63,35 @@ qed
 lemma xclosure_chk_xfuel:
   \<open>xclosure_chk G (xfuel G xs) xs = Some (xclosure_auto G xs)\<close>
   using xfuel_stable unfolding xclosure_chk_def xclosure_auto_def by simp
+
+text \<open>Executably, the rounds are iterated once, each computed once: the search
+  for the fuel would recompute them from scratch for every candidate.\<close>
+
+lemma xclosure_auto_code [code]:
+  \<open>xclosure_auto G xs = xslots G xs (fst (the (while_option
+     (\<lambda>(cls, nxt). \<not> list_all2 irep_subset nxt cls) (\<lambda>(cls, nxt). (nxt, xround G xs nxt))
+     (xiter G xs 0, xround G xs (xiter G xs 0)))))\<close>
+proof -
+  obtain k where \<open>xstable G xs (xiter G xs k)\<close>
+    using xcls_stable_ex by blast
+  then have \<open>while_option (\<lambda>t. \<not> xstable G xs (xiter G xs t)) Suc 0 = Some (xfuel G xs)\<close>
+    unfolding xfuel_def by (rule nat_search_Some)
+  moreover have
+    \<open>map_option (\<lambda>t. (xiter G xs t, xiter G xs (Suc t)))
+       (while_option (\<lambda>t. \<not> xstable G xs (xiter G xs t)) Suc 0) =
+     while_option (\<lambda>(cls, nxt). \<not> list_all2 irep_subset nxt cls) (\<lambda>(cls, nxt). (nxt, xround G xs nxt))
+       (xiter G xs 0, xiter G xs (Suc 0))\<close>
+    by (rule while_option_commute
+        [where f = \<open>\<lambda>t. (xiter G xs t, xiter G xs (Suc t))\<close> and s = 0])
+      (simp_all add: xstable_def)
+  ultimately have
+    \<open>Some (xiter G xs (xfuel G xs), xiter G xs (Suc (xfuel G xs))) =
+     while_option (\<lambda>(cls, nxt). \<not> list_all2 irep_subset nxt cls) (\<lambda>(cls, nxt). (nxt, xround G xs nxt))
+       (xiter G xs 0, xround G xs (xiter G xs 0))\<close>
+    by simp
+  from this[symmetric] show ?thesis
+    by (simp add: xclosure_auto_def xclosure_def)
+qed
 
 text \<open>The fuel-free closure concretises to the abstract factored closure,
   without a fuel hypothesis.\<close>
