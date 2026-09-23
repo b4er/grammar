@@ -1,5 +1,5 @@
 theory LR
-  imports Grammar_Command.Indentation_Sensitive "HOL-Library.While_Combinator"
+  imports Grammar_Command.Indentation_Sensitive "HOL-Library.While_Combinator" "HOL-Library.RBT"
 begin
 
 section \<open>Fuel-free GLR steps\<close>
@@ -1669,6 +1669,166 @@ qed
 
 lemma la_fix_gen_start: \<open>set (la_start G Shn sts) \<subseteq> set (la_fix_gen G Shn gt sts)\<close>
   using la_fix_gen_inv[of G Shn gt sts] unfolding la_inv_def by auto
+
+subsection \<open>A faster implementation of the saturation\<close>
+
+text \<open>The worklist of \<^const>\<open>la_wl\<close> tests every new cell for membership in
+  the lists of expanded and queued cells, and appends to the queue: both are
+  linear in the number of cells, which makes the saturation quadratic.  The
+  implementation below keeps the same two lists, the queue as a pair of a
+  front and a reversed back list, and indexes all cells seen so far by a
+  cheap key in a red-black tree of buckets.  The key need not be injective:
+  membership is decided in the bucket.  It computes the same lists step by
+  step (\<open>la_fix_gen_fast\<close>), so it is only a code equation.\<close>
+
+fun la_tindex :: \<open>'t list \<Rightarrow> 't \<Rightarrow> nat\<close> where
+  \<open>la_tindex [] a = 0\<close>
+| \<open>la_tindex (b # bs) a = (if b = a then 0 else Suc (la_tindex bs a))\<close>
+
+text \<open>The key of a cell combines its state, lookahead, dot and the position of
+  its production in \<open>ps\<close>, the productions of the grammar.\<close>
+
+definition la_key :: \<open>('n \<times> ('n, 't) rhs) list \<times> 't list \<Rightarrow> ('n, 't) lacell \<Rightarrow> integer\<close> where
+  \<open>la_key pts c = (case pts of (ps, ts) \<Rightarrow> case c of (i, (pr, m), t, \<tau>) \<Rightarrow>
+     ((of_nat i * (of_nat (length ts) + 2)
+        + of_nat (case t of None \<Rightarrow> 0 | Some a \<Rightarrow> Suc (la_tindex ts a)))
+        * (of_nat (length ps) + 2) + of_nat (la_tindex ps pr)) * 8 + of_nat (min m 7))\<close>
+
+definition la_bucket :: \<open>(integer, ('n, 't) lacell list) rbt \<Rightarrow> integer \<Rightarrow> ('n, 't) lacell list\<close> where
+  \<open>la_bucket bk k = (case RBT.lookup bk k of None \<Rightarrow> [] | Some xs \<Rightarrow> xs)\<close>
+
+definition la_add :: \<open>('n \<times> ('n, 't) rhs) list \<times> 't list \<Rightarrow> ('n, 't) lacell \<Rightarrow> (integer, ('n, 't) lacell list) rbt \<Rightarrow>
+    (integer, ('n, 't) lacell list) rbt\<close> where
+  \<open>la_add ts x bk = RBT.insert (la_key ts x) (x # la_bucket bk (la_key ts x)) bk\<close>
+
+lemma set_la_bucket_fold:
+  \<open>set (la_bucket (fold (la_add ts) xs bk) k) =
+   set (la_bucket bk k) \<union> {x \<in> set xs. la_key ts x = k}\<close>
+  by (induction xs arbitrary: bk) (auto simp: la_add_def la_bucket_def split: option.splits)
+
+type_synonym ('n, 't) la_fast =
+  \<open>('n, 't) lacell list \<times> (integer, ('n, 't) lacell list) rbt \<times>
+   ('n, 't) lacell list \<times> ('n, 't) lacell list\<close>
+
+definition la_wl_fast :: \<open>('n, 't) is_cfg \<Rightarrow> ('n, 't) ftab \<Rightarrow> 'n list \<Rightarrow>
+    (('n, 't) sym \<times> nat) list list \<Rightarrow> ('n, 't) citem list list \<Rightarrow>
+    ('n \<times> ('n, 't) rhs) list \<times> 't list \<Rightarrow> ('n, 't) la_fast \<Rightarrow> ('n, 't) la_fast\<close> where
+  \<open>la_wl_fast G ft ns gt sts ts = (\<lambda>(dn, bk, fr, bq).
+     (let (fr', bq') = (if fr = [] then (rev bq, []) else (fr, bq)) in
+      case fr' of
+        [] \<Rightarrow> (dn, bk, [], [])
+      | c # ws \<Rightarrow>
+          (let fresh = filter (\<lambda>x. x \<notin> set (la_bucket bk (la_key ts x)))
+                         (remdups (la_cell G ft ns gt sts c))
+           in (c # dn, fold (la_add ts) fresh bk, ws, rev fresh @ bq'))))\<close>
+
+definition la_fast_abs :: \<open>('n, 't) la_fast \<Rightarrow> ('n, 't) lacell list \<times> ('n, 't) lacell list\<close> where
+  \<open>la_fast_abs = (\<lambda>(dn, bk, fr, bq). (dn, fr @ rev bq))\<close>
+
+definition la_fast_inv :: \<open>('n \<times> ('n, 't) rhs) list \<times> 't list \<Rightarrow> ('n, 't) la_fast \<Rightarrow> bool\<close> where
+  \<open>la_fast_inv ts = (\<lambda>(dn, bk, fr, bq).
+     \<forall>x. x \<in> set (dn @ fr @ rev bq) \<longleftrightarrow> x \<in> set (la_bucket bk (la_key ts x)))\<close>
+
+lemma la_wl_fast_commute:
+  assumes inv: \<open>la_fast_inv ts s\<close>
+  shows \<open>la_fast_inv ts (la_wl_fast G ft ns gt sts ts s)\<close>
+    and \<open>(case la_fast_abs s of (dn, wk) \<Rightarrow> wk \<noteq> []) \<Longrightarrow>
+         la_fast_abs (la_wl_fast G ft ns gt sts ts s) = la_wl G ft ns gt sts (la_fast_abs s)\<close>
+proof -
+  obtain dn bk fr bq where s: \<open>s = (dn, bk, fr, bq)\<close> by (cases s) auto
+  define fr' where \<open>fr' = (if fr = [] then rev bq else fr)\<close>
+  define bq' where \<open>bq' = (if fr = [] then [] else bq)\<close>
+  have q: \<open>fr' @ rev bq' = fr @ rev bq\<close> unfolding fr'_def bq'_def by simp
+  have split: \<open>(if fr = [] then (rev bq, []) else (fr, bq)) = (fr', bq')\<close>
+    unfolding fr'_def bq'_def by simp
+  have inv': \<open>\<forall>x. x \<in> set (dn @ fr @ rev bq) \<longleftrightarrow> x \<in> set (la_bucket bk (la_key ts x))\<close>
+    using inv unfolding s la_fast_inv_def prod.case .
+  have mem: \<open>x \<in> set (dn @ fr' @ rev bq') \<longleftrightarrow> x \<in> set (la_bucket bk (la_key ts x))\<close> for x
+    unfolding q using spec[OF inv', of x] .
+  show \<open>la_fast_inv ts (la_wl_fast G ft ns gt sts ts s)\<close>
+  proof (cases fr')
+    case Nil
+    then have \<open>fr = []\<close> \<open>bq = []\<close> unfolding fr'_def by (auto split: if_splits)
+    then show ?thesis using inv' unfolding s la_wl_fast_def la_fast_inv_def by (simp only: prod.case) simp
+  next
+    case (Cons c ws)
+    let ?fresh = \<open>filter (\<lambda>x. x \<notin> set (la_bucket bk (la_key ts x)))
+                   (remdups (la_cell G ft ns gt sts c))\<close>
+    have step: \<open>la_wl_fast G ft ns gt sts ts s = (c # dn, fold (la_add ts) ?fresh bk, ws, rev ?fresh @ bq')\<close>
+      using Cons unfolding s la_wl_fast_def fr'_def bq'_def by (cases fr) (simp_all add: Let_def)
+    have \<open>x \<in> set ((c # dn) @ ws @ rev (rev ?fresh @ bq')) \<longleftrightarrow>
+          x \<in> set (la_bucket (fold (la_add ts) ?fresh bk) (la_key ts x))\<close> for x
+      using mem[of x] unfolding set_la_bucket_fold Cons by auto
+    then show ?thesis unfolding step la_fast_inv_def by (simp only: prod.case) blast
+  qed
+  assume ne: \<open>case la_fast_abs s of (dn, wk) \<Rightarrow> wk \<noteq> []\<close>
+  have \<open>fr' \<noteq> []\<close>
+    using ne unfolding s la_fast_abs_def fr'_def by (auto split: if_splits)
+  then obtain c ws where Cons: \<open>fr' = c # ws\<close> by (cases fr') auto
+  have wk: \<open>fr @ rev bq = c # ws @ rev bq'\<close> using q Cons by simp
+  have filt: \<open>filter (\<lambda>x. x \<notin> set (la_bucket bk (la_key ts x))) ys =
+      filter (\<lambda>x. x \<notin> set (c # dn) \<and> x \<notin> set (ws @ rev bq')) ys\<close> for ys
+  proof (rule filter_cong[OF refl])
+    fix x
+    show \<open>(x \<notin> set (la_bucket bk (la_key ts x))) = (x \<notin> set (c # dn) \<and> x \<notin> set (ws @ rev bq'))\<close>
+      using mem[of x] unfolding Cons by auto
+  qed
+  let ?fresh = \<open>filter (\<lambda>x. x \<notin> set (la_bucket bk (la_key ts x)))
+                 (remdups (la_cell G ft ns gt sts c))\<close>
+  have step: \<open>la_wl_fast G ft ns gt sts ts s = (c # dn, fold (la_add ts) ?fresh bk, ws, rev ?fresh @ bq')\<close>
+    using Cons unfolding s la_wl_fast_def fr'_def bq'_def by (cases fr) (simp_all add: Let_def)
+  show \<open>la_fast_abs (la_wl_fast G ft ns gt sts ts s) = la_wl G ft ns gt sts (la_fast_abs s)\<close>
+    unfolding step unfolding s la_fast_abs_def la_wl_def
+    by (simp add: wk filt)
+qed
+
+definition la_fast_start :: \<open>'n \<Rightarrow> ('n \<times> ('n, 't) rhs) list \<times> 't list \<Rightarrow> ('n, 't) lacell list \<Rightarrow>
+    ('n, 't) la_fast\<close> where
+  \<open>la_fast_start Shn ts st = ([], fold (la_add ts) st RBT.empty, st, [])\<close>
+
+lemma la_bucket_empty [simp]: \<open>la_bucket RBT.empty k = []\<close>
+  by (simp add: la_bucket_def)
+
+lemma la_fast_start: \<open>la_fast_inv ts (la_fast_start Shn ts st)\<close>
+  \<open>la_fast_abs (la_fast_start Shn ts st) = ([], st)\<close>
+  by (simp_all add: la_fast_inv_def la_fast_start_def la_fast_abs_def set_la_bucket_fold)
+
+lemma la_fix_gen_fast [code]:
+  \<open>la_fix_gen G Shn gt sts = (let ts = (iprods G, gram_terms G) in
+     case while_option (\<lambda>(dn, bk, fr, bq). fr \<noteq> [] \<or> bq \<noteq> [])
+       (la_wl_fast G (ffix G) (nullables G) gt sts ts) (la_fast_start Shn ts (la_start G Shn sts)) of
+       Some s \<Rightarrow> fst (la_fast_abs s)
+     | None \<Rightarrow> fst (the (while_option (\<lambda>(dn, wk). wk \<noteq> []) (la_wl G (ffix G) (nullables G) gt sts)
+                ([], la_start G Shn sts))))\<close>
+proof -
+  let ?ts = \<open>(iprods G, gram_terms G)\<close>
+  let ?b = \<open>\<lambda>(dn :: ('n, 't) lacell list, bk :: (integer, ('n, 't) lacell list) rbt,
+             fr :: ('n, 't) lacell list, bq :: ('n, 't) lacell list). fr \<noteq> [] \<or> bq \<noteq> []\<close>
+  let ?c = \<open>la_wl_fast G (ffix G) (nullables G) gt sts ?ts\<close>
+  have eq: \<open>map_option la_fast_abs (while_option ?b ?c (la_fast_start Shn ?ts (la_start G Shn sts))) =
+      while_option (\<lambda>(dn, wk). wk \<noteq> []) (la_wl G (ffix G) (nullables G) gt sts)
+        (la_fast_abs (la_fast_start Shn ?ts (la_start G Shn sts)))\<close>
+  proof (rule while_option_commute_invariant[where P = \<open>la_fast_inv ?ts\<close>])
+    show \<open>la_fast_inv ?ts (?c s)\<close> if \<open>la_fast_inv ?ts s\<close> for s
+      using la_wl_fast_commute(1)[OF that] .
+    show \<open>?b s = (case la_fast_abs s of (dn, wk) \<Rightarrow> wk \<noteq> [])\<close> for s
+      by (cases s) (auto simp: la_fast_abs_def)
+    show \<open>la_fast_abs (?c s) = la_wl G (ffix G) (nullables G) gt sts (la_fast_abs s)\<close>
+      if \<open>la_fast_inv ?ts s\<close> and \<open>?b s\<close> for s
+      using la_wl_fast_commute(2)[OF that(1)] that(2) by (cases s) (auto simp: la_fast_abs_def)
+  qed (rule la_fast_start)
+  show ?thesis
+  proof (cases \<open>while_option ?b ?c (la_fast_start Shn ?ts (la_start G Shn sts))\<close>)
+    case None
+    then show ?thesis unfolding la_fix_gen_def Let_def by simp
+  next
+    case (Some s)
+    with eq have \<open>while_option (\<lambda>(dn, wk). wk \<noteq> []) (la_wl G (ffix G) (nullables G) gt sts)
+        ([], la_start G Shn sts) = Some (la_fast_abs s)\<close>
+      unfolding la_fast_start(2) by simp
+    with Some show ?thesis unfolding la_fix_gen_def Let_def by simp
+  qed
+qed
 
 definition la_fix :: \<open>('n, 't) is_cfg \<Rightarrow> 'n \<Rightarrow> ('n, 't) lacell list\<close> where
   \<open>la_fix G Shn = la_fix_gen G Shn (la_gtab G (lr0_states G Shn)) (lr0_states G Shn)\<close>
