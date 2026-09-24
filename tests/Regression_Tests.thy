@@ -102,6 +102,18 @@ text \<open>So \<open>cyc_S w x \<Longrightarrow> cyc_parse w = Some x\<close> i
 lemma \<open>acc_conflicts cyc ''!'' = [] \<Longrightarrow> cyc_S w x \<Longrightarrow> cyc_parse w = Some x\<close>
   by (fact cyc_parse.complete)
 
+text \<open>The simple driver on integer indices (\<open>parser_int_tables\<close>): the same
+  parser, whose code equation runs on the integer tables \<open>cyc_parse_int_ztabs\<close>.\<close>
+
+declare [[parser_int_tables]]
+parser cyc_parse_int for cyc
+declare [[parser_int_tables = false]]
+
+term cyc_parse_int_ztabs
+
+lemma \<open>cyc_parse_int [tu 1 DId ''x''] = Some 0\<close> \<open>cyc_parse_int [tu 1 DDo ''do''] = None\<close>
+  by eval+
+
 subsection \<open>The rejection path: an ambiguous grammar keeps \<open>mdet\<close>\<close>
 
 datatype iswim_tok = IWhere | IPlus | IMinus | IEq | ILP | IRP | IId

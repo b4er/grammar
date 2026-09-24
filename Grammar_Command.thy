@@ -297,7 +297,14 @@ text \<open>
   and \<open>p_itabs\<close> as arrays: productions and nonterminals are numbered, goto
   rows are keyed by terminal or by nonterminal number, and the lengths of the
   state lists are stored, so a step compares no names and finds its table
-  rows by array index (\<^text>\<open>isctl_eq\<close>). For OCaml,
+  rows by array index (\<^text>\<open>isctl_eq\<close>). The lists hold natural numbers, so
+  that they are static data also with binary naturals, from which the arrays
+  are computed once. With \<^theory_text>\<open>declare [[parser_int_tables]]\<close> the arrays
+  hold integers, \<open>p_ztabs\<close>, and the driver runs on integer indices
+  (\<^file>\<open>lr/LR_Int.thy\<close>, \<^text>\<open>zrun_eq\<close>): with binary naturals a step is
+  about twice as fast, but converting the tables when the code is loaded
+  takes longer than a parse, so this pays off only for many parses per
+  program run. For OCaml,
   \<^file>\<open>lr/LR_Simple.thy\<close> implements immutable arrays (\<^verbatim>\<open>iarray\<close>) by
   OCaml arrays.
 

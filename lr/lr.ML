@@ -57,6 +57,8 @@ fun define_table parse_b nm (expr_eq, literal) prior_eqs lthy =
       else Local_Defs.unfold lthy' prior_eqs eq_folded;
   in (eq_th, lthy') end) ();
 
+val parser_int_tables = Attrib.setup_config_bool \<^binding>\<open>parser_int_tables\<close> (K false);
+
 fun lr_build_parse
   ({gram, parse_bind, shn}: Parser_Generators.build_input) lthy =
   let
@@ -180,21 +182,28 @@ fun lr_build_parse
             ([l], [e]) => (l, e)
           | _ => raise Fail "lr_build_parse: tuple literal");
         val (ltabs_eq, lthy) = define_table parse_bind "ltabs" (ltabs_e, ltabs_l) [] lthy;
-        val itabs_b = Binding.map_name (fn n => n ^ "_itabs") parse_bind;
-        val ((_, itabs_def), lthy) =
+        (* the arrays, computed once from the lists: with natural indices, or
+           with integer indices (parser_int_tables), which makes a step about
+           twice as fast with binary naturals but the conversion at load time
+           costs more than a parse *)
+        val int_tables = Config.get lthy parser_int_tables;
+        val (suffix, conv, via) =
+          if int_tables then ("_ztabs", \<^const_name>\<open>ztabs_of\<close>, @{thm dparse_via_int_tables})
+          else ("_itabs", \<^const_name>\<open>itabs_of\<close>, @{thm dparse_via_index_tables});
+        val tabs_b = Binding.map_name (fn n => n ^ suffix) parse_bind;
+        val ((_, tabs_def), lthy) =
           Grammar_Defs.define_const true
-            (itabs_b, Thm.def_binding itabs_b,
-             app' lthy \<^const_name>\<open>itabs_of\<close> [rhs_of_eq ltabs_eq]) lthy;
-        val itabs_ax =
-          the_default itabs_def
-            (Grammar_Common.def_axiom lthy (itabs_b, Thm.def_binding itabs_b));
-        val itabs_eq =
-          Thm.symmetric (Local_Defs.meta_rewrite_rule lthy itabs_ax)
+            (tabs_b, Thm.def_binding tabs_b, app' lthy conv [rhs_of_eq ltabs_eq]) lthy;
+        val tabs_ax =
+          the_default tabs_def
+            (Grammar_Common.def_axiom lthy (tabs_b, Thm.def_binding tabs_b));
+        val tabs_eq =
+          Thm.symmetric (Local_Defs.meta_rewrite_rule lthy tabs_ax)
           RS @{thm meta_eq_to_obj_eq};
       in
-        (@{thm dparse_via_index_tables} OF
+        (via OF
           [static_th, states_eq, gtab_eq, redtab_eq, psts_eq, pgt_eq, pc_eq, pf_eq, i0_eq, p0_eq,
-           ltabs_eq, itabs_eq],
+           ltabs_eq, tabs_eq],
          lthy)
       end;
 
@@ -209,7 +218,7 @@ fun lr_build_parse
 
     val _ =
       writeln ("parser: the code equation of \<open>" ^ Binding.name_of parse_bind ^
-        "\<close> runs the " ^ (if simple then "simple driver on indexed tables (LR_Simple)"
+        "\<close> runs the " ^ (if simple then "simple driver on indexed tables (LR_Simple, LR_Int)"
         else "set-anchored driver (LR_Driver)"));
     val (dlr_specialized, lthy) =
       if simple then timed lthy "simple tables" simple_tables lthy
