@@ -639,7 +639,7 @@ val _ =
   Outer_Syntax.local_theory \<^command_keyword>\<open>grammar\<close>
     "validate a grammar spec: parse, type-check semantic actions and register the \
     \resolved grammar. Always defines the grammar constant and the per-nonterminal \
-    \decoders. Option (relation) also defines the mutual inductive relation family \
+    \decoders. Option (relation) also defines the inductive relation family \
     \(slower)."
     (grammar_parser >> (fn ((((opts, name), ttyp), ts), ps) =>
       grammar_cmd opts {name = name, tok_typ = ttyp, terminals = ts, productions = ps}));

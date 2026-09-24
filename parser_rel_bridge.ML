@@ -1,6 +1,7 @@
 (* the bridge from a parser's language-level theorems to the relation
    family of the grammar: decoder soundness by wf_ptree induction and the
-   relation-to-decoder direction by the family's mutual induction *)
+   relation-to-decoder direction by the family's induction, component by
+   component *)
 
 signature PARSER_REL_BRIDGE =
 sig
@@ -250,19 +251,22 @@ fun b2_case_tac ctxt (s: setup) (p: Grammar_Common.prod) =
 (* one lemma per nonterminal, `pred_A i w x \<Longrightarrow> \<exists>pt. ...` *)
 fun prove_b2_all ctxt (s: setup) dec_nones =
   let
-    val induct = #induct (#2 (Inductive.the_inductive ctxt (snd (hd (#preds s)))));
-    fun cases_tac ctxt' =
-      let val ctxt'' = ctxt' addsimps dec_nones in
-        EVERY (map (fn p => DETERM (HEADGOAL (SOLVED' (b2_case_tac ctxt'' s p))))
-          (#prods (#gram s)))
-      end;
-  in
-    Grammar_Defs.prove_family ctxt
-      {preds = #preds s, insensitive = #insensitive s, induct = induct, wordT = #wordT s,
-       carrier_of = #carrier_of s, norm = I}
-      (fn A => fn i_t => fn w => fn x => b2_body s A (nt_root s A i_t) w x)
-      cases_tac
-  end;
+    (* the family is defined by one inductive definition per component *)
+    fun pred A = (A, the (AList.lookup (op =) (#preds s) A));
+    val comps =
+      Grammar_Defs.components (#gram s) |> map (fn comp =>
+        let val preds = map pred comp
+        in (preds, #induct (#2 (Inductive.the_inductive ctxt (snd (hd preds))))) end);
+    val prods = #prods (#gram s);
+    fun case_tac ctxt' k =
+      DETERM (HEADGOAL (SOLVED' (b2_case_tac (ctxt' addsimps dec_nones) s (nth prods k))));
+    val ths =
+      Grammar_Defs.prove_family ctxt
+        {comps = comps, prod_lhss = map #lhs prods, insensitive = #insensitive s,
+         wordT = #wordT s, carrier_of = #carrier_of s, norm = I}
+        (fn A => fn i_t => fn w => fn x => b2_body s A (nt_root s A i_t) w x)
+        case_tac;
+  in map (the o AList.lookup (op =) ths o fst) (#preds s) end;
 
 (* the start lemma of b2_all, resolved against the statement once its selector
    applications are rewritten *)

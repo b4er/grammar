@@ -24,7 +24,7 @@ text \<open>
 
   Two commands make this usable from Isar. @{command grammar} turns a
   grammar specification with semantic actions into a grammar constant and
-  per non-terminal decoders, optionally also into a mutual inductive relation
+  per non-terminal decoders, optionally also into an inductive relation
   between words and values. @{command parser} emits an executable parser@{footnote
     \<open>Semantic actions must be executable if the parser is to be.\<close>
   } for such a grammar together with soundness and completeness theorems.
@@ -236,13 +236,17 @@ text \<open>
   indentation \<open>0\<close>.
 
   \<^descr> One decoder \<open>G__dec_A :: ('m, 'ch, string, 'tok) ast \<Rightarrow> \<tau>\<^sub>A option\<close> per
-  nonterminal, defined by \<^theory_text>\<open>fun\<close>. It evaluates the actions over a parse
-  tree, matching each node against the productions of \<open>A\<close>.
+  nonterminal, with the equations \<open>G__dec_A.simps\<close>. It evaluates the actions
+  over a parse tree, matching each node against the productions of \<open>A\<close>.
+  The decoders are defined together through \<^const>\<open>ast_rec\<close>.
 
-  \<^descr> With \<open>(relation)\<close>: the mutual \<^theory_text>\<open>inductive\<close> family
+  \<^descr> With \<open>(relation)\<close>: the \<^theory_text>\<open>inductive\<close> family
   \<open>G_A :: nat \<Rightarrow> word \<Rightarrow> \<tau>\<^sub>A \<Rightarrow> bool\<close>, where \<open>G_A i w x\<close> holds if the word
   \<open>w\<close> derives from \<open>(A, i)\<close> with value \<open>x\<close>, there is one introduction rule
-  per alternative. The facts are \<open>G.intros\<close>, \<open>G.inducts\<close> and
+  per alternative. The predicates are defined by one (mutual) inductive
+  definition per strongly connected component of the nonterminals, lower
+  components first. The facts are \<open>G.intros\<close>, \<open>G.inducts\<close> (the induction
+  rule of each predicate, over its component) and
   \<open>G.lang: (\<exists>x. G_S 0 w x) \<longleftrightarrow> w \<in> ilang G\<close>.
 
   For a grammar without annotations the indentation argument is dropped:
