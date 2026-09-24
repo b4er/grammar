@@ -816,7 +816,66 @@ fun gen_define_relation gram_t gram_th (gram: Grammar_Common.grammar) lthy =
              HOL.simp_thms fst_conv snd_conv insert_iff empty_iff
              prod.inject sym.inject sym.distinct char.inject};
 
-    fun sound_case_tac ctxt (prod: Grammar_Common.prod, (i_name, assigned)) =
+    (* iprods G = [p\<^sub>0, \<dots>]: membership in the productions is decided on
+       this list, without unfolding the grammar constant elsewhere *)
+    fun iprods_info_of () =
+      let
+        val gram_rhs =
+          (case Thm.prop_of gram_th of
+            Const (\<^const_name>\<open>Pure.eq\<close>, _) $ _ $ r => r
+          | t => snd (HOLogic.dest_eq (HOLogic.dest_Trueprop t)));
+        val ps =
+          (case gram_rhs of
+            _ $ ps $ _ $ _ => ps
+          | _ => raise Fail "iprods_info: grammar constant");
+        val iprods_c =
+          Const (\<^const_name>\<open>iprods\<close>, fastype_of gram_t --> fastype_of ps);
+        val iprods_eq =
+          Goal.prove lthy [] [] (HOLogic.mk_Trueprop (HOLogic.mk_eq (iprods_c $ gram_t, ps)))
+            (fn {context, ...} =>
+              HEADGOAL (simp_only context
+                (@{thms is_cfg.make_def is_cfg.select_convs} @ [gram_th])));
+      in (ps, iprods_c, iprods_eq) end;
+    val iprods_info = timed "iprods equation" (try iprods_info_of) ();
+
+    (* (A, rhs) \<in> set (iprods G) for each production, by walking the list of
+       productions: simp on the unfolded grammar compares the production with
+       all others, quadratic in the number of productions *)
+    fun prod_mems_of (ps, _, iprods_eq) =
+      let
+        val fold_iprods =
+          HOLogic.Trueprop_conv (Conv.arg_conv (Conv.arg_conv
+            (Conv.rewr_conv (Thm.symmetric (mk_meta_eq iprods_eq)))));
+        fun tails ct =
+          (case Thm.term_of ct of
+            Const (\<^const_name>\<open>Nil\<close>, _) => []
+          | _ => ct :: tails (Thm.dest_arg ct));
+        val tls = tails (Thm.cterm_of lthy ps);
+        val mem_hd = @{lemma \<open>x \<in> set (x # xs)\<close> by simp};
+        val mem_tl = @{lemma \<open>x \<in> set xs \<Longrightarrow> x \<in> set (y # xs)\<close> by simp};
+        fun inst th insts = Drule.infer_instantiate lthy insts th;
+        (* x \<in> set (tls ! j) for the head x of tls ! k, j \<le> k *)
+        fun mem k =
+          let
+            val tl_k = nth tls k;
+            val x = Thm.dest_arg1 tl_k;
+            val th0 = inst mem_hd [(("x", 0), x), (("xs", 0), Thm.dest_arg tl_k)];
+            fun up j th =
+              if j < 0 then th
+              else
+                let val tl_j = nth tls j in
+                  up (j - 1)
+                    (th RS inst mem_tl
+                      [(("x", 0), x), (("y", 0), Thm.dest_arg1 tl_j),
+                       (("xs", 0), Thm.dest_arg tl_j)])
+                end;
+          in Conv.fconv_rule fold_iprods (up (k - 1) th0) end;
+      in map_index (fn (k, _) => try mem k) prods end;
+    val prod_mems =
+      timed "production memberships"
+        (the_default (map (K NONE) prods) o Option.mapPartial (try prod_mems_of)) iprods_info;
+
+    fun sound_case_tac ctxt ((prod: Grammar_Common.prod, (i_name, assigned)), prod_mem) =
       let
         val nt_count =
           length (filter (fn (NTc _, _, _) => true | _ => false) assigned);
@@ -857,11 +916,18 @@ fun gen_define_relation gram_t gram_th (gram: Grammar_Common.grammar) lthy =
             val wf_node_inst =
               Drule.infer_instantiate context
                 [((("rhs", 0)), rhs_ct), ((("pts", 0)), pts_ct)] @{thm wf_node};
+            fun solved st = if Thm.nprems_of st = 0 then all_tac st else no_tac st;
+            val by_mem =
+              (case prod_mem of
+                SOME th =>
+                  HEADGOAL (resolve_tac context [th])
+                  THEN ALLGOALS (simp_only context sound_simps) THEN solved
+              | NONE => no_tac);
           in
             HEADGOAL (resolve_tac context [exI_inst])
             THEN HEADGOAL (resolve_tac context [@{thm conjI}])
             THEN HEADGOAL (resolve_tac context [wf_node_inst])
-            THEN ALLGOALS (simp_only context (sound_simps @ [gram_th]))
+            THEN (by_mem ORELSE ALLGOALS (simp_only context (sound_simps @ [gram_th])))
           end) ctxt;
 
       in elim_step THEN HEADGOAL focus end;
@@ -875,7 +941,7 @@ fun gen_define_relation gram_t gram_th (gram: Grammar_Common.grammar) lthy =
            induct = #induct ind_result, wordT = wordT, carrier_of = carrier_of,
            norm = ground_tvars}
           (fn A => fn i_t => fn w => fn _ => sound_body_of A i_t w)
-          (fn ctxt => EVERY (map (sound_case_tac ctxt) prods_meta))) ();
+          (fn ctxt => EVERY (map (sound_case_tac ctxt) (prods_meta ~~ prod_mems)))) ();
 
     val (_, lthy) =
       timed "Local_Theory.notes (intros + inducts)"
@@ -963,15 +1029,50 @@ fun gen_define_relation gram_t gram_th (gram: Grammar_Common.grammar) lthy =
       then complete_prod0_tac ctxt sel_eqs k
       else complete_prod1_tac ctxt sel_eqs k;
 
+    (* (A, rhs) \<in> set (iprods G) \<equiv> A = A\<^sub>0 \<and> rhs = rhs\<^sub>0 \<or> \<dots>, derived on the
+       list of productions, so that the node case does not unfold the grammar
+       constant: every production case would carry it *)
+    fun mem_iprods_iff_of (_, iprods_c, iprods_eq) =
+      let
+        val prodT =
+          (case range_type (fastype_of iprods_c) of
+            Type (\<^type_name>\<open>list\<close>, [T]) => T
+          | _ => raise Fail "mem_iprods_iff: productions");
+        val (a_T, rhs_T) = HOLogic.dest_prodT prodT;
+        val (a_n, rhs_n) =
+          (case Variable.variant_fixes ["A", "rhs"] lthy |> fst of
+            [a, b] => (a, b)
+          | _ => raise Fail "mem_iprods_iff");
+        val set_c =
+          Const (\<^const_name>\<open>set\<close>, HOLogic.listT prodT --> HOLogic.mk_setT prodT);
+        val mem_t =
+          HOLogic.mk_mem (HOLogic.mk_prod (Free (a_n, a_T), Free (rhs_n, rhs_T)),
+            set_c $ (iprods_c $ gram_t));
+        val ss =
+          put_simpset HOL_basic_ss lthy
+            addsimps @{thms list.set insert_iff singleton_iff empty_iff prod.inject};
+        val eq =
+          (Conv.arg_conv (Conv.arg_conv (Conv.rewr_conv (mk_meta_eq iprods_eq)))
+            then_conv Simplifier.rewrite ss) (Thm.cterm_of lthy mem_t);
+      in
+        Goal.prove lthy [a_n, rhs_n] [] (Thm.prop_of eq)
+          (fn {context, ...} => HEADGOAL (resolve_tac context [eq]))
+      end;
+    val mem_iprods_iff =
+      timed "membership disjunction" (Option.mapPartial (try mem_iprods_iff_of)) iprods_info;
+
     (* the node case: the conclusion to \<open>P A (PNode A i pts)\<close>, the membership
        to a disjunction over the productions, one case each *)
     fun complete_node_tac ctxt sel_eqs =
       simp_only ctxt @{thms proot.simps fst_conv sym.inject simp_thms}
-      THEN' simp_only ctxt
-              (@{thms prod.inject sym.inject
-                      is_cfg.make_def is_cfg.select_convs list.set
-                      insert_iff singleton_iff empty_iff}
-               @ [gram_th])
+      THEN' (case mem_iprods_iff of
+              SOME th => simp_only ctxt (th :: @{thms prod.inject sym.inject})
+            | NONE =>
+                simp_only ctxt
+                  (@{thms prod.inject sym.inject
+                          is_cfg.make_def is_cfg.select_convs list.set
+                          insert_iff singleton_iff empty_iff}
+                   @ [gram_th]))
       THEN' REPEAT_ALL_NEW (eresolve_tac ctxt @{thms disjE[OF disj_commute[THEN iffD1]]})
       THEN' eresolve_tac ctxt @{thms FalseE}
       THEN' EVERY' (map_index (SOLVED' o complete_prod_tac ctxt sel_eqs) (rev prods));
