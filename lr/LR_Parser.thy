@@ -1,5 +1,5 @@
 theory LR_Parser
-  imports LR_Det Grammar_Command.Grammar_Command
+  imports LR_Simple Grammar_Command.Grammar_Command
 begin
 
 section \<open>Parser-facing theorems: \<open>dparse\<close> composed with a decoder\<close>

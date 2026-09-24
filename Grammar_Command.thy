@@ -284,9 +284,16 @@ text \<open>
   fresh name for the augmented start symbol, and \<open>G__dec_S\<close> the decoder of
   the start symbol. For code generation the LR tables are computed once at
   definition time and stored as constants \<open>p_states\<close>, \<open>p_gtab\<close>, \<open>p_redtab\<close>,
-  \<open>p_xinit\<close>, \<open>p_xclos\<close> and \<open>p_i0\<close>. The code equation of \<open>p\<close> refers to those
-  tables, so neither \<^theory_text>\<open>eval\<close> nor exported code needs to rebuild the
-  automaton.
+  \<open>p_i0\<close> and, for the driver, \<open>p_xinit\<close> and \<open>p_xclos\<close>. The code equation of
+  \<open>p\<close> refers to those tables, so neither \<^theory_text>\<open>eval\<close> nor exported code
+  needs to rebuild the automaton. If the grammar has no layout annotations,
+  the static determinism check is empty and no lookahead cell of a reduce
+  constrains the width of its token, the code equation instead runs the
+  simple driver of \<^file>\<open>lr/LR_Simple.thy\<close> on the tables \<open>p_psts\<close>, \<open>p_pgt\<close>,
+  \<open>p_pcomps\<close>, \<open>p_pfins\<close> and \<open>p_p0\<close> of the precise LR(0) automaton. It
+  keeps a stack of state indices and computes no closures at run time;
+  \<^text>\<open>dparse_eq_sparse\<close> proves that it computes the same result as
+  \<^text>\<open>dparse\<close>.
 
   \<^descr> The facts \<open>p.sound\<close> and \<open>p.complete\<close> relate the parser to the
   language:

@@ -93,31 +93,102 @@ fun lr_build_parse
 
     val rlalr_t = app \<^const_name>\<open>rlalr_conflicts\<close> [gram_t, shn_t];
     val acc_t = app \<^const_name>\<open>acc_conflicts\<close> [gram_t, shn_t];
+    val ii_t = app \<^const_name>\<open>ii\<close> [gram_t];
 
     val (literals, eqs) =
-      eval_all lthy [states_t, gtab_t, redtab_t, xinit_t, xclos_t, i0_t, rlalr_t, acc_t];
-    val (states_l, gtab_l, redtab_l, xinit_l, xclos_l, i0_l) =
+      eval_all lthy
+        [states_t, gtab_t, redtab_t, xinit_t, xclos_t, i0_t, rlalr_t, acc_t, ii_t];
+    val (states_l, gtab_l, redtab_l, xinit_l, xclos_l, i0_l, rlalr_l, ii_l) =
       (case literals of
-        [a, b, c, d, e, f, _, _] => (a, b, c, d, e, f)
+        [a, b, c, d, e, f, g, _, i] => (a, b, c, d, e, f, g, i)
       | _ => raise Fail "lr_build_parse: tuple literal");
-    val (states_e, gtab_e, redtab_e, xinit_e, xclos_e, i0_e, rlalr_eq, acc_eq) =
+    val (states_e, gtab_e, redtab_e, xinit_e, xclos_e, i0_e, rlalr_eq, acc_eq, ii_eq) =
       (case eqs of
-        [a, b, c, d, e, f, g, h] => (a, b, c, d, e, f, g, h)
+        [a, b, c, d, e, f, g, h, i] => (a, b, c, d, e, f, g, h, i)
       | _ => raise Fail "lr_build_parse: tuple equations");
 
-    val ((states_eq, xinit_eq), lthy) = lthy
-      |> define_table parse_bind "states" (states_e, states_l) []
-      ||>> define_table parse_bind "xinit" (xinit_e, xinit_l) [];
-
-    val ((((gtab_eq, redtab_eq), i0_eq), xclos_eq), lthy) = lthy
+    val (states_eq, lthy) = define_table parse_bind "states" (states_e, states_l) [] lthy;
+    val (((gtab_eq, redtab_eq), i0_eq), lthy) = lthy
       |>   define_table parse_bind "gtab" (gtab_e, gtab_l) [states_eq]
       ||>> define_table parse_bind "redtab" (redtab_e, redtab_l) [states_eq]
-      ||>> define_table parse_bind "i0" (i0_e, i0_l) [states_eq]
-      ||>> define_table parse_bind "xclos" (xclos_e, xclos_l) [xinit_eq];
+      ||>> define_table parse_bind "i0" (i0_e, i0_l) [states_eq];
 
-    val dlr_specialized =
-      @{thm dparse_via_tables}
-        OF [states_eq, gtab_eq, redtab_eq, xinit_eq, xclos_eq, i0_eq];
+    (* the simple driver of LR_Simple applies when the grammar has no layout
+       annotations, the determinism check is empty, and no reduce cell that
+       names a token constrains its width *)
+    fun is_const c (Const (d, _)) = c = d
+      | is_const _ _ = false;
+    fun cell_ok c =
+      (case dest_tuple 4 c of
+        [_, _, t, tau] =>
+          is_const \<^const_name>\<open>None\<close> t orelse is_const \<^const_name>\<open>WAny\<close> tau
+      | _ => false);
+    val simple =
+      is_const \<^const_name>\<open>True\<close> ii_l andalso
+      is_const \<^const_name>\<open>List.list.Nil\<close> rlalr_l andalso
+      forall (forall cell_ok o HOLogic.dest_list) (HOLogic.dest_list redtab_l);
+
+    fun simple_tables lthy =
+      let
+        val arts = Grammar_Common.artifacts_of gram;
+        val fresh_simps = @{thms fresh_name_def is_cfg.make_def} @ [#gram_def arts];
+        val fresh_th =
+          Goal.prove lthy [] []
+            (HOLogic.mk_Trueprop (app \<^const_name>\<open>fresh_name\<close> [gram_t, shn_t]))
+            (fn {context, ...} => HEADGOAL (asm_full_simp_tac (context addsimps fresh_simps)));
+        val wany_th =
+          timed lthy "prove wany_ok" (fn () =>
+            Goal.prove lthy [] []
+              (HOLogic.mk_Trueprop (app \<^const_name>\<open>wany_ok\<close> [redtab_t]))
+              (fn {context, ...} =>
+                Local_Defs.unfold_tac context [states_eq, redtab_eq]
+                THEN HEADGOAL (Parser_Generators.eval_tac context))) ();
+        val static_th =
+          @{thm sstaticI} OF [ii_eq RS @{thm eqTrueE}, rlalr_eq, fresh_th, wany_th];
+
+        val psts_t = app \<^const_name>\<open>pr0_states\<close> [gram_t, shn_t];
+        val pgt_t  = app \<^const_name>\<open>pgtab\<close> [gram_t, psts_t];
+        val pc_t   = app \<^const_name>\<open>pcomps\<close> [gram_t, psts_t];
+        val pf_t   = app \<^const_name>\<open>pfins\<close> [shn_t, psts_t];
+        val p0_t   = app \<^const_name>\<open>st_find\<close>
+          [psts_t, app \<^const_name>\<open>lr0_start\<close> [gram_t, shn_t]];
+        val (literals2, eqs2) = eval_all lthy [psts_t, pgt_t, pc_t, pf_t, p0_t];
+        val (psts_l, pgt_l, pc_l, pf_l, p0_l) =
+          (case literals2 of
+            [a, b, c, d, e] => (a, b, c, d, e)
+          | _ => raise Fail "lr_build_parse: tuple literal");
+        val (psts_e, pgt_e, pc_e, pf_e, p0_e) =
+          (case eqs2 of
+            [a, b, c, d, e] => (a, b, c, d, e)
+          | _ => raise Fail "lr_build_parse: tuple equations");
+        val (psts_eq, lthy) = define_table parse_bind "psts" (psts_e, psts_l) [] lthy;
+        val ((((pgt_eq, pc_eq), pf_eq), p0_eq), lthy) = lthy
+          |>   define_table parse_bind "pgt" (pgt_e, pgt_l) [psts_eq]
+          ||>> define_table parse_bind "pcomps" (pc_e, pc_l) [psts_eq]
+          ||>> define_table parse_bind "pfins" (pf_e, pf_l) [psts_eq]
+          ||>> define_table parse_bind "p0" (p0_e, p0_l) [psts_eq];
+      in
+        (@{thm dparse_via_simple_tables} OF
+          [static_th, states_eq, gtab_eq, redtab_eq, psts_eq, pgt_eq, pc_eq, pf_eq, i0_eq, p0_eq],
+         lthy)
+      end;
+
+    fun set_tables lthy =
+      let
+        val (xinit_eq, lthy) = define_table parse_bind "xinit" (xinit_e, xinit_l) [] lthy;
+        val (xclos_eq, lthy) = define_table parse_bind "xclos" (xclos_e, xclos_l) [xinit_eq] lthy;
+      in
+        (@{thm dparse_via_tables} OF [states_eq, gtab_eq, redtab_eq, xinit_eq, xclos_eq, i0_eq],
+         lthy)
+      end;
+
+    val _ =
+      writeln ("parser: the code equation of \<open>" ^ Binding.name_of parse_bind ^
+        "\<close> runs the " ^ (if simple then "simple driver (LR_Simple)"
+        else "set-anchored driver (LR_Driver)"));
+    val (dlr_specialized, lthy) =
+      if simple then timed lthy "simple tables" simple_tables lthy
+      else set_tables lthy;
 
     fun post ({parse_def_th, ...}: Parser_Generators.post_input) lthy =
       let
