@@ -167,9 +167,34 @@ fun lr_build_parse
           ||>> define_table parse_bind "pcomps" (pc_e, pc_l) [psts_eq]
           ||>> define_table parse_bind "pfins" (pf_e, pf_l) [psts_eq]
           ||>> define_table parse_bind "p0" (p0_e, p0_l) [psts_eq];
+
+        (* the indexed tables: productions and nonterminals numbered, rows keyed
+           by terminal or nonterminal number, stored as arrays by parse_itabs *)
+        fun rhs_of_eq th = snd (HOLogic.dest_eq (HOLogic.dest_Trueprop (Thm.prop_of th)));
+        fun app' ctxt c args =
+          Syntax.check_term ctxt (Term.list_comb (Const (c, dummyT), args));
+        val ltabs_t = app' lthy \<^const_name>\<open>mk_ltabs\<close>
+          (map rhs_of_eq [gtab_eq, states_eq, redtab_eq, pgt_eq, psts_eq, pc_eq, pf_eq]);
+        val (ltabs_l, ltabs_e) =
+          (case eval_all lthy [ltabs_t] of
+            ([l], [e]) => (l, e)
+          | _ => raise Fail "lr_build_parse: tuple literal");
+        val (ltabs_eq, lthy) = define_table parse_bind "ltabs" (ltabs_e, ltabs_l) [] lthy;
+        val itabs_b = Binding.map_name (fn n => n ^ "_itabs") parse_bind;
+        val ((_, itabs_def), lthy) =
+          Grammar_Defs.define_const true
+            (itabs_b, Thm.def_binding itabs_b,
+             app' lthy \<^const_name>\<open>itabs_of\<close> [rhs_of_eq ltabs_eq]) lthy;
+        val itabs_ax =
+          the_default itabs_def
+            (Grammar_Common.def_axiom lthy (itabs_b, Thm.def_binding itabs_b));
+        val itabs_eq =
+          Thm.symmetric (Local_Defs.meta_rewrite_rule lthy itabs_ax)
+          RS @{thm meta_eq_to_obj_eq};
       in
-        (@{thm dparse_via_simple_tables} OF
-          [static_th, states_eq, gtab_eq, redtab_eq, psts_eq, pgt_eq, pc_eq, pf_eq, i0_eq, p0_eq],
+        (@{thm dparse_via_index_tables} OF
+          [static_th, states_eq, gtab_eq, redtab_eq, psts_eq, pgt_eq, pc_eq, pf_eq, i0_eq, p0_eq,
+           ltabs_eq, itabs_eq],
          lthy)
       end;
 
@@ -184,7 +209,7 @@ fun lr_build_parse
 
     val _ =
       writeln ("parser: the code equation of \<open>" ^ Binding.name_of parse_bind ^
-        "\<close> runs the " ^ (if simple then "simple driver (LR_Simple)"
+        "\<close> runs the " ^ (if simple then "simple driver on indexed tables (LR_Simple)"
         else "set-anchored driver (LR_Driver)"));
     val (dlr_specialized, lthy) =
       if simple then timed lthy "simple tables" simple_tables lthy

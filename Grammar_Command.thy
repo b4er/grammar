@@ -289,11 +289,17 @@ text \<open>
   needs to rebuild the automaton. If the grammar has no layout annotations,
   the static determinism check is empty and no lookahead cell of a reduce
   constrains the width of its token, the code equation instead runs the
-  simple driver of \<^file>\<open>lr/LR_Simple.thy\<close> on the tables \<open>p_psts\<close>, \<open>p_pgt\<close>,
-  \<open>p_pcomps\<close>, \<open>p_pfins\<close> and \<open>p_p0\<close> of the precise LR(0) automaton. It
-  keeps a stack of state indices and computes no closures at run time;
-  \<^text>\<open>dparse_eq_sparse\<close> proves that it computes the same result as
-  \<^text>\<open>dparse\<close>.
+  simple driver of \<^file>\<open>lr/LR_Simple.thy\<close>, using the precise LR(0)
+  automaton as well (tables \<open>p_psts\<close>, \<open>p_pgt\<close>, \<open>p_pcomps\<close>, \<open>p_pfins\<close>,
+  \<open>p_p0\<close>). It keeps a stack of state indices and computes no closures at run
+  time; \<^text>\<open>dparse_eq_sparse\<close> proves that it computes the same result as
+  \<^text>\<open>dparse\<close>. Its code equation runs on indexed tables, \<open>p_ltabs\<close> as lists
+  and \<open>p_itabs\<close> as arrays: productions and nonterminals are numbered, goto
+  rows are keyed by terminal or by nonterminal number, and the lengths of the
+  state lists are stored, so a step compares no names and finds its table
+  rows by array index (\<^text>\<open>isctl_eq\<close>). For OCaml,
+  \<^file>\<open>lr/LR_Simple.thy\<close> implements immutable arrays (\<^verbatim>\<open>iarray\<close>) by
+  OCaml arrays.
 
   \<^descr> The facts \<open>p.sound\<close> and \<open>p.complete\<close> relate the parser to the
   language:

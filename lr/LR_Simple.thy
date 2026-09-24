@@ -1,5 +1,5 @@
 theory LR_Simple
-  imports LR_Det
+  imports LR_Det "HOL-Library.IArray"
 begin
 
 section \<open>A table-driven driver for grammars without layout annotations\<close>
@@ -528,19 +528,20 @@ partial_function (option) srun\<^sub>w\<^sub>f ::
      if sfinal pf (stk, v) then sresult tstk
      else Option.bind (sstep gt sts redtab pgt psts pc st) (srun\<^sub>w\<^sub>f gt sts redtab pgt psts pc pf))\<close>
 
-text \<open>The run with a history of the stacks since the last shift.\<close>
+text \<open>The run with a history of the stacks since the last shift, over any
+  step on the control part (\<^const>\<open>sctl\<close>, or the indexed step below) and
+  final test.\<close>
 
 partial_function (option) srun_hist ::
-  \<open>(('n, 't) sym \<times> nat) list list \<Rightarrow> ('n, 't) citem list list \<Rightarrow>
-    ('n, 't) lacell list list \<Rightarrow> (('n, 't) sym \<times> nat) list list \<Rightarrow> ('n, 't) citem list list \<Rightarrow>
-    ('n \<times> ('n, 't) rhs) list list \<Rightarrow> bool list \<Rightarrow> (nat \<times> nat) list list \<Rightarrow>
+  \<open>(('m, 'ch, 't) sctl_t \<Rightarrow> (('n, 't) dact \<times> ('m, 'ch, 't) sctl_t) option) \<Rightarrow>
+    (('m, 'ch, 't) sctl_t \<Rightarrow> bool) \<Rightarrow> (nat \<times> nat) list list \<Rightarrow>
     ('m, 'ch, 'n, 't) sst \<Rightarrow> ('m, 'ch, 'n, 't) ast option\<close>
   where
-  \<open>srun_hist gt sts redtab pgt psts pc pf seen st = (case st of (stk, v, tstk) \<Rightarrow>
-     if sfinal pf (stk, v) then sresult tstk
+  \<open>srun_hist ctl fin seen st = (case st of (stk, v, tstk) \<Rightarrow>
+     if fin (stk, v) then sresult tstk
      else if stk \<in> set seen then None
-     else Option.bind (sctl gt sts redtab pgt psts pc (stk, v)) (\<lambda>(act, stk', v').
-       srun_hist gt sts redtab pgt psts pc pf (if act = DShift then [] else stk # seen)
+     else Option.bind (ctl (stk, v)) (\<lambda>(act, stk', v').
+       srun_hist ctl fin (if act = DShift then [] else stk # seen)
          (stk', v', stree act v tstk)))\<close>
 
 lemmas srun_hist_simps [code] = srun_hist.simps
@@ -1326,31 +1327,42 @@ lemma shist_ok_Nil [simp]: \<open>shist_ok gt sts redtab pgt psts pc pf [] st\<c
   unfolding shist_ok_def by simp
 
 lemma srun_hist_imp_srun\<^sub>w\<^sub>f:
-  assumes \<open>srun_hist gt sts redtab pgt psts pc pf seen st = Some t\<close>
+  assumes h: \<open>srun_hist ctl fin seen st = Some t\<close>
+    and c: \<open>ctl = sctl gt sts redtab pgt psts pc\<close> and f: \<open>fin = sfinal pf\<close>
   shows \<open>srun\<^sub>w\<^sub>f gt sts redtab pgt psts pc pf st = Some t\<close>
-proof (rule srun_hist.raw_induct[OF _ assms], goal_cases)
-  case (1 f gt sts redtab pgt psts pc pf seen st t)
-  obtain stk v tstk where st: \<open>st = (stk, v, tstk)\<close> by (cases st)
-  show ?case
-  proof (cases \<open>sfinal pf (stk, v)\<close>)
-    case True
-    with "1"(2) show ?thesis unfolding st by (simp add: srun\<^sub>w\<^sub>f.simps)
-  next
-    case False
-    from False "1"(2) obtain a stk' v' where
-        sc: \<open>sctl gt sts redtab pgt psts pc (stk, v) = Some (a, stk', v')\<close>
-      and rec: \<open>f gt sts redtab pgt psts pc pf (if a = DShift then [] else stk # seen)
-          (stk', v', stree a v tstk) = Some t\<close>
-      unfolding st by (auto simp: bind_eq_Some_conv split: if_splits)
-    from "1"(1)[OF rec] have \<open>srun\<^sub>w\<^sub>f gt sts redtab pgt psts pc pf (stk', v', stree a v tstk) = Some t\<close> .
-    with False sc show ?thesis unfolding st by (subst srun\<^sub>w\<^sub>f.simps) (simp add: sstep_def)
+proof -
+  have \<open>ctl = sctl gt sts redtab pgt psts pc \<longrightarrow> fin = sfinal pf \<longrightarrow>
+      srun\<^sub>w\<^sub>f gt sts redtab pgt psts pc pf st = Some t\<close>
+  proof (rule srun_hist.raw_induct[OF _ h], goal_cases)
+    case (1 f ctl fin seen st t)
+    obtain stk v tstk where st: \<open>st = (stk, v, tstk)\<close> by (cases st)
+    show ?case
+    proof (intro impI)
+      assume c: \<open>ctl = sctl gt sts redtab pgt psts pc\<close> and fi: \<open>fin = sfinal pf\<close>
+      show \<open>srun\<^sub>w\<^sub>f gt sts redtab pgt psts pc pf st = Some t\<close>
+      proof (cases \<open>sfinal pf (stk, v)\<close>)
+        case True
+        with "1"(2) show ?thesis unfolding st c fi by (simp add: srun\<^sub>w\<^sub>f.simps)
+      next
+        case False
+        from False "1"(2) obtain a stk' v' where
+            sc: \<open>sctl gt sts redtab pgt psts pc (stk, v) = Some (a, stk', v')\<close>
+          and rec: \<open>f ctl fin (if a = DShift then [] else stk # seen)
+              (stk', v', stree a v tstk) = Some t\<close>
+          unfolding st c fi by (auto simp: bind_eq_Some_conv split: if_splits)
+        from "1"(1)[OF rec] c fi
+        have \<open>srun\<^sub>w\<^sub>f gt sts redtab pgt psts pc pf (stk', v', stree a v tstk) = Some t\<close> by blast
+        with False sc show ?thesis unfolding st by (subst srun\<^sub>w\<^sub>f.simps) (simp add: sstep_def)
+      qed
+    qed
   qed
+  with c f show ?thesis by blast
 qed
 
 lemma srun_imp_srun_hist:
   assumes \<open>srun gt sts redtab pgt psts pc pf n st = Some t\<close>
     and \<open>shist_ok gt sts redtab pgt psts pc pf seen st\<close>
-  shows \<open>srun_hist gt sts redtab pgt psts pc pf seen st = Some t\<close>
+  shows \<open>srun_hist (sctl gt sts redtab pgt psts pc) (sfinal pf) seen st = Some t\<close>
   using assms
 proof (induction n arbitrary: st seen)
   case (0 st seen)
@@ -1407,15 +1419,16 @@ next
         qed
       qed
     qed
-    from Suc.IH[OF rec ok] have ih: \<open>srun_hist gt sts redtab pgt psts pc pf
+    from Suc.IH[OF rec ok] have ih: \<open>srun_hist (sctl gt sts redtab pgt psts pc) (sfinal pf)
         (if a = DShift then [] else stk # seen) st\<^sub>1 = Some t\<close> .
     show ?thesis using False nk sc ih unfolding st st1 by (subst srun_hist.simps) simp
   qed
 qed
 
 theorem srun\<^sub>w\<^sub>f_code [code]:
-  \<open>srun\<^sub>w\<^sub>f gt sts redtab pgt psts pc pf st = srun_hist gt sts redtab pgt psts pc pf [] st\<close>
-proof (cases \<open>srun_hist gt sts redtab pgt psts pc pf [] st\<close>)
+  \<open>srun\<^sub>w\<^sub>f gt sts redtab pgt psts pc pf st =
+     srun_hist (sctl gt sts redtab pgt psts pc) (sfinal pf) [] st\<close>
+proof (cases \<open>srun_hist (sctl gt sts redtab pgt psts pc) (sfinal pf) [] st\<close>)
   case None
   show ?thesis
   proof (cases \<open>srun\<^sub>w\<^sub>f gt sts redtab pgt psts pc pf st\<close>)
@@ -1425,7 +1438,7 @@ proof (cases \<open>srun_hist gt sts redtab pgt psts pc pf [] st\<close>)
   qed (simp only: None)
 next
   case (Some t)
-  from srun_hist_imp_srun\<^sub>w\<^sub>f[OF Some] Some show ?thesis by simp
+  from srun_hist_imp_srun\<^sub>w\<^sub>f[OF Some refl refl] Some show ?thesis by simp
 qed
 
 subsection \<open>Table inlining\<close>
@@ -1444,5 +1457,348 @@ lemma dparse_via_simple_tables:
   shows \<open>dparse G Shn w = srun\<^sub>w\<^sub>f gtab sts redtab pgt psts pc pf ([(i\<^sub>0, p\<^sub>0)], w, [])\<close>
   unfolding dparse_eq_sparse[OF static] sparse_def sinit_def Let_def
   by (simp add: st gt rt ps pg pcs pfs i0 p0)
+
+section \<open>Indexed tables\<close>
+
+text \<open>The step \<^const>\<open>sctl\<close> looks up goto rows by symbol, compares productions
+  in the reduce cells, and indexes lists. The indexed step below does the same
+  lookups on tables computed from those of \<^const>\<open>sctl\<close> at definition time:
+  productions and nonterminals are numbered, goto rows are keyed by the
+  terminal or by the number of the nonterminal, the lengths of the state lists
+  are stored, and the tables are immutable arrays. It computes the same function
+  (\<^text>\<open>isctl_eq\<close>).\<close>
+
+lemma la_tindex_nth: \<open>x \<in> set xs \<Longrightarrow> la_tindex xs x < length xs \<and> xs ! la_tindex xs x = x\<close>
+  by (induction xs) auto
+
+lemma la_tindex_inj:
+  \<open>x \<in> set xs \<Longrightarrow> y \<in> set xs \<Longrightarrow> la_tindex xs x = la_tindex xs y \<longleftrightarrow> x = y\<close>
+  by (metis la_tindex_nth)
+
+definition tm_row :: \<open>(('n, 't) sym \<times> nat) list \<Rightarrow> ('t \<times> nat) list\<close> where
+  \<open>tm_row row = concat (map (\<lambda>(X, j). case X of Tm a \<Rightarrow> [(a, j)] | Nt _ \<Rightarrow> []) row)\<close>
+
+definition nt_row :: \<open>'n list \<Rightarrow> (('n, 't) sym \<times> nat) list \<Rightarrow> (nat \<times> nat) list\<close> where
+  \<open>nt_row nms row = concat (map (\<lambda>(X, j). case X of
+      Nt B \<Rightarrow> if B \<in> set nms then [(la_tindex nms B, j)] else [] | Tm _ \<Rightarrow> []) row)\<close>
+
+lemma map_of_tm_row: \<open>map_of (tm_row row) a = map_of row (Tm a)\<close>
+  unfolding tm_row_def by (induction row) (auto split: sym.splits)
+
+lemma map_of_nt_row:
+  \<open>A \<in> set nms \<Longrightarrow> map_of (nt_row nms row) (la_tindex nms A) = map_of row (Nt A)\<close>
+  unfolding nt_row_def by (induction row) (auto split: sym.splits simp: la_tindex_inj)
+
+text \<open>The reduce cells of a coarse state, by production number.\<close>
+
+definition cell_row :: \<open>('n \<times> ('n, 't) rhs) list \<Rightarrow> nat \<Rightarrow> ('n, 't) lacell list \<Rightarrow>
+    (nat \<times> 't option) list\<close> where
+  \<open>cell_row prs i cells = concat (map (\<lambda>(i', itm, t, \<tau>).
+     if i' = i \<and> snd itm = length (snd (fst itm)) \<and> fst itm \<in> set prs
+     then [(la_tindex prs (fst itm), t)] else []) cells)\<close>
+
+text \<open>The tables as lists, which evaluation computes, and as arrays.\<close>
+
+datatype ('n, 't) ltabs = LTabs nat nat \<open>('t \<times> nat) list list\<close> \<open>(nat \<times> nat) list list\<close>
+  \<open>('t \<times> nat) list list\<close> \<open>(nat \<times> nat) list list\<close> \<open>(nat \<times> 't option) list list\<close>
+  \<open>nat list list\<close> \<open>('n \<times> ('n, 't) rhs) list\<close> \<open>nat list\<close> \<open>nat list\<close> \<open>bool list\<close>
+
+datatype ('n, 't) itabs = ITabs
+  (it_ns: nat) (it_np: nat)
+  (it_gtT: \<open>('t \<times> nat) list iarray\<close>) (it_gtN: \<open>(nat \<times> nat) list iarray\<close>)
+  (it_pgtT: \<open>('t \<times> nat) list iarray\<close>) (it_pgtN: \<open>(nat \<times> nat) list iarray\<close>)
+  (it_cells: \<open>(nat \<times> 't option) list iarray\<close>) (it_pc: \<open>nat list iarray\<close>)
+  (it_prs: \<open>('n \<times> ('n, 't) rhs) iarray\<close>) (it_plen: \<open>nat iarray\<close>) (it_plhs: \<open>nat iarray\<close>)
+  (it_pf: \<open>bool iarray\<close>)
+
+fun itabs_of :: \<open>('n, 't) ltabs \<Rightarrow> ('n, 't) itabs\<close> where
+  \<open>itabs_of (LTabs ns np gT gN pT pN cs pc prs pl ph pf) =
+     ITabs ns np (IArray gT) (IArray gN) (IArray pT) (IArray pN) (IArray cs) (IArray pc)
+       (IArray prs) (IArray pl) (IArray ph) (IArray pf)\<close>
+
+definition mk_ltabs :: \<open>(('n, 't) sym \<times> nat) list list \<Rightarrow> ('n, 't) citem list list \<Rightarrow>
+    ('n, 't) lacell list list \<Rightarrow> (('n, 't) sym \<times> nat) list list \<Rightarrow> ('n, 't) citem list list \<Rightarrow>
+    ('n \<times> ('n, 't) rhs) list list \<Rightarrow> bool list \<Rightarrow> ('n, 't) ltabs\<close> where
+  \<open>mk_ltabs gt sts redtab pgt psts pc pf = (let prs = remdups (concat pc); nms = remdups (map fst prs) in
+     LTabs (length sts) (length psts) (map tm_row gt) (map (nt_row nms) gt)
+       (map tm_row pgt) (map (nt_row nms) pgt)
+       (map (\<lambda>i. cell_row prs i (redtab ! i)) [0..<length redtab])
+       (map (map (la_tindex prs)) pc) prs
+       (map (\<lambda>pr. length (snd pr)) prs) (map (\<lambda>pr. la_tindex nms (fst pr)) prs) pf)\<close>
+
+subsection \<open>The indexed step\<close>
+
+definition inext :: \<open>('k \<times> nat) list iarray \<Rightarrow> nat \<Rightarrow> nat \<Rightarrow> 'k \<Rightarrow> nat\<close> where
+  \<open>inext tab n i k = (if i < IArray.length tab
+     then (case map_of (tab !! i) k of Some j \<Rightarrow> min j n | None \<Rightarrow> n) else n)\<close>
+
+datatype iact = IShift | IReduce nat
+
+definition ilic :: \<open>(nat \<times> 't option) list \<Rightarrow> ('m, 'ch, 't) tword \<Rightarrow> nat \<Rightarrow> bool\<close> where
+  \<open>ilic cells v j \<longleftrightarrow> list_ex (\<lambda>(j', t). j' = j \<and>
+     (case v of [] \<Rightarrow> t = None | x # _ \<Rightarrow> t = Some (tok x))) cells\<close>
+
+definition icands :: \<open>nat list \<Rightarrow> (nat \<times> 't option) list \<Rightarrow> ('m, 'ch, 't) tword \<Rightarrow> iact list\<close> where
+  \<open>icands comps cells v = (let reds = map IReduce (filter (ilic cells v) comps)
+     in (case v of [] \<Rightarrow> reds | _ \<Rightarrow> IShift # reds))\<close>
+
+definition itarget :: \<open>('n, 't) itabs \<Rightarrow> (nat \<times> nat) list \<Rightarrow> ('m, 'ch, 't) tword \<Rightarrow> iact \<Rightarrow>
+    nat option\<close> where
+  \<open>itarget T stk v act = (case act of
+      IShift \<Rightarrow> (case v of [] \<Rightarrow> None | x # _ \<Rightarrow>
+        let q = inext (it_pgtT T) (it_np T) (snd (hd stk)) (tok x) in
+        if q < it_np T then Some q else None)
+    | IReduce j \<Rightarrow> (case drop (it_plen T !! j) stk of [] \<Rightarrow> None | (_, p') # _ \<Rightarrow>
+        let q = inext (it_pgtN T) (it_np T) p' (it_plhs T !! j) in
+        if q < it_np T then Some q else None))\<close>
+
+definition isctl :: \<open>('n, 't) itabs \<Rightarrow> ('m, 'ch, 't) sctl_t \<Rightarrow>
+    (('n, 't) dact \<times> ('m, 'ch, 't) sctl_t) option\<close> where
+  \<open>isctl T c = (case c of (stk, v) \<Rightarrow>
+     (case stk of [] \<Rightarrow> None | (i, p) # _ \<Rightarrow>
+       let cells = (if i < IArray.length (it_cells T) then it_cells T !! i else []);
+           comps = (if p < IArray.length (it_pc T) then it_pc T !! p else [])
+       in (case spick (itarget T stk v) (icands comps cells v) of
+            None \<Rightarrow> None
+          | Some (IShift, q) \<Rightarrow>
+              Some (DShift, (inext (it_gtT T) (it_ns T) i (tok (hd v)), q) # stk, tl v)
+          | Some (IReduce j, q) \<Rightarrow> (case drop (it_plen T !! j) stk of [] \<Rightarrow> None
+            | (i', _) # _ \<Rightarrow> Some (DReduce (it_prs T !! j),
+                (inext (it_gtN T) (it_ns T) i' (it_plhs T !! j), q) # drop (it_plen T !! j) stk,
+                v)))))\<close>
+
+definition isfinal :: \<open>('n, 't) itabs \<Rightarrow> ('m, 'ch, 't) sctl_t \<Rightarrow> bool\<close> where
+  \<open>isfinal T c \<longleftrightarrow> (case c of (stk, v) \<Rightarrow> v = [] \<and>
+     (case stk of [] \<Rightarrow> False | (i, p) # _ \<Rightarrow> p < IArray.length (it_pf T) \<and> it_pf T !! p))\<close>
+
+subsection \<open>Correctness\<close>
+
+lemma iarray_simps [simp]:
+  \<open>IArray.length (IArray xs) = length xs\<close> \<open>IArray xs !! i = xs ! i\<close>
+  by (simp_all add: IArray.length_def IArray.sub_def)
+
+lemma inext_dnext:
+  assumes \<open>\<And>row. row \<in> set gt \<Longrightarrow> map_of (f row) k = map_of row X\<close>
+  shows \<open>inext (IArray (map f gt)) (length sts) i k = dnext gt sts i X\<close>
+  using assms[of \<open>gt ! i\<close>]
+  by (auto simp: inext_def dnext_def la_next_def split: option.splits)
+
+lemma ilic_cell_row:
+  assumes \<open>pr \<in> set prs\<close>
+  shows \<open>ilic (cell_row prs i cells) v (la_tindex prs pr) \<longleftrightarrow> slic i cells v pr\<close>
+  unfolding ilic_def slic_def cell_row_def list_ex_iff using assms
+  by (auto simp: la_tindex_inj split: if_splits; force)
+
+lemma spick_map:
+  \<open>spick f (map g xs) = map_option (\<lambda>(a, b). (g a, b)) (spick (f \<circ> g) xs)\<close>
+  by (induction xs) (auto split: option.splits)
+
+lemma spick_cong:
+  \<open>(\<And>x. x \<in> set xs \<Longrightarrow> f x = g x) \<Longrightarrow> spick f xs = spick g xs\<close>
+  by (induction xs) (auto split: option.splits)
+
+lemma case_drop:
+  \<open>(case drop n xs of [] \<Rightarrow> a | y # _ \<Rightarrow> f y) = (if n < length xs then f (xs ! n) else a)\<close>
+proof (cases \<open>n < length xs\<close>)
+  case True
+  then have \<open>drop n xs = xs ! n # drop (Suc n) xs\<close> by (rule Cons_nth_drop_Suc[symmetric])
+  then show ?thesis using True by simp
+qed simp
+
+lemma isfinal_eq: \<open>isfinal (itabs_of (mk_ltabs gt sts redtab pgt psts pc pf)) = sfinal pf\<close>
+proof
+  fix c
+  show \<open>isfinal (itabs_of (mk_ltabs gt sts redtab pgt psts pc pf)) c = sfinal pf c\<close>
+    unfolding isfinal_def sfinal_def mk_ltabs_def Let_def
+    by (cases c; cases \<open>fst c\<close>) auto
+qed
+
+lemma isctl_eq_at:
+  \<open>isctl (itabs_of (mk_ltabs gt sts redtab pgt psts pc pf)) (stk, v) =
+     sctl gt sts redtab pgt psts pc (stk, v)\<close>
+proof -
+  define c where \<open>c = (stk, v)\<close>
+  define prs where \<open>prs = remdups (concat pc)\<close>
+  define nms where \<open>nms = remdups (map fst prs)\<close>
+  define T where \<open>T = itabs_of (mk_ltabs gt sts redtab pgt psts pc pf)\<close>
+  have T: \<open>it_ns T = length sts\<close> \<open>it_np T = length psts\<close>
+    \<open>it_gtT T = IArray (map tm_row gt)\<close> \<open>it_gtN T = IArray (map (nt_row nms) gt)\<close>
+    \<open>it_pgtT T = IArray (map tm_row pgt)\<close> \<open>it_pgtN T = IArray (map (nt_row nms) pgt)\<close>
+    \<open>it_cells T = IArray (map (\<lambda>i. cell_row prs i (redtab ! i)) [0..<length redtab])\<close>
+    \<open>it_pc T = IArray (map (map (la_tindex prs)) pc)\<close> \<open>it_prs T = IArray prs\<close>
+    \<open>it_plen T = IArray (map (\<lambda>pr. length (snd pr)) prs)\<close>
+    \<open>it_plhs T = IArray (map (\<lambda>pr. la_tindex nms (fst pr)) prs)\<close>
+    unfolding T_def mk_ltabs_def Let_def prs_def nms_def by simp_all
+  have gt_tm: \<open>\<And>i a. inext (IArray (map tm_row gt)) (length sts) i a = dnext gt sts i (Tm a)\<close>
+    by (rule inext_dnext) (rule map_of_tm_row)
+  have pgt_tm: \<open>\<And>i a. inext (IArray (map tm_row pgt)) (length psts) i a = dnext pgt psts i (Tm a)\<close>
+    by (rule inext_dnext) (rule map_of_tm_row)
+  have gt_nt: \<open>\<And>i A. A \<in> set nms \<Longrightarrow>
+      inext (IArray (map (nt_row nms) gt)) (length sts) i (la_tindex nms A) = dnext gt sts i (Nt A)\<close>
+    by (rule inext_dnext) (rule map_of_nt_row)
+  have pgt_nt: \<open>\<And>i A. A \<in> set nms \<Longrightarrow>
+      inext (IArray (map (nt_row nms) pgt)) (length psts) i (la_tindex nms A) = dnext pgt psts i (Nt A)\<close>
+    by (rule inext_dnext) (rule map_of_nt_row)
+  note c = c_def
+  have \<open>isctl T c = sctl gt sts redtab pgt psts pc c\<close>
+  proof (cases stk)
+    case Nil
+    then show ?thesis unfolding c isctl_def sctl_def by simp
+  next
+    case (Cons ip rest)
+    obtain i p where ip: \<open>ip = (i, p)\<close> by (cases ip)
+    let ?cells = \<open>if i < length redtab then redtab ! i else []\<close>
+    define comps where \<open>comps = (if p < length pc then pc ! p else [])\<close>
+    let ?cellsI = \<open>if i < length redtab then cell_row prs i (redtab ! i) else []\<close>
+    define compsI where \<open>compsI = map (la_tindex prs) comps\<close>
+    let ?I = \<open>icands compsI ?cellsI v\<close>
+    have cellsI: \<open>(if i < IArray.length (it_cells T) then it_cells T !! i else []) = ?cellsI\<close>
+      by (simp add: T)
+    have compsI: \<open>(if p < IArray.length (it_pc T) then it_pc T !! p else []) = compsI\<close>
+      by (simp add: T compsI_def comps_def)
+    have comps_prs: \<open>pr \<in> set prs\<close> if \<open>pr \<in> set comps\<close> for pr
+      using that unfolding prs_def comps_def by (auto split: if_splits)
+    have comps_map: \<open>map (\<lambda>j. prs ! j) compsI = comps\<close>
+      unfolding compsI_def map_map comp_def
+    proof (rule map_idI)
+      fix x assume \<open>x \<in> set comps\<close>
+      from la_tindex_nth[OF comps_prs[OF this]] show \<open>prs ! la_tindex prs x = x\<close> by blast
+    qed
+    have jI: \<open>j < length prs \<and> prs ! j \<in> set comps\<close> if \<open>j \<in> set compsI\<close> for j
+    proof -
+      from that obtain pr where pr: \<open>pr \<in> set comps\<close> and j: \<open>j = la_tindex prs pr\<close>
+        unfolding compsI_def set_map by blast
+      from la_tindex_nth[OF comps_prs[OF pr]] pr show ?thesis unfolding j by simp
+    qed
+    have lic: \<open>ilic ?cellsI v j \<longleftrightarrow> slic i ?cells v (prs ! j)\<close> if \<open>j \<in> set compsI\<close> for j
+    proof -
+      from that obtain pr where pr: \<open>pr \<in> set comps\<close> and j: \<open>j = la_tindex prs pr\<close>
+        unfolding compsI_def set_map by blast
+      have prs_j: \<open>prs ! j = pr\<close> using la_tindex_nth[OF comps_prs[OF pr]] unfolding j by blast
+      show ?thesis
+      proof (cases \<open>i < length redtab\<close>)
+        case True
+        then show ?thesis using ilic_cell_row[OF comps_prs[OF pr]] j prs_j by simp
+      next
+        case False
+        then show ?thesis unfolding ilic_def slic_def by simp
+      qed
+    qed
+    define to where \<open>to = (\<lambda>a. case a of IShift \<Rightarrow> DShift | IReduce j \<Rightarrow> DReduce (prs ! j))\<close>
+    have cands: \<open>scands comps i ?cells v = map to ?I\<close>
+    proof -
+      have \<open>filter (slic i ?cells v) comps = map (\<lambda>j. prs ! j) (filter (ilic ?cellsI v) compsI)\<close>
+        unfolding comps_map[symmetric] filter_map comp_def
+        by (rule arg_cong[where f = \<open>map _\<close>], rule filter_cong) (simp_all add: lic comps_map)
+      then show ?thesis unfolding scands_def icands_def Let_def to_def
+        by (cases v) simp_all
+    qed
+    have tgt: \<open>starget pgt psts stk v (to a) = itarget T stk v a\<close> if \<open>a \<in> set ?I\<close> for a
+    proof (cases a)
+      case IShift
+      then show ?thesis unfolding to_def starget_def itarget_def
+        by (cases v) (simp_all add: pgt_tm T)
+    next
+      case (IReduce j)
+      then have j: \<open>j \<in> set compsI\<close> using that unfolding icands_def Let_def
+        by (cases v) auto
+      from jI[OF j] have j_lt: \<open>j < length prs\<close> by blast
+      have A: \<open>fst (prs ! j) \<in> set nms\<close> unfolding nms_def using j_lt by simp
+      show ?thesis unfolding IReduce to_def starget_def itarget_def
+        using j_lt pgt_nt[OF A] by (simp add: T case_drop split: prod.splits)
+    qed
+    have sp: \<open>spick (starget pgt psts stk v) (scands comps i ?cells v) =
+        map_option (\<lambda>(a, b). (to a, b)) (spick (itarget T stk v) ?I)\<close>
+      unfolding cands spick_map by (simp add: comp_def spick_cong[OF tgt])
+    have S: \<open>sctl gt sts redtab pgt psts pc c =
+        (case spick (starget pgt psts stk v) (scands comps i ?cells v) of
+          None \<Rightarrow> None
+        | Some (act, q) \<Rightarrow> Some (act, case act of
+            DShift \<Rightarrow> ((dnext gt sts i (Tm (tok (hd v))), q) # stk, tl v)
+          | DReduce pr \<Rightarrow> ((dnext gt sts (fst (stk ! length (snd pr))) (Nt (fst pr)), q)
+               # drop (length (snd pr)) stk, v)))\<close>
+      unfolding c sctl_def Cons ip comps_def by (simp only: prod.case list.case Let_def)
+    have Iq: \<open>isctl T c =
+        (case spick (itarget T stk v) ?I of
+          None \<Rightarrow> None
+        | Some (IShift, q) \<Rightarrow>
+            Some (DShift, (inext (it_gtT T) (it_ns T) i (tok (hd v)), q) # stk, tl v)
+        | Some (IReduce j, q) \<Rightarrow> (case drop (it_plen T !! j) stk of [] \<Rightarrow> None
+          | (i', _) # _ \<Rightarrow> Some (DReduce (it_prs T !! j),
+              (inext (it_gtN T) (it_ns T) i' (it_plhs T !! j), q) # drop (it_plen T !! j) stk, v)))\<close>
+      unfolding c isctl_def Cons ip prod.case list.case Let_def cellsI compsI ..
+    show ?thesis
+    proof (cases \<open>spick (itarget T stk v) ?I\<close>)
+      case None
+      then show ?thesis unfolding Iq S sp by simp
+    next
+      case (Some r)
+      obtain a q where r: \<open>r = (a, q)\<close> by (cases r)
+      from spick_SomeD[OF Some[unfolded r]] have aI: \<open>a \<in> set ?I\<close>
+        and tq: \<open>itarget T stk v a = Some q\<close> by auto
+      show ?thesis
+      proof (cases a)
+        case IShift
+        then show ?thesis unfolding Iq S sp Some r by (simp add: to_def gt_tm T)
+      next
+        case (IReduce j)
+        then have j: \<open>j \<in> set compsI\<close> using aI unfolding icands_def Let_def
+          by (cases v) auto
+        from jI[OF j] have j_lt: \<open>j < length prs\<close> by blast
+        have A: \<open>fst (prs ! j) \<in> set nms\<close> unfolding nms_def using j_lt by simp
+        have n: \<open>length (snd (prs ! j)) < length stk\<close>
+          using tq j_lt unfolding IReduce itarget_def by (simp add: T case_drop split: if_splits)
+        show ?thesis unfolding Iq S sp Some r IReduce
+          using j_lt n gt_nt[OF A] by (simp add: to_def T case_drop split: prod.splits)
+      qed
+    qed
+  qed
+  then show ?thesis unfolding c_def T_def .
+qed
+
+theorem isctl_eq:
+  \<open>isctl (itabs_of (mk_ltabs gt sts redtab pgt psts pc pf)) = sctl gt sts redtab pgt psts pc\<close>
+  by (rule ext, case_tac x) (simp only: isctl_eq_at)
+
+subsection \<open>Table inlining\<close>
+
+text \<open>The code equation of a parser under the static conditions: the indexed
+  step over tables computed at definition time.\<close>
+
+lemma dparse_via_index_tables:
+  assumes static: \<open>sstatic G Shn\<close>
+    and st: \<open>lr0_states G Shn = sts\<close> and gt: \<open>la_gtab G sts = gtab\<close>
+    and rt: \<open>red_buckets G Shn (length sts) = redtab\<close>
+    and ps: \<open>pr0_states G Shn = psts\<close> and pg: \<open>pgtab G psts = pgt\<close>
+    and pcs: \<open>pcomps G psts = pc\<close> and pfs: \<open>pfins Shn psts = pf\<close>
+    and i0: \<open>st_find sts (lr0_start G Shn) = i\<^sub>0\<close>
+    and p0: \<open>st_find psts (lr0_start G Shn) = p\<^sub>0\<close>
+    and lt: \<open>mk_ltabs gtab sts redtab pgt psts pc pf = L\<close>
+    and it: \<open>itabs_of L = T\<close>
+  shows \<open>dparse G Shn w = srun_hist (isctl T) (isfinal T) [] ([(i\<^sub>0, p\<^sub>0)], w, [])\<close>
+  unfolding dparse_via_simple_tables[OF static st gt rt ps pg pcs pfs i0 p0] srun\<^sub>w\<^sub>f_code
+    isctl_eq[of gtab sts redtab pgt psts pc pf, symmetric] isfinal_eq[of gtab sts redtab pgt psts pc pf, symmetric]
+    lt it ..
+
+text \<open>Immutable arrays in OCaml, as \<^theory>\<open>HOL-Library.IArray\<close> provides them for
+  SML and Haskell.\<close>
+
+code_printing
+  type_constructor iarray \<rightharpoonup> (OCaml) "_ array"
+| constant IArray \<rightharpoonup> (OCaml) "Array.of'_list"
+| constant IArray.tabulate \<rightharpoonup> (OCaml) "(fun (n, f) -> Array.init (Z.to'_int n) (fun i -> f (Z.of'_int i)))"
+| constant IArray.sub' \<rightharpoonup> (OCaml) "(fun (a, i) -> Array.get a (Z.to'_int i))"
+| constant IArray.length' \<rightharpoonup> (OCaml) "(fun a -> Z.of'_int (Array.length a))"
+
+code_reserved (OCaml) Array
+
+text \<open>Bounds checks compare as \<^typ>\<open>integer\<close>: the code equation of
+  \<^const>\<open>IArray.length\<close> converts the length back to \<^typ>\<open>nat\<close>, which
+  with binary naturals (\<^verbatim>\<open>Code_Binary_Nat\<close>) costs more
+  than the rest of a step.\<close>
+
+lemma iarray_length_less_code [code_unfold]:
+  \<open>(i < IArray.length as) = (integer_of_nat i < IArray.length' as)\<close>
+  by (simp add: IArray.length_def integer_of_nat_eq_of_nat)
 
 end
