@@ -293,18 +293,17 @@ text \<open>
   automaton as well (tables \<open>p_psts\<close>, \<open>p_pgt\<close>, \<open>p_pcomps\<close>, \<open>p_pfins\<close>,
   \<open>p_p0\<close>). It keeps a stack of state indices and computes no closures at run
   time; \<^text>\<open>dparse_eq_sparse\<close> proves that it computes the same result as
-  \<^text>\<open>dparse\<close>. Its code equation runs on indexed tables, \<open>p_ltabs\<close> as lists
-  and \<open>p_itabs\<close> as arrays: productions and nonterminals are numbered, goto
-  rows are keyed by terminal or by nonterminal number, and the lengths of the
-  state lists are stored, so a step compares no names and finds its table
-  rows by array index (\<^text>\<open>isctl_eq\<close>). The lists hold natural numbers, so
-  that they are static data also with binary naturals, from which the arrays
-  are computed once. With \<^theory_text>\<open>declare [[parser_int_tables]]\<close> the arrays
-  hold integers, \<open>p_ztabs\<close>, and the driver runs on integer indices
-  (\<^file>\<open>lr/LR_Int.thy\<close>, \<^text>\<open>zrun_eq\<close>): with binary naturals a step is
-  about twice as fast, but converting the tables when the code is loaded
-  takes longer than a parse, so this pays off only for many parses per
-  program run. For OCaml,
+  \<^text>\<open>dparse\<close>. Its code equation runs on indexed tables, computed from
+  \<open>p_ltabs\<close>: productions and nonterminals are numbered, goto rows are keyed
+  by terminal or by nonterminal number, and the reduces licensed at a state
+  are tabulated by lookahead (\<^text>\<open>isctl_eq\<close>). The tables of the code,
+  \<open>p_jtabs\<close>, are binary tries keyed by the bits of the index
+  (\<^file>\<open>lr/LR_Trie.thy\<close>, \<^text>\<open>jctl_eq\<close>): they are static data, and with
+  binary naturals a lookup involves no arithmetic, once the code equations
+  \<^text>\<open>tlookup_binary\<close> are declared next to \<^verbatim>\<open>Code_Binary_Nat\<close>. With
+  \<^theory_text>\<open>declare [[parser_int_tables]]\<close> the tables are instead arrays with
+  integer indices, \<open>p_ztabs\<close>, computed when the code is loaded
+  (\<^file>\<open>lr/LR_Int.thy\<close>, \<^text>\<open>zrun_eq\<close>). For OCaml,
   \<^file>\<open>lr/LR_Simple.thy\<close> implements immutable arrays (\<^verbatim>\<open>iarray\<close>) by
   OCaml arrays.
 
