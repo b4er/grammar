@@ -237,8 +237,8 @@ fun lr_build_parse
                     |>   define_table parse_bind "ktabs" (ktabs_e, ktabs_l) [kps_eq]
                     ||>> define_table parse_bind "k0" (k0_e, k0_l) [kps_eq];
                 in
-                  ([@{thm refl}, kok_th, ktabs_eq, k0_eq], @{thm dparse_via_prod_tables},
-                   "the product automaton (LR_Simple, LR_Trie, LR_Tok, LR_Prod)", lthy)
+                  ([@{thm refl}, kok_th, ktabs_eq, k0_eq], @{thm dparse_via_prod_loop},
+                   "the product automaton (LR_Simple, LR_Trie, LR_Tok, LR_Prod, LR_Loop)", lthy)
                 end
               else
                 let

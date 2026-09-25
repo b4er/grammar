@@ -308,7 +308,9 @@ text \<open>
   the candidate reduces tabulated by lookahead (\<^file>\<open>lr/LR_Prod.thy\<close>,
   \<^text>\<open>xrun_kctl\<close>); the closure of \<open>p_kpairs\<close> under shifts and gotos is
   checked by evaluation (\<^text>\<open>kok\<close>). If the check fails, the code runs on
-  the tries \<open>p_jtabs\<close>. With
+  the tries \<open>p_jtabs\<close>. On the product automaton the run detects loops of
+  reductions by comparing with one saved stack instead of all stacks since the
+  last shift (\<^file>\<open>lr/LR_Loop.thy\<close>, \<^text>\<open>xrun_hist_brun\<close>). With
   \<^theory_text>\<open>declare [[parser_int_tables]]\<close> the tables are instead arrays with
   integer indices, \<open>p_ztabs\<close>, computed when the code is loaded
   (\<^file>\<open>lr/LR_Int.thy\<close>, \<^text>\<open>zrun_eq\<close>). For OCaml,
