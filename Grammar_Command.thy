@@ -300,7 +300,9 @@ text \<open>
   \<open>p_jtabs\<close>, are binary tries keyed by the bits of the index
   (\<^file>\<open>lr/LR_Trie.thy\<close>, \<^text>\<open>jctl_eq\<close>): they are static data, and with
   binary naturals a lookup involves no arithmetic, once the code equations
-  \<^text>\<open>tlookup_binary\<close> are declared next to \<^verbatim>\<open>Code_Binary_Nat\<close>. With
+  \<^text>\<open>tlookup_binary\<close> are declared next to \<^verbatim>\<open>Code_Binary_Nat\<close>. The input
+  word is numbered once, pairing each token with its number in the tables
+  (\<^file>\<open>lr/LR_Tok.thy\<close>, \<^text>\<open>xrun_jctl2\<close>). With
   \<^theory_text>\<open>declare [[parser_int_tables]]\<close> the tables are instead arrays with
   integer indices, \<open>p_ztabs\<close>, computed when the code is loaded
   (\<^file>\<open>lr/LR_Int.thy\<close>, \<^text>\<open>zrun_eq\<close>). For OCaml,

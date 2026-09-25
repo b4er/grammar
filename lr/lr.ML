@@ -210,7 +210,7 @@ fun lr_build_parse
                   ([l], [e]) => (l, e)
                 | _ => raise Fail "lr_build_parse: tuple literal");
               val (tabs_eq, lthy) = define_table parse_bind "jtabs" (jtabs_e, jtabs_l) [] lthy;
-            in (tabs_eq, @{thm dparse_via_trie_tables}, lthy) end;
+            in (tabs_eq, @{thm dparse_via_trie_tok_tables}, lthy) end;
       in
         (via OF
           [static_th, states_eq, gtab_eq, redtab_eq, psts_eq, pgt_eq, pc_eq, pf_eq, i0_eq, p0_eq,
@@ -229,7 +229,7 @@ fun lr_build_parse
 
     val _ =
       writeln ("parser: the code equation of \<open>" ^ Binding.name_of parse_bind ^
-        "\<close> runs the " ^ (if simple then "simple driver on trie tables (LR_Simple, LR_Trie)"
+        "\<close> runs the " ^ (if simple then "simple driver on trie tables (LR_Simple, LR_Trie, LR_Tok)"
         else "set-anchored driver (LR_Driver)"));
     val (dlr_specialized, lthy) =
       if simple then timed lthy "simple tables" simple_tables lthy
