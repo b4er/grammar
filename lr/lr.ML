@@ -187,7 +187,7 @@ fun lr_build_parse
            parser_int_tables, arrays with integer indices (ztabs_of), computed
            when the code is loaded *)
         val int_tables = Config.get lthy parser_int_tables;
-        val (tabs_eq, via, lthy) =
+        val (tabs_eqs, via, tabs_msg, lthy) =
           if int_tables then
             let
               val tabs_b = Binding.map_name (fn n => n ^ "_ztabs") parse_bind;
@@ -201,20 +201,64 @@ fun lr_build_parse
               val tabs_eq =
                 Thm.symmetric (Local_Defs.meta_rewrite_rule lthy tabs_ax)
                 RS @{thm meta_eq_to_obj_eq};
-            in (tabs_eq, @{thm dparse_via_int_tables}, lthy) end
+            in ([tabs_eq], @{thm dparse_via_int_tables}, "integer tables (LR_Simple, LR_Int)", lthy) end
           else
             let
               val jtabs_t = app' lthy \<^const_name>\<open>jtabs_of\<close> [rhs_of_eq ltabs_eq];
-              val (jtabs_l, jtabs_e) =
-                (case eval_all lthy [jtabs_t] of
-                  ([l], [e]) => (l, e)
+              val x0_t = HOLogic.mk_prod (rhs_of_eq i0_eq, rhs_of_eq p0_eq);
+              (* the pairs, the check and the product tables, evaluated at once
+                 with the tries and the pairs shared by let *)
+              fun c n = Const (n, dummyT);
+              fun pair a b = c \<^const_name>\<open>Pair\<close> $ a $ b;
+              val let_t = Syntax.check_term lthy
+                (c \<^const_name>\<open>Let\<close> $ jtabs_t $ Abs ("J", dummyT,
+                  c \<^const_name>\<open>Let\<close> $ (c \<^const_name>\<open>kpairs\<close> $ Bound 0 $ x0_t) $
+                    Abs ("kps", dummyT,
+                      pair (Bound 0)
+                        (pair (c \<^const_name>\<open>kok\<close> $ Bound 1 $ Bound 0 $ x0_t)
+                          (pair (c \<^const_name>\<open>ktabs_of\<close> $ Bound 1 $ Bound 0)
+                            (c \<^const_name>\<open>kidx\<close> $ Bound 0 $ x0_t))))));
+              val let_l = timed lthy "value (product tables)" (Value_Command.value lthy) let_t;
+              val let_th =
+                timed lthy "eval (product tables)" (fn () =>
+                  Goal.prove lthy [] [] (HOLogic.mk_Trueprop (HOLogic.mk_eq (let_t, let_l)))
+                    (fn {context, ...} => HEADGOAL (Parser_Generators.eval_tac context))) ();
+              val (kps_l, kok_l, ktabs_l, k0_l, kps_e, kok_e, ktabs_e, k0_e) =
+                (case (dest_tuple 4 let_l,
+                    split_tuple_eq 4 (Local_Defs.unfold lthy @{thms Let_def} let_th)) of
+                  ([a, b, c, d], [e, f, g, h]) => (a, b, c, d, e, f, g, h)
                 | _ => raise Fail "lr_build_parse: tuple literal");
-              val (tabs_eq, lthy) = define_table parse_bind "jtabs" (jtabs_e, jtabs_l) [] lthy;
-            in (tabs_eq, @{thm dparse_via_trie_tok_tables}, lthy) end;
+            in
+              if is_const \<^const_name>\<open>True\<close> kok_l then
+                let
+                  val (kps_eq, lthy) = define_table parse_bind "kpairs" (kps_e, kps_l) [] lthy;
+                  val kok_th = Local_Defs.unfold lthy [kps_eq] kok_e RS @{thm eqTrueE};
+                  val ((ktabs_eq, k0_eq), lthy) = lthy
+                    |>   define_table parse_bind "ktabs" (ktabs_e, ktabs_l) [kps_eq]
+                    ||>> define_table parse_bind "k0" (k0_e, k0_l) [kps_eq];
+                in
+                  ([@{thm refl}, kok_th, ktabs_eq, k0_eq], @{thm dparse_via_prod_tables},
+                   "the product automaton (LR_Simple, LR_Trie, LR_Tok, LR_Prod)", lthy)
+                end
+              else
+                let
+                  val (jtabs_l, jtabs_e) =
+                    (case eval_all lthy [jtabs_t] of
+                      ([l], [e]) => (l, e)
+                    | _ => raise Fail "lr_build_parse: tuple literal");
+                  val (tabs_eq, lthy) = define_table parse_bind "jtabs" (jtabs_e, jtabs_l) [] lthy;
+                in
+                  ([tabs_eq], @{thm dparse_via_trie_tok_tables},
+                   "trie tables (LR_Simple, LR_Trie, LR_Tok)", lthy)
+                end
+            end;
+        val _ =
+          writeln ("parser: the code equation of \<open>" ^ Binding.name_of parse_bind ^
+            "\<close> runs the simple driver on " ^ tabs_msg);
       in
         (via OF
-          [static_th, states_eq, gtab_eq, redtab_eq, psts_eq, pgt_eq, pc_eq, pf_eq, i0_eq, p0_eq,
-           ltabs_eq, tabs_eq],
+          ([static_th, states_eq, gtab_eq, redtab_eq, psts_eq, pgt_eq, pc_eq, pf_eq, i0_eq, p0_eq,
+            ltabs_eq] @ tabs_eqs),
          lthy)
       end;
 
@@ -228,9 +272,10 @@ fun lr_build_parse
       end;
 
     val _ =
-      writeln ("parser: the code equation of \<open>" ^ Binding.name_of parse_bind ^
-        "\<close> runs the " ^ (if simple then "simple driver on trie tables (LR_Simple, LR_Trie, LR_Tok)"
-        else "set-anchored driver (LR_Driver)"));
+      if simple then ()
+      else
+        writeln ("parser: the code equation of \<open>" ^ Binding.name_of parse_bind ^
+          "\<close> runs the set-anchored driver (LR_Driver)");
     val (dlr_specialized, lthy) =
       if simple then timed lthy "simple tables" simple_tables lthy
       else set_tables lthy;

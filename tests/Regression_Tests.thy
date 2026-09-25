@@ -79,6 +79,10 @@ grammar (relation) cyc =
 
 parser cyc_parse for cyc
 
+text \<open>The code equation runs on the tables of the product automaton.\<close>
+
+term \<open>cyc_parse_ktabs\<close>
+
 lemma \<open>acc_conflicts cyc ''!'' \<noteq> []\<close>
   by eval
 

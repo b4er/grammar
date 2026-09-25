@@ -296,13 +296,19 @@ text \<open>
   \<^text>\<open>dparse\<close>. Its code equation runs on indexed tables, computed from
   \<open>p_ltabs\<close>: productions and nonterminals are numbered, goto rows are keyed
   by terminal or by nonterminal number, and the reduces licensed at a state
-  are tabulated by lookahead (\<^text>\<open>isctl_eq\<close>). The tables of the code,
-  \<open>p_jtabs\<close>, are binary tries keyed by the bits of the index
-  (\<^file>\<open>lr/LR_Trie.thy\<close>, \<^text>\<open>jctl_eq\<close>): they are static data, and with
-  binary naturals a lookup involves no arithmetic, once the code equations
-  \<^text>\<open>tlookup_binary\<close> are declared next to \<^verbatim>\<open>Code_Binary_Nat\<close>. The input
-  word is numbered once, pairing each token with its number in the tables
-  (\<^file>\<open>lr/LR_Tok.thy\<close>, \<^text>\<open>xrun_jctl2\<close>). With
+  are tabulated by lookahead (\<^text>\<open>isctl_eq\<close>). These tables are then stored
+  as binary tries keyed by the bits of the index (\<^file>\<open>lr/LR_Trie.thy\<close>,
+  \<^text>\<open>jctl_eq\<close>): they are static data, and with binary naturals a lookup
+  involves no arithmetic, once the code equations \<^text>\<open>tlookup_binary\<close> are
+  declared next to \<^verbatim>\<open>Code_Binary_Nat\<close>. The input word is numbered once,
+  pairing each token with its number in the tables (\<^file>\<open>lr/LR_Tok.thy\<close>,
+  \<^text>\<open>xrun_jctl2\<close>). Finally, the reachable pairs of states of the two
+  automata are numbered, \<open>p_kpairs\<close>, and the tables of the code, \<open>p_ktabs\<close>,
+  are those of this product automaton, with one number per stack entry and
+  the candidate reduces tabulated by lookahead (\<^file>\<open>lr/LR_Prod.thy\<close>,
+  \<^text>\<open>xrun_kctl\<close>); the closure of \<open>p_kpairs\<close> under shifts and gotos is
+  checked by evaluation (\<^text>\<open>kok\<close>). If the check fails, the code runs on
+  the tries \<open>p_jtabs\<close>. With
   \<^theory_text>\<open>declare [[parser_int_tables]]\<close> the tables are instead arrays with
   integer indices, \<open>p_ztabs\<close>, computed when the code is loaded
   (\<^file>\<open>lr/LR_Int.thy\<close>, \<^text>\<open>zrun_eq\<close>). For OCaml,

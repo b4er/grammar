@@ -16,9 +16,9 @@ definition xtree :: \<open>('w \<Rightarrow> ('t, 'ch, 'm) token_scheme) \<Right
     | DReduce pr \<Rightarrow> Node (fst pr) (rev (take_as (snd pr) tstk)) # drop_as (snd pr) tstk)\<close>
 
 partial_function (option) xrun_hist ::
-  \<open>((nat \<times> nat) list \<times> 'w list \<Rightarrow> (('n, 't) dact \<times> (nat \<times> nat) list \<times> 'w list) option) \<Rightarrow>
-    ((nat \<times> nat) list \<times> 'w list \<Rightarrow> bool) \<Rightarrow> ('w \<Rightarrow> ('t, 'ch, 'm) token_scheme) \<Rightarrow>
-    (nat \<times> nat) list list \<Rightarrow> (nat \<times> nat) list \<times> 'w list \<times> ('m, 'ch, 'n, 't) ast list \<Rightarrow>
+  \<open>('k list \<times> 'w list \<Rightarrow> (('n, 't) dact \<times> 'k list \<times> 'w list) option) \<Rightarrow>
+    ('k list \<times> 'w list \<Rightarrow> bool) \<Rightarrow> ('w \<Rightarrow> ('t, 'ch, 'm) token_scheme) \<Rightarrow>
+    'k list list \<Rightarrow> 'k list \<times> 'w list \<times> ('m, 'ch, 'n, 't) ast list \<Rightarrow>
     ('m, 'ch, 'n, 't) ast option\<close>
   where
   \<open>xrun_hist ctl fin dec seen st = (case st of (stk, v, tstk) \<Rightarrow>
