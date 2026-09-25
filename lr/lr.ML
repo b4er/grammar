@@ -57,6 +57,53 @@ fun define_table parse_b nm (expr_eq, literal) prior_eqs lthy =
       else Local_Defs.unfold lthy' prior_eqs eq_folded;
   in (eq_th, lthy') end) ();
 
+(* the numbering of the tokens by a case distinction over the constructors of
+   the token type: `p_tnum = case_tok n1 ... nk` with `ni` the number of the
+   i-th constructor, computed with the tables (`map (pnum P) ctrs = ns`), and
+   `pnum p_ptabs = p_tnum` proved constructor by constructor *)
+fun tnum_case lthy parse_b (sugar: Ctr_Sugar.ctr_sugar) (ptabs_eq, nums_e, nums_l) prior_eqs =
+  let
+    val nums_eq = Local_Defs.unfold lthy prior_eqs nums_e;
+    val nums = HOLogic.dest_list nums_l;
+    val case_c = Const (fst (dest_Const (#casex sugar)), dummyT);
+    val body = Syntax.check_term lthy (Term.list_comb (case_c, nums));
+    val b = Binding.map_name (fn n => n ^ "_tnum") parse_b;
+    val ((_, def_th), lthy') = Grammar_Defs.define_const true (b, Thm.def_binding b, body) lthy;
+    val def_ax = the_default def_th (Grammar_Common.def_axiom lthy' (b, Thm.def_binding b));
+    val def_eq = Local_Defs.meta_rewrite_rule lthy' def_ax;
+    (* the constant as the other tables' equations name it *)
+    val tnum_c = fst (Logic.dest_equals (Thm.prop_of def_eq));
+    val ptabs_c = snd (HOLogic.dest_eq (HOLogic.dest_Trueprop (Thm.prop_of ptabs_eq)));
+    val conjs =
+      HOLogic.conj_elims
+        (Simplifier.full_simplify
+          (put_simpset HOL_basic_ss lthy' addsimps @{thms list.map list.inject simp_thms}) nums_eq);
+    val pnum_t = Syntax.check_term lthy' (Const (\<^const_name>\<open>pnum\<close>, dummyT) $ ptabs_c);
+    val tokT = domain_type (fastype_of tnum_c);
+    val y = Free ("y", tokT);
+    val exhaust = #exhaust sugar;
+    (* the variable of `(?y = C1 ==> ?P) ==> ... ==> ?P` *)
+    val yv =
+      (case Logic.strip_imp_prems (Thm.prop_of exhaust) of
+        prem :: _ =>
+          (case Logic.strip_imp_prems prem of
+            eq :: _ =>
+              (case fst (HOLogic.dest_eq (HOLogic.dest_Trueprop eq)) of
+                Var (v, _) => v
+              | _ => raise Fail "tnum_case: exhaust")
+          | _ => raise Fail "tnum_case: exhaust")
+      | _ => raise Fail "tnum_case: exhaust");
+    val goal = HOLogic.mk_Trueprop (HOLogic.mk_eq (pnum_t $ y, tnum_c $ y));
+    val th =
+      Goal.prove lthy' ["y"] [] goal (fn {context = ctxt, ...} =>
+        HEADGOAL (resolve_tac ctxt
+          [infer_instantiate ctxt [(yv, Thm.cterm_of ctxt y)] exhaust])
+        THEN ALLGOALS (fn i =>
+          hyp_subst_tac ctxt i
+          THEN simp_tac (put_simpset HOL_basic_ss ctxt
+            addsimps (def_eq :: conjs @ #case_thms sugar @ @{thms simp_thms})) i));
+  in (@{thm ext} OF [th], lthy') end;
+
 val parser_int_tables = Attrib.setup_config_bool \<^binding>\<open>parser_int_tables\<close> (K false);
 
 fun lr_build_parse
@@ -206,6 +253,20 @@ fun lr_build_parse
             let
               val jtabs_t = app' lthy \<^const_name>\<open>jtabs_of\<close> [rhs_of_eq ltabs_eq];
               val x0_t = HOLogic.mk_prod (rhs_of_eq i0_eq, rhs_of_eq p0_eq);
+              (* the constructors of the token type, if it is a datatype whose
+                 constructors have no arguments: the tokens are then numbered
+                 by a case distinction instead of a search (tnum below) *)
+              val tokT = #tokT gram;
+              val tok_sugar =
+                (case tokT of
+                  Type (tname, []) =>
+                    (case Ctr_Sugar.ctr_sugar_of lthy tname of
+                      SOME sugar =>
+                        if forall (fn c => fastype_of c = tokT) (#ctrs sugar) then SOME sugar
+                        else NONE
+                    | NONE => NONE)
+                | _ => NONE);
+              val ctrs_t = HOLogic.mk_list tokT (the_default [] (Option.map #ctrs tok_sugar));
               (* the pairs, the check and the product tables, evaluated at once
                  with the tries and the pairs shared by let *)
               fun c n = Const (n, dummyT);
@@ -216,20 +277,25 @@ fun lr_build_parse
                     Abs ("kps", dummyT,
                       c \<^const_name>\<open>Let\<close> $ (c \<^const_name>\<open>ktabs_of\<close> $ Bound 1 $ Bound 0) $
                         Abs ("K", dummyT,
-                          pair (Bound 1)
-                            (pair (c \<^const_name>\<open>kok\<close> $ Bound 2 $ Bound 1 $ x0_t)
-                              (pair (Bound 0)
-                                (pair (c \<^const_name>\<open>ptabs_of\<close> $ Bound 0)
-                                  (c \<^const_name>\<open>kidx\<close> $ Bound 1 $ x0_t))))))));
+                          c \<^const_name>\<open>Let\<close> $ (c \<^const_name>\<open>ptabs_of\<close> $ Bound 0) $
+                            Abs ("P", dummyT,
+                              pair (Bound 2)
+                                (pair (c \<^const_name>\<open>kok\<close> $ Bound 3 $ Bound 2 $ x0_t)
+                                  (pair (Bound 1)
+                                    (pair (Bound 0)
+                                      (pair (c \<^const_name>\<open>map\<close> $
+                                          (c \<^const_name>\<open>pnum\<close> $ Bound 0) $ ctrs_t)
+                                        (c \<^const_name>\<open>kidx\<close> $ Bound 2 $ x0_t))))))))));
               val let_l = timed lthy "value (product tables)" (Value_Command.value lthy) let_t;
               val let_th =
                 timed lthy "eval (product tables)" (fn () =>
                   Goal.prove lthy [] [] (HOLogic.mk_Trueprop (HOLogic.mk_eq (let_t, let_l)))
                     (fn {context, ...} => HEADGOAL (Parser_Generators.eval_tac context))) ();
-              val (kps_l, kok_l, ktabs_l, ptabs_l, k0_l, kps_e, kok_e, ktabs_e, ptabs_e, k0_e) =
-                (case (dest_tuple 5 let_l,
-                    split_tuple_eq 5 (Local_Defs.unfold lthy @{thms Let_def} let_th)) of
-                  ([a, b, c, d, e], [f, g, h, i, j]) => (a, b, c, d, e, f, g, h, i, j)
+              val (kps_l, kok_l, ktabs_l, ptabs_l, nums_l, k0_l,
+                   kps_e, kok_e, ktabs_e, ptabs_e, nums_e, k0_e) =
+                (case (dest_tuple 6 let_l,
+                    split_tuple_eq 6 (Local_Defs.unfold lthy @{thms Let_def} let_th)) of
+                  ([a, b, c, d, e, f], [g, h, i, j, k, l]) => (a, b, c, d, e, f, g, h, i, j, k, l)
                 | _ => raise Fail "lr_build_parse: tuple literal");
             in
               if is_const \<^const_name>\<open>True\<close> kok_l then
@@ -241,10 +307,20 @@ fun lr_build_parse
                     ||>> define_table parse_bind "k0" (k0_e, k0_l) [kps_eq];
                   val (ptabs_eq, lthy) =
                     define_table parse_bind "ptabs" (ptabs_e, ptabs_l) [kps_eq, ktabs_eq] lthy;
+                  val (tnum_th, tnum_msg, lthy) =
+                    (case tok_sugar of
+                      NONE => (@{thm refl}, "a search", lthy)
+                    | SOME sugar =>
+                        let
+                          val (th, lthy) =
+                            timed lthy "tnum" (fn () =>
+                              tnum_case lthy parse_bind sugar (ptabs_eq, nums_e, nums_l)
+                                [kps_eq, ktabs_eq, ptabs_eq]) ();
+                        in (th, "a case distinction", lthy) end);
                 in
-                  ([@{thm refl}, kok_th, ktabs_eq, k0_eq, ptabs_eq], @{thm dparse_via_plain},
-                   "an action table of the product automaton \
-                   \(LR_Simple, LR_Trie, LR_Tok, LR_Prod, LR_Loop, LR_Plain)", lthy)
+                  ([@{thm refl}, kok_th, ktabs_eq, k0_eq, ptabs_eq, tnum_th], @{thm dparse_via_plain},
+                   "an action table of the product automaton, numbering tokens by " ^
+                   tnum_msg ^ " (LR_Simple, LR_Trie, LR_Tok, LR_Prod, LR_Loop, LR_Plain)", lthy)
                 end
               else
                 let

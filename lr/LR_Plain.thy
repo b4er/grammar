@@ -75,8 +75,16 @@ definition pfinal :: \<open>('n, 't) ptabs \<Rightarrow> nat list \<times> (('t,
   \<open>pfinal P c \<longleftrightarrow> (case c of (kstk, v) \<Rightarrow> v = [] \<and>
      (case kstk of [] \<Rightarrow> False | k # _ \<Rightarrow> tlookup (pt_pf P) k = Some True))\<close>
 
-definition penc :: \<open>('n, 't) ptabs \<Rightarrow> ('t, 'ch, 'm) token_scheme \<Rightarrow> ('t, 'ch, 'm) token_scheme \<times> nat\<close> where
-  \<open>penc P x = (x, case map_of (pt_lal P) (tok x) of Some l \<Rightarrow> l | None \<Rightarrow> pt_miss P)\<close>
+text \<open>The number of a token, by a search in the list of terminals. The code
+  equation takes any function equal to it: for tokens of a datatype whose
+  constructors have no arguments, the \<^theory_text>\<open>parser\<close> command defines one by
+  a case distinction, proved equal constructor by constructor.\<close>
+
+definition pnum :: \<open>('n, 't) ptabs \<Rightarrow> 't \<Rightarrow> nat\<close> where
+  \<open>pnum P t = (case map_of (pt_lal P) t of Some l \<Rightarrow> l | None \<Rightarrow> pt_miss P)\<close>
+
+definition tenc :: \<open>('t \<Rightarrow> nat) \<Rightarrow> ('t, 'ch, 'm) token_scheme \<Rightarrow> ('t, 'ch, 'm) token_scheme \<times> nat\<close> where
+  \<open>tenc f x = (x, f (tok x))\<close>
 
 subsection \<open>Correctness\<close>
 
@@ -200,8 +208,8 @@ lemma ptabs_of_sel: \<open>pt_lal (ptabs_of K) = kt_lal K\<close> \<open>pt_miss
 lemma pfinal_eq: \<open>pfinal (ptabs_of K) = kfinal K\<close>
   by (rule ext) (unfold pfinal_def kfinal_def ptabs_of_sel, rule refl)
 
-lemma penc_eq: \<open>penc (ptabs_of K) = kenc K\<close>
-  by (rule ext) (unfold penc_def kenc_def ptabs_of_sel, rule refl)
+lemma tenc_eq: \<open>tenc (pnum (ptabs_of K)) = kenc K\<close>
+  by (rule ext) (unfold tenc_def pnum_def kenc_def ptabs_of_sel, rule refl)
 
 subsection \<open>The code equation\<close>
 
@@ -217,9 +225,9 @@ lemma dparse_via_plain:
     and jt: \<open>jtabs_of L = J\<close>
     and ok: \<open>kok J kps (i\<^sub>0, p\<^sub>0)\<close>
     and kt: \<open>ktabs_of J kps = K\<close> and k0: \<open>kidx kps (i\<^sub>0, p\<^sub>0) = k\<^sub>0\<close>
-    and pt: \<open>ptabs_of K = P\<close>
-  shows \<open>dparse G Shn w = brun (pctl P) (pfinal P) fst (None, 1, 1) ([k\<^sub>0], map (penc P) w, [])\<close>
-  unfolding pt[symmetric] pctl_eq_fun pfinal_eq penc_eq
+    and pt: \<open>ptabs_of K = P\<close> and tn: \<open>pnum P = f\<close>
+  shows \<open>dparse G Shn w = brun (pctl P) (pfinal P) fst (None, 1, 1) ([k\<^sub>0], map (tenc f) w, [])\<close>
+  unfolding tn[symmetric] pt[symmetric] pctl_eq_fun pfinal_eq tenc_eq
   by (rule dparse_via_prod_loop[OF static st gt rt ps pg pcs pfs i0 p0 lt jt ok kt k0])
 
 end

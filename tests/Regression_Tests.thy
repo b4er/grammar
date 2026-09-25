@@ -79,9 +79,12 @@ grammar (relation) cyc =
 
 parser cyc_parse for cyc
 
-text \<open>The code equation runs on the action table of the product automaton.\<close>
+text \<open>The code equation runs on the action table of the product automaton,
+  and numbers the tokens by a case distinction.\<close>
 
 term \<open>cyc_parse_ptabs\<close>
+lemma \<open>cyc_parse_tnum DId = pnum cyc_parse_ptabs DId\<close>
+  by eval
 
 lemma \<open>acc_conflicts cyc ''!'' \<noteq> []\<close>
   by eval

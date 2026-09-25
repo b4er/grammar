@@ -313,7 +313,11 @@ text \<open>
   last shift (\<^file>\<open>lr/LR_Loop.thy\<close>, \<^text>\<open>xrun_hist_brun\<close>), and a
   step looks up one action table, \<open>p_ptabs\<close>, by pair number and
   lookahead: the shift target, or else the reduces with their productions
-  (\<^file>\<open>lr/LR_Plain.thy\<close>, \<^text>\<open>pctl_eq\<close>). With
+  (\<^file>\<open>lr/LR_Plain.thy\<close>, \<^text>\<open>pctl_eq\<close>). If the token type is a
+  datatype whose constructors have no arguments, the number of a token is
+  computed by a case distinction, \<open>p_tnum\<close>, instead of a search in the list
+  of terminals; \<open>pnum p_ptabs = p_tnum\<close> is proved constructor by
+  constructor. With
   \<^theory_text>\<open>declare [[parser_int_tables]]\<close> the tables are instead arrays with
   integer indices, \<open>p_ztabs\<close>, computed when the code is loaded
   (\<^file>\<open>lr/LR_Int.thy\<close>, \<^text>\<open>zrun_eq\<close>). For OCaml,
