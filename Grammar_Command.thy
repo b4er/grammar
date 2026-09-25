@@ -310,7 +310,10 @@ text \<open>
   checked by evaluation (\<^text>\<open>kok\<close>). If the check fails, the code runs on
   the tries \<open>p_jtabs\<close>. On the product automaton the run detects loops of
   reductions by comparing with one saved stack instead of all stacks since the
-  last shift (\<^file>\<open>lr/LR_Loop.thy\<close>, \<^text>\<open>xrun_hist_brun\<close>). With
+  last shift (\<^file>\<open>lr/LR_Loop.thy\<close>, \<^text>\<open>xrun_hist_brun\<close>), and a
+  step looks up one action table, \<open>p_ptabs\<close>, by pair number and
+  lookahead: the shift target, or else the reduces with their productions
+  (\<^file>\<open>lr/LR_Plain.thy\<close>, \<^text>\<open>pctl_eq\<close>). With
   \<^theory_text>\<open>declare [[parser_int_tables]]\<close> the tables are instead arrays with
   integer indices, \<open>p_ztabs\<close>, computed when the code is loaded
   (\<^file>\<open>lr/LR_Int.thy\<close>, \<^text>\<open>zrun_eq\<close>). For OCaml,

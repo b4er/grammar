@@ -214,19 +214,22 @@ fun lr_build_parse
                 (c \<^const_name>\<open>Let\<close> $ jtabs_t $ Abs ("J", dummyT,
                   c \<^const_name>\<open>Let\<close> $ (c \<^const_name>\<open>kpairs\<close> $ Bound 0 $ x0_t) $
                     Abs ("kps", dummyT,
-                      pair (Bound 0)
-                        (pair (c \<^const_name>\<open>kok\<close> $ Bound 1 $ Bound 0 $ x0_t)
-                          (pair (c \<^const_name>\<open>ktabs_of\<close> $ Bound 1 $ Bound 0)
-                            (c \<^const_name>\<open>kidx\<close> $ Bound 0 $ x0_t))))));
+                      c \<^const_name>\<open>Let\<close> $ (c \<^const_name>\<open>ktabs_of\<close> $ Bound 1 $ Bound 0) $
+                        Abs ("K", dummyT,
+                          pair (Bound 1)
+                            (pair (c \<^const_name>\<open>kok\<close> $ Bound 2 $ Bound 1 $ x0_t)
+                              (pair (Bound 0)
+                                (pair (c \<^const_name>\<open>ptabs_of\<close> $ Bound 0)
+                                  (c \<^const_name>\<open>kidx\<close> $ Bound 1 $ x0_t))))))));
               val let_l = timed lthy "value (product tables)" (Value_Command.value lthy) let_t;
               val let_th =
                 timed lthy "eval (product tables)" (fn () =>
                   Goal.prove lthy [] [] (HOLogic.mk_Trueprop (HOLogic.mk_eq (let_t, let_l)))
                     (fn {context, ...} => HEADGOAL (Parser_Generators.eval_tac context))) ();
-              val (kps_l, kok_l, ktabs_l, k0_l, kps_e, kok_e, ktabs_e, k0_e) =
-                (case (dest_tuple 4 let_l,
-                    split_tuple_eq 4 (Local_Defs.unfold lthy @{thms Let_def} let_th)) of
-                  ([a, b, c, d], [e, f, g, h]) => (a, b, c, d, e, f, g, h)
+              val (kps_l, kok_l, ktabs_l, ptabs_l, k0_l, kps_e, kok_e, ktabs_e, ptabs_e, k0_e) =
+                (case (dest_tuple 5 let_l,
+                    split_tuple_eq 5 (Local_Defs.unfold lthy @{thms Let_def} let_th)) of
+                  ([a, b, c, d, e], [f, g, h, i, j]) => (a, b, c, d, e, f, g, h, i, j)
                 | _ => raise Fail "lr_build_parse: tuple literal");
             in
               if is_const \<^const_name>\<open>True\<close> kok_l then
@@ -236,9 +239,12 @@ fun lr_build_parse
                   val ((ktabs_eq, k0_eq), lthy) = lthy
                     |>   define_table parse_bind "ktabs" (ktabs_e, ktabs_l) [kps_eq]
                     ||>> define_table parse_bind "k0" (k0_e, k0_l) [kps_eq];
+                  val (ptabs_eq, lthy) =
+                    define_table parse_bind "ptabs" (ptabs_e, ptabs_l) [kps_eq, ktabs_eq] lthy;
                 in
-                  ([@{thm refl}, kok_th, ktabs_eq, k0_eq], @{thm dparse_via_prod_loop},
-                   "the product automaton (LR_Simple, LR_Trie, LR_Tok, LR_Prod, LR_Loop)", lthy)
+                  ([@{thm refl}, kok_th, ktabs_eq, k0_eq, ptabs_eq], @{thm dparse_via_plain},
+                   "an action table of the product automaton \
+                   \(LR_Simple, LR_Trie, LR_Tok, LR_Prod, LR_Loop, LR_Plain)", lthy)
                 end
               else
                 let

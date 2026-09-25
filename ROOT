@@ -20,6 +20,7 @@ session LR_Parser in "lr" = Grammar_Command +
     LR_Tok
     LR_Prod
     LR_Loop
+    LR_Plain
     LR_Parser
 
 session Grammar_Tests in "tests" = LR_Parser + theories Regression_Tests
