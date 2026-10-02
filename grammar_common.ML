@@ -298,7 +298,7 @@ fun qualify_bind gram_b nm =
 
 fun carrier_of (gram: grammar) A = #carrier (the (Symtab.lookup (#nonterms gram) A));
 
-(* rebuild the outer \<And>-binders of a Goal.prove result, in the given order *)
+(* rebuild the outer \<And>-binders of a Goal.prove_sorry result, in the given order *)
 fun close_binders ctxt names th =
   let
     val vars = Term.add_vars (Thm.prop_of th) [];

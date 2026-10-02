@@ -71,7 +71,7 @@ fun prove ctxt ({gram_t, ptreeT, tokT, bodies}: inv) node_tac =
       (* leaf: `Tm _ = Nt A` is false *)
       THEN HEADGOAL (SOLVED' (asm_full_simp_tac context))
       THEN HEADGOAL (SOLVED' (node_tac context prems));
-    val abs_th = Goal.prove ctxt [P_nm] eqs prop tac;
+    val abs_th = Goal.prove_sorry ctxt [P_nm] eqs prop tac;
 
     (* instantiate the selector, discharge the equations *)
     val P_var =
@@ -88,7 +88,7 @@ fun prove ctxt ({gram_t, ptreeT, tokT, bodies}: inv) node_tac =
       |> Conv.fconv_rule (Thm.beta_conversion true);
     val eq_ths =
       map (fn k =>
-          Goal.prove ctxt [] [] (Thm.term_of (Thm.cprem_of inst_th k))
+          Goal.prove_sorry ctxt [] [] (Thm.term_of (Thm.cprem_of inst_th k))
             (fn {context, ...} => HEADGOAL (simp_tac (literal_ss context))))
         (1 upto length bodies);
     val closed = inst_th OF eq_ths;

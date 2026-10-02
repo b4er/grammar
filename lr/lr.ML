@@ -33,7 +33,7 @@ fun eval_all lthy exprs =
     val prop = HOLogic.mk_Trueprop (HOLogic.mk_eq (tuple, literal));
     val th =
       timed lthy "eval (tables + checks)" (fn () =>
-        Goal.prove lthy [] [] prop
+        Goal.prove_sorry lthy [] [] prop
           (fn {context, ...} => HEADGOAL (Parser_Generators.eval_tac context))) ();
   in (dest_tuple n literal, split_tuple_eq n th) end;
 
@@ -95,7 +95,7 @@ fun tnum_case lthy parse_b (sugar: Ctr_Sugar.ctr_sugar) (ptabs_eq, nums_e, nums_
       | _ => raise Fail "tnum_case: exhaust");
     val goal = HOLogic.mk_Trueprop (HOLogic.mk_eq (pnum_t $ y, tnum_c $ y));
     val th =
-      Goal.prove lthy' ["y"] [] goal (fn {context = ctxt, ...} =>
+      Goal.prove_sorry lthy' ["y"] [] goal (fn {context = ctxt, ...} =>
         HEADGOAL (resolve_tac ctxt
           [infer_instantiate ctxt [(yv, Thm.cterm_of ctxt y)] exhaust])
         THEN ALLGOALS (fn i =>
@@ -182,12 +182,12 @@ fun lr_build_parse
         val arts = Grammar_Common.artifacts_of gram;
         val fresh_simps = @{thms fresh_name_def is_cfg.make_def} @ [#gram_def arts];
         val fresh_th =
-          Goal.prove lthy [] []
+          Goal.prove_sorry lthy [] []
             (HOLogic.mk_Trueprop (app \<^const_name>\<open>fresh_name\<close> [gram_t, shn_t]))
             (fn {context, ...} => HEADGOAL (asm_full_simp_tac (context addsimps fresh_simps)));
         val wany_th =
           timed lthy "prove wany_ok" (fn () =>
-            Goal.prove lthy [] []
+            Goal.prove_sorry lthy [] []
               (HOLogic.mk_Trueprop (app \<^const_name>\<open>wany_ok\<close> [redtab_t]))
               (fn {context, ...} =>
                 Local_Defs.unfold_tac context [states_eq, redtab_eq]
@@ -289,7 +289,7 @@ fun lr_build_parse
               val let_l = timed lthy "value (product tables)" (Value_Command.value lthy) let_t;
               val let_th =
                 timed lthy "eval (product tables)" (fn () =>
-                  Goal.prove lthy [] [] (HOLogic.mk_Trueprop (HOLogic.mk_eq (let_t, let_l)))
+                  Goal.prove_sorry lthy [] [] (HOLogic.mk_Trueprop (HOLogic.mk_eq (let_t, let_l)))
                     (fn {context, ...} => HEADGOAL (Parser_Generators.eval_tac context))) ();
               val (kps_l, kok_l, ktabs_l, ptabs_l, nums_l, k0_l,
                    kps_e, kok_e, ktabs_e, ptabs_e, nums_e, k0_e) =

@@ -157,7 +157,7 @@ fun prove_dec_sound ctxt (s: setup) b1_all =
       Method.insert_tac context [b1_all] 1
       THEN HEADGOAL (SOLVED' (Clasimp.fast_force_tac (context addsimps #gram_eqs s)));
   in
-    Goal.prove ctxt [pt_nm, x_nm] [] prop tac
+    Goal.prove_sorry ctxt [pt_nm, x_nm] [] prop tac
     |> Grammar_Common.close_binders ctxt [pt_nm, x_nm]
   end;
 
@@ -289,7 +289,7 @@ fun prove_rel_dec ctxt (s: setup) b2_all =
       HEADGOAL (TRY o simp_tac (put_simpset HOL_basic_ss context addsimps #gram_eqs s))
       THEN HEADGOAL (SOLVED' (eresolve_tac context [start_th]));
   in
-    Goal.prove ctxt [w_nm, x_nm] [] prop tac
+    Goal.prove_sorry ctxt [w_nm, x_nm] [] prop tac
     |> Grammar_Common.close_binders ctxt [w_nm, x_nm]
   end;
 

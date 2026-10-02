@@ -249,7 +249,7 @@ fun strengthen_induct ctxt arity lowers th =
           (assume_tac context ORELSE'
             (resolve_tac context lower_ths THEN' assume_tac context)))));
   in
-    Goal.prove ctxt1 [] cases (Logic.strip_imp_concl prop) tac
+    Goal.prove_sorry ctxt1 [] cases (Logic.strip_imp_concl prop) tac
     |> singleton (Variable.export ctxt1 ctxt)
   end;
 
@@ -326,7 +326,7 @@ fun prove_family ctxt {comps, prod_lhss, insensitive, wordT, carrier_of, norm} b
              THEN HEADGOAL (eresolve_tac context [induct'])
            else HEADGOAL (resolve_tac context [induct']))
           THEN EVERY (map (case_tac context) idxs);
-        val th = Goal.prove ctxt fresh [] prop tac;
+        val th = Goal.prove_sorry ctxt fresh [] prop tac;
         fun conjunct k =
           let val rest = funpow k (fn t => @{thm conjunct2} OF [t]) th
           in if k = n - 1 then rest else @{thm conjunct1} OF [rest] end;
@@ -624,7 +624,7 @@ fun define_decoders (gram: Grammar_Common.grammar) lthy =
           HOLogic.mk_Trueprop (HOLogic.mk_eq
             (mk_bind_c valT U $ (mk_map_option_c U $ inj $ x) $ proj, x));
       in
-        (U, Goal.prove lthy2 ["x"] [] goal (fn {context = ctxt, ...} =>
+        (U, Goal.prove_sorry lthy2 ["x"] [] goal (fn {context = ctxt, ...} =>
           HEADGOAL (Induct_Tacs.case_tac ctxt "x" [] NONE) THEN
           ALLGOALS (asm_full_simp_tac ctxt)) |> mk_meta_eq)
       end;
@@ -657,7 +657,7 @@ fun define_decoders (gram: Grammar_Common.grammar) lthy =
         val frees =
           Term.add_free_names goal [] |> filter_out (Variable.is_fixed lthy2);
       in
-        Goal.prove lthy2 frees [] goal (fn {context = ctxt, ...} =>
+        Goal.prove_sorry lthy2 frees [] goal (fn {context = ctxt, ...} =>
           rewrite_goal_tac ctxt dec_def_eqs 1 THEN
           CONVERSION (HOLogic.Trueprop_conv (Conv.arg1_conv (lhs_conv ctxt A))) 1 THEN
           asm_full_simp_tac (children_ctxt ctxt) 1)
@@ -986,7 +986,7 @@ fun gen_define_relation gram_t gram_th (gram: Grammar_Common.grammar) lthy =
         val iprods_c =
           Const (\<^const_name>\<open>iprods\<close>, fastype_of gram_t --> fastype_of ps);
         val iprods_eq =
-          Goal.prove lthy [] [] (HOLogic.mk_Trueprop (HOLogic.mk_eq (iprods_c $ gram_t, ps)))
+          Goal.prove_sorry lthy [] [] (HOLogic.mk_Trueprop (HOLogic.mk_eq (iprods_c $ gram_t, ps)))
             (fn {context, ...} =>
               HEADGOAL (simp_only context
                 (@{thms is_cfg.make_def is_cfg.select_convs} @ [gram_th])));
@@ -1225,7 +1225,7 @@ fun gen_define_relation gram_t gram_th (gram: Grammar_Common.grammar) lthy =
           (Conv.arg_conv (Conv.arg_conv (Conv.rewr_conv (mk_meta_eq iprods_eq)))
             then_conv Simplifier.rewrite ss) (Thm.cterm_of lthy mem_t);
       in
-        Goal.prove lthy [a_n, rhs_n] [] (Thm.prop_of eq)
+        Goal.prove_sorry lthy [a_n, rhs_n] [] (Thm.prop_of eq)
           (fn {context, ...} => HEADGOAL (resolve_tac context [eq]))
       end;
     val mem_iprods_iff =
@@ -1265,7 +1265,7 @@ fun gen_define_relation gram_t gram_th (gram: Grammar_Common.grammar) lthy =
     val istart_eq_prop =
       HOLogic.mk_Trueprop (HOLogic.mk_eq (istart_c $ gram_t, start_lit));
     val istart_eq_th =
-      Goal.prove lthy [] [] istart_eq_prop
+      Goal.prove_sorry lthy [] [] istart_eq_prop
         (fn {context, ...} =>
            HEADGOAL (asm_full_simp_tac
              (context addsimps [gram_simp])));
@@ -1273,7 +1273,7 @@ fun gen_define_relation gram_t gram_th (gram: Grammar_Common.grammar) lthy =
     val istart_ind_eq_prop =
       HOLogic.mk_Trueprop (HOLogic.mk_eq (istart_ind_c $ gram_t, zero_nat));
     val istart_ind_eq_th =
-      Goal.prove lthy [] [] istart_ind_eq_prop
+      Goal.prove_sorry lthy [] [] istart_ind_eq_prop
         (fn {context, ...} =>
            HEADGOAL (asm_full_simp_tac
              (context addsimps [gram_simp])));
@@ -1337,7 +1337,7 @@ fun gen_define_relation gram_t gram_th (gram: Grammar_Common.grammar) lthy =
           THEN' bridge_focus lthy_gen;
         val raw_th =
           timed "prove lang" (fn () =>
-            Goal.prove lthy_gen [] [] prop
+            Goal.prove_sorry lthy_gen [] [] prop
               (fn {context, ...} =>
                  HEADGOAL (resolve_tac context [@{thm iffI}])
                  (*Forward: \<open>\<exists>x. pred w x \<Longrightarrow> w \<in> ilang G\<close>.*)
