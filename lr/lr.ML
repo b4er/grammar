@@ -25,17 +25,24 @@ fun split_tuple_eq 1 th = [th]
         (conj RS @{thm conjunct1}) :: split_tuple_eq (n - 1) (conj RS @{thm conjunct2})
       end;
 
-fun eval_all lthy exprs =
+(* One evaluation for all eight components: \<^const>\<open>lr_tables\<close>
+   binds the automaton, its goto table, the saturated cell table and the
+   precise automaton once, and \<^text>\<open>lr_tables_eq\<close> transports the
+   result back to the unshared terms the parse body is specialised to, so
+   nothing downstream sees the sharing. *)
+fun eval_tables lthy gram_t shn_t =
   let
-    val n = length exprs;
-    val tuple = HOLogic.mk_tuple exprs;
-    val literal = timed lthy "value (tables + checks)" (Value_Command.value lthy) tuple;
-    val prop = HOLogic.mk_Trueprop (HOLogic.mk_eq (tuple, literal));
-    val th =
+    val bundle =
+      Syntax.check_term lthy
+        (Term.list_comb (Const (\<^const_name>\<open>lr_tables\<close>, dummyT), [gram_t, shn_t]));
+    val literal = timed lthy "value (tables + checks)" (Value_Command.value lthy) bundle;
+    val prop = HOLogic.mk_Trueprop (HOLogic.mk_eq (bundle, literal));
+    val bundle_eq =
       timed lthy "eval (tables + checks)" (fn () =>
         Goal.prove lthy [] [] prop
           (fn {context, ...} => HEADGOAL (Parser_Generators.eval_tac context))) ();
-  in (dest_tuple n literal, split_tuple_eq n th) end;
+    val th = @{thm trans} OF [@{thm lr_tables_eq} RS @{thm sym}, bundle_eq];
+  in (dest_tuple 8 literal, split_tuple_eq 8 th) end;
 
 fun lhs_of_eq th = fst (HOLogic.dest_eq (HOLogic.dest_Trueprop (Thm.prop_of th)));
 
@@ -78,24 +85,9 @@ fun lr_build_parse
       Abs ("w", wordT,
         bind_c $ (dlr_c $ gram_t $ shn_t $ Bound 0) $ decoder);
 
-    (* the tables, each a per-parser constant with its `_eq` lemma *)
-    fun app c args =
-      Syntax.check_term lthy (Term.list_comb (Const (c, dummyT), args));
-
-    val states_t = app \<^const_name>\<open>lr0_states\<close> [gram_t, shn_t];
-    val gtab_t   = app \<^const_name>\<open>la_gtab\<close> [gram_t, states_t];
-    val redtab_t = app \<^const_name>\<open>red_buckets\<close>
-      [gram_t, shn_t, HOLogic.size_const (fastype_of states_t) $ states_t];
-    val xinit_t  = app \<^const_name>\<open>xinit\<close> [gram_t, shn_t];
-    val xclos_t  = app \<^const_name>\<open>xclosure_auto\<close> [gram_t, xinit_t];
-    val i0_t     = app \<^const_name>\<open>st_find\<close>
-      [states_t, app \<^const_name>\<open>lr0_start\<close> [gram_t, shn_t]];
-
-    val rlalr_t = app \<^const_name>\<open>rlalr_conflicts\<close> [gram_t, shn_t];
-    val acc_t = app \<^const_name>\<open>acc_conflicts\<close> [gram_t, shn_t];
-
-    val (literals, eqs) =
-      eval_all lthy [states_t, gtab_t, redtab_t, xinit_t, xclos_t, i0_t, rlalr_t, acc_t];
+    (* the tables, each a per-parser constant with its `_eq` lemma; the
+       eight components come from one evaluation of the shared bundle *)
+    val (literals, eqs) = eval_tables lthy gram_t shn_t;
     val (states_l, gtab_l, redtab_l, xinit_l, xclos_l, i0_l) =
       (case literals of
         [a, b, c, d, e, f, _, _] => (a, b, c, d, e, f)

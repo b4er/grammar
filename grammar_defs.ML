@@ -390,45 +390,137 @@ fun eqns_for_nt_dec (gram: Grammar_Common.grammar) lthy carrier_of dec_of A =
     val eq_leaf = HOLogic.mk_Trueprop (HOLogic.mk_eq (lhs_leaf, mk_None outT));
   in [eq_node, eq_leaf] end;
 
+(* The decoders of a grammar only call one another along the grammar's own
+   dependencies, so they need not be one mutual definition. Grouping them into
+   the strongly connected components of "A's productions mention B" and
+   defining a block at a time keeps every `function` package invocation small,
+   which matters because its cost grows faster than the block: the mutual
+   encoding wraps each equation in one sum injection per member, so a block of
+   k decoders carries O(k^2) of them, and the compatibility goals are
+   quadratic in k as well. For the CaraML surface grammar this replaces one
+   block of 49 by blocks of 17, 12, 5, 4 and eleven singletons - the sum of
+   k^2 falls from 2401 to 485. *)
+
+fun dec_blocks names deps_of =
+  let
+    val G = Graph.empty
+      |> fold (fn A => Graph.new_node (A, ())) names
+      |> fold (fn A =>
+           fold (fn B => Graph.add_edge (A, B))
+             (filter (member (op =) names) (deps_of A))) names;
+    val comps = Graph.strong_conn G;
+    val idx_of =
+      Symtab.make (maps (fn (i, c) => map (fn A => (A, i)) c) (map_index I comps));
+    fun comp_succs c =
+      distinct (op =)
+        (map_filter (Symtab.lookup idx_of)
+          (filter (member (op =) names) (maps deps_of c)));
+    (* depth first over the condensation, so a block is emitted only after
+       every block it calls *)
+    fun visit i (seen, acc) =
+      if member (op =) seen i then (seen, acc)
+      else
+        let
+          val c = nth comps i;
+          val (seen', acc') =
+            fold visit (filter (fn j => j <> i) (comp_succs c)) (i :: seen, acc);
+        in (seen', acc' @ [c]) end;
+    val (_, ordered) = fold visit (0 upto (length comps - 1)) ([], []);
+  in ordered end;
+
 fun define_decoders (gram: Grammar_Common.grammar) lthy =
   let
     val {astT, ...} = Grammar_Common.get_desc gram;
     val gram_b = #name gram;
     val nts = Grammar_Common.nonterms_list gram;
     val nnames = map fst nts;
-    val carriers = map (#carrier o snd) nts;
     val carrier_of = Grammar_Common.carrier_of gram;
     (* G__dec_A: distinct from every relation name G_<nonterminal>, as a
        nonterminal cannot start with an underscore *)
     val dec_bindings = map (fn nm => suffix_bind ("__dec_" ^ nm) gram_b) nnames;
-    val dec_types = map (fn cT => astT --> mk_optionT cT) carriers;
-    val dec_frees =
-      map2 (fn b => fn T => Free (Binding.name_of b, T)) dec_bindings dec_types;
-    fun dec_of A = nth dec_frees (find_index (curry (op =) A) nnames);
+    val dec_types = map (fn A => astT --> mk_optionT (carrier_of A)) nnames;
+    val binding_tab = Symtab.make (nnames ~~ dec_bindings);
+    val type_tab = Symtab.make (nnames ~~ dec_types);
 
-    val all_eqns =
-      maps (fn A => eqns_for_nt_dec gram lthy carrier_of dec_of A) nnames;
-    val eqns : Specification.multi_specs =
-      map (fn e => ((Binding.empty_atts, e), [], [])) all_eqns;
-    val fixes = map2 (fn b => fn T => (b, SOME T, NoSyn)) dec_bindings dec_types;
-    (* as the fun command: pattern completeness by auto, termination by the
-       default prover; the info record holds the constants and the simps *)
+    fun timed label f x = Grammar_Common.timed lthy (Binding.name_of gram_b) label f x;
+
+    (* A's decoder calls B's exactly when B occurs on a right-hand side of A *)
+    fun deps_of A =
+      #prods gram
+      |> filter (fn p => #lhs p = A)
+      |> maps (fn p =>
+           map_filter (fn (Grammar_Common.RN B, _) => SOME B | _ => NONE) (#rhs p))
+      |> distinct (op =);
+
+    val blocks = dec_blocks nnames deps_of;
+
+    (* What is left after pattern completeness is one compatibility goal per
+       pair of equations of the block. Each is trivial: either the two
+       patterns are refuted by constructor distinctness, or they unify and the
+       two right-hand sides are the same term once the pattern variables are
+       substituted. `auto` discharges them by rewriting both sides, and the
+       sides are whole semantic-action chains, so its cost is (number of
+       goals) x (size of a decoder body), and the goals are quadratic: 1378 of
+       them at 27 nonterminals, 4851 at 49. A simpset holding only the
+       constructor laws closes them without descending into the bodies;
+       `auto` stays as the fallback for anything that does not yield. *)
+    fun compat_simpset ctxt =
+      put_simpset HOL_basic_ss ctxt
+        addsimps @{thms sum.inject sum.distinct ast.inject ast.distinct
+                        prod.inject simp_thms};
     fun pat_completeness_auto ctxt =
-      Pat_Completeness.pat_completeness_tac ctxt 1 THEN auto_tac ctxt;
-    val lthy' =
-      Function.add_function fixes eqns Function_Common.default_config
-        pat_completeness_auto lthy |> snd;
-    val (info, lthy') =
-      Function.prove_termination NONE
-        (Function_Common.termination_prover_tac false lthy') lthy';
-    val simps =
-      (case #simps info of
-        SOME ths => ths
-      | NONE => raise Fail "define_decoders: no simps after termination");
-    (* the simps are the code equations; inside a locale with assumptions they
-       stay conditional and are not declared globally *)
-    val lthy' = Grammar_Common.declare_code_global {default = true} simps lthy';
-  in ((nnames ~~ #fs info), lthy') end;
+      Pat_Completeness.pat_completeness_tac ctxt 1
+      THEN ALLGOALS (TRY o SOLVED' (asm_full_simp_tac (compat_simpset ctxt)))
+      THEN (fn st =>
+        if Thm.nprems_of st = 0 then all_tac st
+        else
+          (warning ("grammar: " ^ string_of_int (Thm.nprems_of st) ^
+             " decoder compatibility goal(s) not closed by the constructor \
+             \simpset; falling back to auto");
+           auto_tac ctxt st));
+
+    (* one `function` invocation per block, dependencies first: the decoders
+       of earlier blocks enter the equations as the constants they have
+       already become, only those of the block itself are still variables *)
+    fun define_block block (done, lthy) =
+      let
+        val bs = map (the o Symtab.lookup binding_tab) block;
+        val Ts = map (the o Symtab.lookup type_tab) block;
+        val frees = map2 (fn b => fn T => Free (Binding.name_of b, T)) bs Ts;
+        val local_tab = Symtab.make (block ~~ frees);
+        fun dec_of A =
+          (case Symtab.lookup local_tab A of
+            SOME t => t
+          | NONE =>
+              (case Symtab.lookup done A of
+                SOME t => t
+              | NONE =>
+                  raise Fail ("define_decoders: " ^ quote A ^
+                    " used before it is defined")));
+        val all_eqns = maps (fn A => eqns_for_nt_dec gram lthy carrier_of dec_of A) block;
+        val eqns : Specification.multi_specs =
+          map (fn e => ((Binding.empty_atts, e), [], [])) all_eqns;
+        val fixes = map2 (fn b => fn T => (b, SOME T, NoSyn)) bs Ts;
+        val lthy =
+          Function.add_function fixes eqns Function_Common.default_config
+            pat_completeness_auto lthy |> snd;
+        val (info, lthy) =
+          Function.prove_termination NONE
+            (Function_Common.termination_prover_tac false lthy) lthy;
+        val simps =
+          (case #simps info of
+            SOME ths => ths
+          | NONE => raise Fail "define_decoders: no simps after termination");
+        (* the simps are the code equations; inside a locale with assumptions
+           they stay conditional and are not declared globally *)
+        val lthy = Grammar_Common.declare_code_global {default = true} simps lthy;
+      in (fold2 (curry Symtab.update) block (#fs info) done, lthy) end;
+
+    val (done, lthy) =
+      timed ("dec: " ^ string_of_int (length blocks) ^ " block(s), largest " ^
+        string_of_int (fold (Integer.max o length) blocks 0))
+        (fn () => fold define_block blocks (Symtab.empty, lthy)) ();
+  in (map (fn A => (A, the (Symtab.lookup done A))) nnames, lthy) end;
 
 (* the decoder of nonterminal A of grammar G, from the registered artifacts *)
 fun decoder_of _ (gram: Grammar_Common.grammar) A =

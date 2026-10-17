@@ -781,6 +781,44 @@ lemma \<open>rlalr_conflicts pol ''!'' \<noteq> []\<close>
   by eval
 
 
+subsection \<open>The same checks without the oracle\<close>
+
+text \<open>Every \<^theory_text>\<open>by eval\<close> above is closed by \<open>holds_by_evaluation\<close>:
+  the goal is compiled to ML, run, and its verdict trusted.
+  \<^theory_text>\<open>code_simp\<close> rewrites with the very same code equations inside
+  the kernel instead, so it produces an ordinary theorem and trusts nothing
+  beyond the simplifier.  Proving the checks both ways on one small grammar is
+  an oracle-free confirmation, for this development's own code, that the
+  generated ML computes what the code equations say --- in particular for
+  \<^const>\<open>la_fix\<close>, \<^const>\<open>acc_conflicts\<close> and \<^const>\<open>mprod_states\<close>, whose
+  equations bind the automaton once for speed and are therefore not the ones a
+  reader would write.
+
+  It buys that only here.  \<^const>\<open>rlalr_conflicts\<close> did not finish in 200 s on
+  these same two productions, and it swallows interrupts, so a runaway cannot
+  even be stopped by a timeout.  The five checks below, by contrast, cost 13 s
+  by \<^theory_text>\<open>eval\<close> --- most of it the fixed ML-compilation floor --- and
+  25 s by \<^theory_text>\<open>code_simp\<close>.  Keep this audit on \<open>tg1\<close>, keep
+  \<^const>\<open>rlalr_conflicts\<close> out of it, and keep the whole thing under a
+  minute.\<close>
+
+lemma checks_by_eval:
+  \<open>nullables tg1 = [''S'']\<close>
+  \<open>length (lr0_states tg1 ''!'') = 5\<close>
+  \<open>length (la_fix tg1 ''!'') = 8\<close>
+  \<open>acc_conflicts tg1 ''!'' = []\<close>
+  \<open>mprod_states tg1 ''!'' = [(1, 1), (2, 2), (3, 3), (4, 4)]\<close>
+  by eval+
+
+lemma checks_by_code_simp:
+  \<open>nullables tg1 = [''S'']\<close>
+  \<open>length (lr0_states tg1 ''!'') = 5\<close>
+  \<open>length (la_fix tg1 ''!'') = 8\<close>
+  \<open>acc_conflicts tg1 ''!'' = []\<close>
+  \<open>mprod_states tg1 ''!'' = [(1, 1), (2, 2), (3, 3), (4, 4)]\<close>
+  by code_simp+
+
+
 section \<open>Backend plumbing\<close>
 
 subsection \<open>Fixed terminals sharing a constructor keep their spellings\<close>
