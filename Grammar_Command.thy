@@ -24,7 +24,7 @@ text \<open>
 
   Two commands make this usable from Isar. @{command grammar} turns a
   grammar specification with semantic actions into a grammar constant and
-  per non-terminal decoders, optionally also into a mutual inductive relation
+  per non-terminal decoders, optionally also into an inductive relation
   between words and values. @{command parser} emits an executable parser@{footnote
     \<open>Semantic actions must be executable if the parser is to be.\<close>
   } for such a grammar together with soundness and completeness theorems.
@@ -86,6 +86,22 @@ qed
 lemma case_ast_Nt_None:
   \<open>asym a = Nt B \<Longrightarrow> (case a of Leaf x \<Rightarrow> f x | Node n xs \<Rightarrow> None) = None\<close>
   by (cases a) auto
+
+text \<open>The decoders of a grammar are defined through this recursion combinator,
+  which restricts the recursive calls to the children of a node: the functional
+  of a grammar is then an ordinary definition.\<close>
+
+function ast_rec ::
+  \<open>(('i \<Rightarrow> ('m, 'ch, 'n, 'tok) ast \<Rightarrow> 'r) \<Rightarrow> 'i \<Rightarrow> 'n \<Rightarrow> ('m, 'ch, 'n, 'tok) ast list \<Rightarrow> 'r) \<Rightarrow>
+    'r \<Rightarrow> 'i \<Rightarrow> ('m, 'ch, 'n, 'tok) ast \<Rightarrow> 'r\<close> where
+  \<open>ast_rec F d i (Node n xs) = F (\<lambda>j c. if c \<in> set xs then ast_rec F d j c else d) i n xs\<close>
+| \<open>ast_rec F d i (Leaf w) = d\<close>
+  by pat_completeness auto
+termination
+  by (relation \<open>measure (\<lambda>(F, d, i, t). size t)\<close>)
+    (auto intro: le_imp_less_Suc size_list_estimation')
+
+declare ast_rec.simps [simp del, code del]
 
 ML_file \<open>grammar_common.ML\<close>
 ML_file \<open>grammar_ptree_induct.ML\<close>
@@ -220,13 +236,17 @@ text \<open>
   indentation \<open>0\<close>.
 
   \<^descr> One decoder \<open>G__dec_A :: ('m, 'ch, string, 'tok) ast \<Rightarrow> \<tau>\<^sub>A option\<close> per
-  nonterminal, defined by \<^theory_text>\<open>fun\<close>. It evaluates the actions over a parse
-  tree, matching each node against the productions of \<open>A\<close>.
+  nonterminal, with the equations \<open>G__dec_A.simps\<close>. It evaluates the actions
+  over a parse tree, matching each node against the productions of \<open>A\<close>.
+  The decoders are defined together through \<^const>\<open>ast_rec\<close>.
 
-  \<^descr> With \<open>(relation)\<close>: the mutual \<^theory_text>\<open>inductive\<close> family
+  \<^descr> With \<open>(relation)\<close>: the \<^theory_text>\<open>inductive\<close> family
   \<open>G_A :: nat \<Rightarrow> word \<Rightarrow> \<tau>\<^sub>A \<Rightarrow> bool\<close>, where \<open>G_A i w x\<close> holds if the word
   \<open>w\<close> derives from \<open>(A, i)\<close> with value \<open>x\<close>, there is one introduction rule
-  per alternative. The facts are \<open>G.intros\<close>, \<open>G.inducts\<close> and
+  per alternative. The predicates are defined by one (mutual) inductive
+  definition per strongly connected component of the nonterminals, lower
+  components first. The facts are \<open>G.intros\<close>, \<open>G.inducts\<close> (the induction
+  rule of each predicate, over its component) and
   \<open>G.lang: (\<exists>x. G_S 0 w x) \<longleftrightarrow> w \<in> ilang G\<close>.
 
   For a grammar without annotations the indentation argument is dropped:
@@ -264,9 +284,45 @@ text \<open>
   fresh name for the augmented start symbol, and \<open>G__dec_S\<close> the decoder of
   the start symbol. For code generation the LR tables are computed once at
   definition time and stored as constants \<open>p_states\<close>, \<open>p_gtab\<close>, \<open>p_redtab\<close>,
-  \<open>p_xinit\<close>, \<open>p_xclos\<close> and \<open>p_i0\<close>. The code equation of \<open>p\<close> refers to those
-  tables, so neither \<^theory_text>\<open>eval\<close> nor exported code needs to rebuild the
-  automaton.
+  \<open>p_i0\<close> and, for the driver, \<open>p_xinit\<close> and \<open>p_xclos\<close>. The code equation of
+  \<open>p\<close> refers to those tables, so neither \<^theory_text>\<open>eval\<close> nor exported code
+  needs to rebuild the automaton. If the grammar has no layout annotations,
+  the static determinism check is empty and no lookahead cell of a reduce
+  constrains the width of its token, the code equation instead runs the
+  simple driver of \<^file>\<open>lr/LR_Simple.thy\<close>, using the precise LR(0)
+  automaton as well (tables \<open>p_psts\<close>, \<open>p_pgt\<close>, \<open>p_pcomps\<close>, \<open>p_pfins\<close>,
+  \<open>p_p0\<close>). It keeps a stack of state indices and computes no closures at run
+  time; \<^text>\<open>dparse_eq_sparse\<close> proves that it computes the same result as
+  \<^text>\<open>dparse\<close>. Its code equation runs on indexed tables, computed from
+  \<open>p_ltabs\<close>: productions and nonterminals are numbered, goto rows are keyed
+  by terminal or by nonterminal number, and the reduces licensed at a state
+  are tabulated by lookahead (\<^text>\<open>isctl_eq\<close>). These tables are then stored
+  as binary tries keyed by the bits of the index (\<^file>\<open>lr/LR_Trie.thy\<close>,
+  \<^text>\<open>jctl_eq\<close>): they are static data, and with binary naturals a lookup
+  involves no arithmetic, once the code equations \<^text>\<open>tlookup_binary\<close> are
+  declared next to \<^verbatim>\<open>Code_Binary_Nat\<close>. The input word is numbered once,
+  pairing each token with its number in the tables (\<^file>\<open>lr/LR_Tok.thy\<close>,
+  \<^text>\<open>xrun_jctl2\<close>). Finally, the reachable pairs of states of the two
+  automata are numbered, \<open>p_kpairs\<close>, and the tables of the code, \<open>p_ktabs\<close>,
+  are those of this product automaton, with one number per stack entry and
+  the candidate reduces tabulated by lookahead (\<^file>\<open>lr/LR_Prod.thy\<close>,
+  \<^text>\<open>xrun_kctl\<close>); the closure of \<open>p_kpairs\<close> under shifts and gotos is
+  checked by evaluation (\<^text>\<open>kok\<close>). If the check fails, the code runs on
+  the tries \<open>p_jtabs\<close>. On the product automaton the run detects loops of
+  reductions by comparing with one saved stack instead of all stacks since the
+  last shift (\<^file>\<open>lr/LR_Loop.thy\<close>, \<^text>\<open>xrun_hist_brun\<close>), and a
+  step looks up one action table, \<open>p_ptabs\<close>, by pair number and
+  lookahead: the shift target, or else the reduces with their productions
+  (\<^file>\<open>lr/LR_Plain.thy\<close>, \<^text>\<open>pctl_eq\<close>). If the token type is a
+  datatype whose constructors have no arguments, the number of a token is
+  computed by a case distinction, \<open>p_tnum\<close>, instead of a search in the list
+  of terminals; \<open>pnum p_ptabs = p_tnum\<close> is proved constructor by
+  constructor. With
+  \<^theory_text>\<open>declare [[parser_int_tables]]\<close> the tables are instead arrays with
+  integer indices, \<open>p_ztabs\<close>, computed when the code is loaded
+  (\<^file>\<open>lr/LR_Int.thy\<close>, \<^text>\<open>zrun_eq\<close>). For OCaml,
+  \<^file>\<open>lr/LR_Simple.thy\<close> implements immutable arrays (\<^verbatim>\<open>iarray\<close>) by
+  OCaml arrays.
 
   \<^descr> The facts \<open>p.sound\<close> and \<open>p.complete\<close> relate the parser to the
   language:

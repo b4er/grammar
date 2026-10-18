@@ -58,7 +58,7 @@ fun dec_none ctxt (gram: Grammar_Common.grammar) A =
     fun tac {context, ...} =
       HEADGOAL (Induct_Tacs.case_tac context t_nm [] NONE)
       THEN ALLGOALS (asm_full_simp_tac context);
-  in Goal.prove ctxt [t_nm] [] prop tac end;
+  in Goal.prove_sorry ctxt [t_nm] [] prop tac end;
 
 (* the wf_ptree induction invariant, one body per nonterminal:
 
@@ -144,7 +144,7 @@ fun prove ctxt (gram: Grammar_Common.grammar) =
       THEN HEADGOAL (SOLVED' (Clasimp.fast_force_tac (ctxt addsimps eqs)));
 
     val tot0 =
-      Goal.prove ctxt [] [] (prop2 ctxt gram) (fn {context, ...} => tac2 context);
+      Goal.prove_sorry ctxt [] [] (prop2 ctxt gram) (fn {context, ...} => tac2 context);
   in Grammar_Common.close_binders ctxt ["t"] tot0 end;
 
 end;

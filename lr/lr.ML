@@ -33,7 +33,7 @@ fun eval_all lthy exprs =
     val prop = HOLogic.mk_Trueprop (HOLogic.mk_eq (tuple, literal));
     val th =
       timed lthy "eval (tables + checks)" (fn () =>
-        Goal.prove lthy [] [] prop
+        Goal.prove_sorry lthy [] [] prop
           (fn {context, ...} => HEADGOAL (Parser_Generators.eval_tac context))) ();
   in (dest_tuple n literal, split_tuple_eq n th) end;
 
@@ -56,6 +56,55 @@ fun define_table parse_b nm (expr_eq, literal) prior_eqs lthy =
       if null prior_eqs then eq_folded
       else Local_Defs.unfold lthy' prior_eqs eq_folded;
   in (eq_th, lthy') end) ();
+
+(* the numbering of the tokens by a case distinction over the constructors of
+   the token type: `p_tnum = case_tok n1 ... nk` with `ni` the number of the
+   i-th constructor, computed with the tables (`map (pnum P) ctrs = ns`), and
+   `pnum p_ptabs = p_tnum` proved constructor by constructor *)
+fun tnum_case lthy parse_b (sugar: Ctr_Sugar.ctr_sugar) (ptabs_eq, nums_e, nums_l) prior_eqs =
+  let
+    val nums_eq = Local_Defs.unfold lthy prior_eqs nums_e;
+    val nums = HOLogic.dest_list nums_l;
+    val case_c = Const (fst (dest_Const (#casex sugar)), dummyT);
+    val body = Syntax.check_term lthy (Term.list_comb (case_c, nums));
+    val b = Binding.map_name (fn n => n ^ "_tnum") parse_b;
+    val ((_, def_th), lthy') = Grammar_Defs.define_const true (b, Thm.def_binding b, body) lthy;
+    val def_ax = the_default def_th (Grammar_Common.def_axiom lthy' (b, Thm.def_binding b));
+    val def_eq = Local_Defs.meta_rewrite_rule lthy' def_ax;
+    (* the constant as the other tables' equations name it *)
+    val tnum_c = fst (Logic.dest_equals (Thm.prop_of def_eq));
+    val ptabs_c = snd (HOLogic.dest_eq (HOLogic.dest_Trueprop (Thm.prop_of ptabs_eq)));
+    val conjs =
+      HOLogic.conj_elims
+        (Simplifier.full_simplify
+          (put_simpset HOL_basic_ss lthy' addsimps @{thms list.map list.inject simp_thms}) nums_eq);
+    val pnum_t = Syntax.check_term lthy' (Const (\<^const_name>\<open>pnum\<close>, dummyT) $ ptabs_c);
+    val tokT = domain_type (fastype_of tnum_c);
+    val y = Free ("y", tokT);
+    val exhaust = #exhaust sugar;
+    (* the variable of `(?y = C1 ==> ?P) ==> ... ==> ?P` *)
+    val yv =
+      (case Logic.strip_imp_prems (Thm.prop_of exhaust) of
+        prem :: _ =>
+          (case Logic.strip_imp_prems prem of
+            eq :: _ =>
+              (case fst (HOLogic.dest_eq (HOLogic.dest_Trueprop eq)) of
+                Var (v, _) => v
+              | _ => raise Fail "tnum_case: exhaust")
+          | _ => raise Fail "tnum_case: exhaust")
+      | _ => raise Fail "tnum_case: exhaust");
+    val goal = HOLogic.mk_Trueprop (HOLogic.mk_eq (pnum_t $ y, tnum_c $ y));
+    val th =
+      Goal.prove_sorry lthy' ["y"] [] goal (fn {context = ctxt, ...} =>
+        HEADGOAL (resolve_tac ctxt
+          [infer_instantiate ctxt [(yv, Thm.cterm_of ctxt y)] exhaust])
+        THEN ALLGOALS (fn i =>
+          hyp_subst_tac ctxt i
+          THEN simp_tac (put_simpset HOL_basic_ss ctxt
+            addsimps (def_eq :: conjs @ #case_thms sugar @ @{thms simp_thms})) i));
+  in (@{thm ext} OF [th], lthy') end;
+
+val parser_int_tables = Attrib.setup_config_bool \<^binding>\<open>parser_int_tables\<close> (K false);
 
 fun lr_build_parse
   ({gram, parse_bind, shn}: Parser_Generators.build_input) lthy =
@@ -93,31 +142,225 @@ fun lr_build_parse
 
     val rlalr_t = app \<^const_name>\<open>rlalr_conflicts\<close> [gram_t, shn_t];
     val acc_t = app \<^const_name>\<open>acc_conflicts\<close> [gram_t, shn_t];
+    val ii_t = app \<^const_name>\<open>ii\<close> [gram_t];
 
     val (literals, eqs) =
-      eval_all lthy [states_t, gtab_t, redtab_t, xinit_t, xclos_t, i0_t, rlalr_t, acc_t];
-    val (states_l, gtab_l, redtab_l, xinit_l, xclos_l, i0_l) =
+      eval_all lthy
+        [states_t, gtab_t, redtab_t, xinit_t, xclos_t, i0_t, rlalr_t, acc_t, ii_t];
+    val (states_l, gtab_l, redtab_l, xinit_l, xclos_l, i0_l, rlalr_l, ii_l) =
       (case literals of
-        [a, b, c, d, e, f, _, _] => (a, b, c, d, e, f)
+        [a, b, c, d, e, f, g, _, i] => (a, b, c, d, e, f, g, i)
       | _ => raise Fail "lr_build_parse: tuple literal");
-    val (states_e, gtab_e, redtab_e, xinit_e, xclos_e, i0_e, rlalr_eq, acc_eq) =
+    val (states_e, gtab_e, redtab_e, xinit_e, xclos_e, i0_e, rlalr_eq, acc_eq, ii_eq) =
       (case eqs of
-        [a, b, c, d, e, f, g, h] => (a, b, c, d, e, f, g, h)
+        [a, b, c, d, e, f, g, h, i] => (a, b, c, d, e, f, g, h, i)
       | _ => raise Fail "lr_build_parse: tuple equations");
 
-    val ((states_eq, xinit_eq), lthy) = lthy
-      |> define_table parse_bind "states" (states_e, states_l) []
-      ||>> define_table parse_bind "xinit" (xinit_e, xinit_l) [];
-
-    val ((((gtab_eq, redtab_eq), i0_eq), xclos_eq), lthy) = lthy
+    val (states_eq, lthy) = define_table parse_bind "states" (states_e, states_l) [] lthy;
+    val (((gtab_eq, redtab_eq), i0_eq), lthy) = lthy
       |>   define_table parse_bind "gtab" (gtab_e, gtab_l) [states_eq]
       ||>> define_table parse_bind "redtab" (redtab_e, redtab_l) [states_eq]
-      ||>> define_table parse_bind "i0" (i0_e, i0_l) [states_eq]
-      ||>> define_table parse_bind "xclos" (xclos_e, xclos_l) [xinit_eq];
+      ||>> define_table parse_bind "i0" (i0_e, i0_l) [states_eq];
 
-    val dlr_specialized =
-      @{thm dparse_via_tables}
-        OF [states_eq, gtab_eq, redtab_eq, xinit_eq, xclos_eq, i0_eq];
+    (* the simple driver of LR_Simple applies when the grammar has no layout
+       annotations, the determinism check is empty, and no reduce cell that
+       names a token constrains its width *)
+    fun is_const c (Const (d, _)) = c = d
+      | is_const _ _ = false;
+    fun cell_ok c =
+      (case dest_tuple 4 c of
+        [_, _, t, tau] =>
+          is_const \<^const_name>\<open>None\<close> t orelse is_const \<^const_name>\<open>WAny\<close> tau
+      | _ => false);
+    val simple =
+      is_const \<^const_name>\<open>True\<close> ii_l andalso
+      is_const \<^const_name>\<open>List.list.Nil\<close> rlalr_l andalso
+      forall (forall cell_ok o HOLogic.dest_list) (HOLogic.dest_list redtab_l);
+
+    fun simple_tables lthy =
+      let
+        val arts = Grammar_Common.artifacts_of gram;
+        val fresh_simps = @{thms fresh_name_def is_cfg.make_def} @ [#gram_def arts];
+        val fresh_th =
+          Goal.prove_sorry lthy [] []
+            (HOLogic.mk_Trueprop (app \<^const_name>\<open>fresh_name\<close> [gram_t, shn_t]))
+            (fn {context, ...} => HEADGOAL (asm_full_simp_tac (context addsimps fresh_simps)));
+        val wany_th =
+          timed lthy "prove wany_ok" (fn () =>
+            Goal.prove_sorry lthy [] []
+              (HOLogic.mk_Trueprop (app \<^const_name>\<open>wany_ok\<close> [redtab_t]))
+              (fn {context, ...} =>
+                Local_Defs.unfold_tac context [states_eq, redtab_eq]
+                THEN HEADGOAL (Parser_Generators.eval_tac context))) ();
+        val static_th =
+          @{thm sstaticI} OF [ii_eq RS @{thm eqTrueE}, rlalr_eq, fresh_th, wany_th];
+
+        val psts_t = app \<^const_name>\<open>pr0_states\<close> [gram_t, shn_t];
+        val pgt_t  = app \<^const_name>\<open>pgtab\<close> [gram_t, psts_t];
+        val pc_t   = app \<^const_name>\<open>pcomps\<close> [gram_t, psts_t];
+        val pf_t   = app \<^const_name>\<open>pfins\<close> [shn_t, psts_t];
+        val p0_t   = app \<^const_name>\<open>st_find\<close>
+          [psts_t, app \<^const_name>\<open>lr0_start\<close> [gram_t, shn_t]];
+        val (literals2, eqs2) = eval_all lthy [psts_t, pgt_t, pc_t, pf_t, p0_t];
+        val (psts_l, pgt_l, pc_l, pf_l, p0_l) =
+          (case literals2 of
+            [a, b, c, d, e] => (a, b, c, d, e)
+          | _ => raise Fail "lr_build_parse: tuple literal");
+        val (psts_e, pgt_e, pc_e, pf_e, p0_e) =
+          (case eqs2 of
+            [a, b, c, d, e] => (a, b, c, d, e)
+          | _ => raise Fail "lr_build_parse: tuple equations");
+        val (psts_eq, lthy) = define_table parse_bind "psts" (psts_e, psts_l) [] lthy;
+        val ((((pgt_eq, pc_eq), pf_eq), p0_eq), lthy) = lthy
+          |>   define_table parse_bind "pgt" (pgt_e, pgt_l) [psts_eq]
+          ||>> define_table parse_bind "pcomps" (pc_e, pc_l) [psts_eq]
+          ||>> define_table parse_bind "pfins" (pf_e, pf_l) [psts_eq]
+          ||>> define_table parse_bind "p0" (p0_e, p0_l) [psts_eq];
+
+        (* the indexed tables: productions and nonterminals numbered, rows keyed
+           by terminal or nonterminal number, stored as arrays by parse_itabs *)
+        fun rhs_of_eq th = snd (HOLogic.dest_eq (HOLogic.dest_Trueprop (Thm.prop_of th)));
+        fun app' ctxt c args =
+          Syntax.check_term ctxt (Term.list_comb (Const (c, dummyT), args));
+        val ltabs_t = app' lthy \<^const_name>\<open>mk_ltabs\<close>
+          (map rhs_of_eq [gtab_eq, states_eq, redtab_eq, pgt_eq, psts_eq, pc_eq, pf_eq]);
+        val (ltabs_l, ltabs_e) =
+          (case eval_all lthy [ltabs_t] of
+            ([l], [e]) => (l, e)
+          | _ => raise Fail "lr_build_parse: tuple literal");
+        val (ltabs_eq, lthy) = define_table parse_bind "ltabs" (ltabs_e, ltabs_l) [] lthy;
+        (* the tables of the code: by default binary tries (jtabs_of), which
+           are static data and need no arithmetic with binary naturals; with
+           parser_int_tables, arrays with integer indices (ztabs_of), computed
+           when the code is loaded *)
+        val int_tables = Config.get lthy parser_int_tables;
+        val (tabs_eqs, via, tabs_msg, lthy) =
+          if int_tables then
+            let
+              val tabs_b = Binding.map_name (fn n => n ^ "_ztabs") parse_bind;
+              val ((_, tabs_def), lthy) =
+                Grammar_Defs.define_const true
+                  (tabs_b, Thm.def_binding tabs_b,
+                   app' lthy \<^const_name>\<open>ztabs_of\<close> [rhs_of_eq ltabs_eq]) lthy;
+              val tabs_ax =
+                the_default tabs_def
+                  (Grammar_Common.def_axiom lthy (tabs_b, Thm.def_binding tabs_b));
+              val tabs_eq =
+                Thm.symmetric (Local_Defs.meta_rewrite_rule lthy tabs_ax)
+                RS @{thm meta_eq_to_obj_eq};
+            in ([tabs_eq], @{thm dparse_via_int_tables}, "integer tables (LR_Simple, LR_Int)", lthy) end
+          else
+            let
+              val jtabs_t = app' lthy \<^const_name>\<open>jtabs_of\<close> [rhs_of_eq ltabs_eq];
+              val x0_t = HOLogic.mk_prod (rhs_of_eq i0_eq, rhs_of_eq p0_eq);
+              (* the constructors of the token type, if it is a datatype whose
+                 constructors have no arguments: the tokens are then numbered
+                 by a case distinction instead of a search (tnum below) *)
+              val tokT = #tokT gram;
+              val tok_sugar =
+                (case tokT of
+                  Type (tname, []) =>
+                    (case Ctr_Sugar.ctr_sugar_of lthy tname of
+                      SOME sugar =>
+                        if forall (fn c => fastype_of c = tokT) (#ctrs sugar) then SOME sugar
+                        else NONE
+                    | NONE => NONE)
+                | _ => NONE);
+              val ctrs_t = HOLogic.mk_list tokT (the_default [] (Option.map #ctrs tok_sugar));
+              (* the pairs, the check and the product tables, evaluated at once
+                 with the tries and the pairs shared by let *)
+              fun c n = Const (n, dummyT);
+              fun pair a b = c \<^const_name>\<open>Pair\<close> $ a $ b;
+              val let_t = Syntax.check_term lthy
+                (c \<^const_name>\<open>Let\<close> $ jtabs_t $ Abs ("J", dummyT,
+                  c \<^const_name>\<open>Let\<close> $ (c \<^const_name>\<open>kpairs\<close> $ Bound 0 $ x0_t) $
+                    Abs ("kps", dummyT,
+                      c \<^const_name>\<open>Let\<close> $ (c \<^const_name>\<open>ktabs_of\<close> $ Bound 1 $ Bound 0) $
+                        Abs ("K", dummyT,
+                          c \<^const_name>\<open>Let\<close> $ (c \<^const_name>\<open>ptabs_of\<close> $ Bound 0) $
+                            Abs ("P", dummyT,
+                              pair (Bound 2)
+                                (pair (c \<^const_name>\<open>kok\<close> $ Bound 3 $ Bound 2 $ x0_t)
+                                  (pair (Bound 1)
+                                    (pair (Bound 0)
+                                      (pair (c \<^const_name>\<open>map\<close> $
+                                          (c \<^const_name>\<open>pnum\<close> $ Bound 0) $ ctrs_t)
+                                        (c \<^const_name>\<open>kidx\<close> $ Bound 2 $ x0_t))))))))));
+              val let_l = timed lthy "value (product tables)" (Value_Command.value lthy) let_t;
+              val let_th =
+                timed lthy "eval (product tables)" (fn () =>
+                  Goal.prove_sorry lthy [] [] (HOLogic.mk_Trueprop (HOLogic.mk_eq (let_t, let_l)))
+                    (fn {context, ...} => HEADGOAL (Parser_Generators.eval_tac context))) ();
+              val (kps_l, kok_l, ktabs_l, ptabs_l, nums_l, k0_l,
+                   kps_e, kok_e, ktabs_e, ptabs_e, nums_e, k0_e) =
+                (case (dest_tuple 6 let_l,
+                    split_tuple_eq 6 (Local_Defs.unfold lthy @{thms Let_def} let_th)) of
+                  ([a, b, c, d, e, f], [g, h, i, j, k, l]) => (a, b, c, d, e, f, g, h, i, j, k, l)
+                | _ => raise Fail "lr_build_parse: tuple literal");
+            in
+              if is_const \<^const_name>\<open>True\<close> kok_l then
+                let
+                  val (kps_eq, lthy) = define_table parse_bind "kpairs" (kps_e, kps_l) [] lthy;
+                  val kok_th = Local_Defs.unfold lthy [kps_eq] kok_e RS @{thm eqTrueE};
+                  val ((ktabs_eq, k0_eq), lthy) = lthy
+                    |>   define_table parse_bind "ktabs" (ktabs_e, ktabs_l) [kps_eq]
+                    ||>> define_table parse_bind "k0" (k0_e, k0_l) [kps_eq];
+                  val (ptabs_eq, lthy) =
+                    define_table parse_bind "ptabs" (ptabs_e, ptabs_l) [kps_eq, ktabs_eq] lthy;
+                  val (tnum_th, tnum_msg, lthy) =
+                    (case tok_sugar of
+                      NONE => (@{thm refl}, "a search", lthy)
+                    | SOME sugar =>
+                        let
+                          val (th, lthy) =
+                            timed lthy "tnum" (fn () =>
+                              tnum_case lthy parse_bind sugar (ptabs_eq, nums_e, nums_l)
+                                [kps_eq, ktabs_eq, ptabs_eq]) ();
+                        in (th, "a case distinction", lthy) end);
+                in
+                  ([@{thm refl}, kok_th, ktabs_eq, k0_eq, ptabs_eq, tnum_th], @{thm dparse_via_plain},
+                   "an action table of the product automaton, numbering tokens by " ^
+                   tnum_msg ^ " (LR_Simple, LR_Trie, LR_Tok, LR_Prod, LR_Loop, LR_Plain)", lthy)
+                end
+              else
+                let
+                  val (jtabs_l, jtabs_e) =
+                    (case eval_all lthy [jtabs_t] of
+                      ([l], [e]) => (l, e)
+                    | _ => raise Fail "lr_build_parse: tuple literal");
+                  val (tabs_eq, lthy) = define_table parse_bind "jtabs" (jtabs_e, jtabs_l) [] lthy;
+                in
+                  ([tabs_eq], @{thm dparse_via_trie_tok_tables},
+                   "trie tables (LR_Simple, LR_Trie, LR_Tok)", lthy)
+                end
+            end;
+        val _ =
+          writeln ("parser: the code equation of \<open>" ^ Binding.name_of parse_bind ^
+            "\<close> runs the simple driver on " ^ tabs_msg);
+      in
+        (via OF
+          ([static_th, states_eq, gtab_eq, redtab_eq, psts_eq, pgt_eq, pc_eq, pf_eq, i0_eq, p0_eq,
+            ltabs_eq] @ tabs_eqs),
+         lthy)
+      end;
+
+    fun set_tables lthy =
+      let
+        val (xinit_eq, lthy) = define_table parse_bind "xinit" (xinit_e, xinit_l) [] lthy;
+        val (xclos_eq, lthy) = define_table parse_bind "xclos" (xclos_e, xclos_l) [xinit_eq] lthy;
+      in
+        (@{thm dparse_via_tables} OF [states_eq, gtab_eq, redtab_eq, xinit_eq, xclos_eq, i0_eq],
+         lthy)
+      end;
+
+    val _ =
+      if simple then ()
+      else
+        writeln ("parser: the code equation of \<open>" ^ Binding.name_of parse_bind ^
+          "\<close> runs the set-anchored driver (LR_Driver)");
+    val (dlr_specialized, lthy) =
+      if simple then timed lthy "simple tables" simple_tables lthy
+      else set_tables lthy;
 
     fun post ({parse_def_th, ...}: Parser_Generators.post_input) lthy =
       let

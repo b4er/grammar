@@ -5,7 +5,7 @@ Isabelle/HOL, after Adams, *Principled Parsing for Indentation-Sensitive
 Languages* (POPL 2013):
 
 - `grammar` elaborates a grammar specification with semantic actions into
-  a grammar constant, per-nonterminal decoders and a mutual inductive relation
+  a grammar constant, per-nonterminal decoders and an inductive relation
 - `parser` emits an executable LALR(1)-style parser for it, proving soundness
   and completeness
 

@@ -1,5 +1,6 @@
 (* the definitions behind a grammar: the grammar constant, the decoders,
-   and the mutual inductive relation family with its language theorem *)
+   and the inductive relation family (one definition per strongly connected
+   component) with its language theorem *)
 
 signature GRAMMAR_DEFS =
 sig
@@ -23,10 +24,12 @@ sig
       (string * term) list * local_theory
 
   val is_indent_insensitive: Grammar_Common.grammar -> bool
+  val components: Grammar_Common.grammar -> string list list
   val prove_family: Proof.context ->
-    {preds: (string * term) list, insensitive: bool, induct: thm, wordT: typ,
-     carrier_of: string -> typ, norm: term -> term} ->
-    (string -> term -> term -> term -> term) -> (Proof.context -> tactic) -> thm list
+    {comps: ((string * term) list * thm) list, prod_lhss: string list, insensitive: bool,
+     wordT: typ, carrier_of: string -> typ, norm: term -> term} ->
+    (string -> term -> term -> term -> term) -> (Proof.context -> int -> tactic) ->
+    (string * thm) list
 
   val gram_key: Grammar_Common.artifacts -> string
   val lookup_rel: Proof.context -> Grammar_Common.grammar ->
@@ -158,63 +161,182 @@ fun col_rel_term _ Grammar_Common.Any = NONE
     | Grammar_Common.Any => raise Match)
   end;
 
-(* the family's induction rule on the mutual statement
+(* the strongly connected components of the nonterminals, a component after
+   the components it refers to; the nonterminals of a component in the order
+   of the grammar *)
+fun components (gram: Grammar_Common.grammar) =
+  let
+    val nnames = map fst (Grammar_Common.nonterms_list gram);
+    val succs =
+      fold (fn {lhs, rhs, ...} =>
+          Symtab.map_default (lhs, [])
+            (fold (fn (Grammar_Common.RN B, _) => insert (op =) B | _ => I) rhs))
+        (#prods gram) Symtab.empty;
+    fun succ A = these (Symtab.lookup succs A);
+    (* Tarjan: a component is complete after all components reachable from it *)
+    val counter = Unsynchronized.ref 0;
+    val index = Unsynchronized.ref Symtab.empty;
+    val low = Unsynchronized.ref Symtab.empty;
+    val stack = Unsynchronized.ref ([]: string list);
+    val on_stack = Unsynchronized.ref Symtab.empty;
+    val comps = Unsynchronized.ref ([]: string list list);
+    fun get tab A = the (Symtab.lookup (! tab) A);
+    fun lower v k = low := Symtab.update (v, Int.min (get low v, k)) (! low);
+    fun visit v =
+      let
+        val _ = index := Symtab.update (v, ! counter) (! index);
+        val _ = low := Symtab.update (v, ! counter) (! low);
+        val _ = counter := ! counter + 1;
+        val _ = stack := v :: ! stack;
+        val _ = on_stack := Symtab.update (v, ()) (! on_stack);
+        val _ =
+          succ v |> List.app (fn w =>
+            if not (Symtab.defined (! index) w) then (visit w; lower v (get low w))
+            else if Symtab.defined (! on_stack) w then lower v (get index w)
+            else ());
+        fun pop acc =
+          (case ! stack of
+            w :: rest =>
+              (stack := rest; on_stack := Symtab.delete_safe w (! on_stack);
+               if w = v then w :: acc else pop (w :: acc))
+          | [] => raise Fail "components: stack");
+      in if get low v = get index v then comps := pop [] :: ! comps else () end;
+    val _ = List.app (fn v => if Symtab.defined (! index) v then () else visit v) nnames;
+  in map (fn c => filter (member (op =) c) nnames) (rev (! comps)) end;
+
+(* An induction rule whose cases also assume the bodies of predicates of lower
+   components: a case premise pred_B args, B defined earlier, is followed by
+   body_B args, as if B were in the component and the premise its induction
+   hypothesis.  lowers: the predicates of the lower components, the body
+   proposition of their arguments, and their lemmas pred_B args \<Longrightarrow> body_B args *)
+fun strengthen_induct ctxt arity lowers th =
+  let
+    val ([prop], ctxt1) = Variable.import_terms true [Envir.beta_norm (Thm.prop_of th)] ctxt;
+    fun lower_body H =
+      (case try HOLogic.dest_Trueprop H of
+        NONE => NONE
+      | SOME t =>
+          let
+            val (h, args) = strip_comb t;
+            val m = length args;
+          in
+            if m < arity then NONE
+            else
+              let val (pargs, xargs) = chop (m - arity) args in
+                get_first (fn (pt, mk, _) =>
+                    if list_comb (h, pargs) aconv pt then SOME (mk xargs) else NONE)
+                  lowers
+              end
+          end);
+    fun strengthen_case c =
+      let
+        val vs = Term.strip_all_vars c;
+        val (names, _) = Variable.variant_fixes (map #1 vs) ctxt1;
+        val frees = map2 (fn nm => fn (_, T) => Free (nm, T)) names vs;
+        val b = Term.subst_bounds (rev frees, Term.strip_all_body c);
+        val hs = Logic.strip_imp_prems b;
+        val hs' = maps (fn h => h :: the_list (lower_body h)) hs;
+      in
+        if length hs' = length hs then c
+        else fold_rev Logic.all frees (Logic.list_implies (hs', Logic.strip_imp_concl b))
+      end;
+    val cases = map strengthen_case (Logic.strip_imp_prems prop);
+    val lower_ths = map #3 lowers;
+    fun tac {context, prems} =
+      HEADGOAL (resolve_tac context [th])
+      THEN EVERY (prems |> map (fn c =>
+        HEADGOAL (resolve_tac context [c] THEN_ALL_NEW
+          (assume_tac context ORELSE'
+            (resolve_tac context lower_ths THEN' assume_tac context)))));
+  in
+    Goal.prove_sorry ctxt1 [] cases (Logic.strip_imp_concl prop) tac
+    |> singleton (Variable.export ctxt1 ctxt)
+  end;
+
+(* the family's induction rules on the mutual statements, one per component
 
      (pred\<^sub>1 i w x \<longrightarrow> body\<^sub>1 i w x) \<and> \<dots> \<and> (pred\<^sub>n i w x \<longrightarrow> body\<^sub>n i w x)
 
-   split into one implication per nonterminal; insensitive grammars fix i at 0 *)
-fun prove_family ctxt {preds, insensitive, induct, wordT, carrier_of, norm} body cases_tac =
+   split into one implication per nonterminal; insensitive grammars fix i at 0.
+   The components come with their induction rules, lower components first;
+   case_tac k proves the case of production k (in the order of prod_lhss) *)
+fun prove_family ctxt {comps, prod_lhss, insensitive, wordT, carrier_of, norm} body case_tac =
   let
-    val n = length preds;
     val zero = \<^term>\<open>0 :: nat\<close>;
-    val fresh =
-      Variable.variant_fixes
-        (maps (fn k =>
-            (if insensitive then [] else ["ii" ^ string_of_int k]) @
-            ["ww" ^ string_of_int k, "xx" ^ string_of_int k]) (0 upto n - 1)) ctxt
-      |> fst;
-    fun chunks [] = []
-      | chunks xs =
-          let val (a, b) = chop (if insensitive then 2 else 3) xs in a :: chunks b end;
-    fun conj_of ((A, pred), names) =
+    val arity = if insensitive then 2 else 3;
+    fun body_prop A args =
+      HOLogic.mk_Trueprop (norm
+        (case args of
+          [w, x] => body A zero w x
+        | [i, w, x] => body A i w x
+        | _ => raise Fail "prove_family: predicate arguments"));
+    fun prove_comp (preds, induct) lowers =
       let
-        val (i_t, w_n, x_n) =
-          if insensitive then (zero, nth names 0, nth names 1)
-          else (Free (nth names 0, HOLogic.natT), nth names 1, nth names 2);
-        val w = Free (w_n, wordT);
-        val x = Free (x_n, carrier_of A);
-        val pred_app = if insensitive then pred $ w $ x else pred $ i_t $ w $ x;
-      in HOLogic.mk_imp (pred_app, body A i_t w x) end;
-    val prop =
-      norm (HOLogic.mk_Trueprop (foldr1 HOLogic.mk_conj (map conj_of (preds ~~ chunks fresh))));
-    fun P_of (A, _) =
+        val n = length preds;
+        val fresh =
+          Variable.variant_fixes
+            (maps (fn k =>
+                (if insensitive then [] else ["ii" ^ string_of_int k]) @
+                ["ww" ^ string_of_int k, "xx" ^ string_of_int k]) (0 upto n - 1)) ctxt
+          |> fst;
+        fun chunks [] = []
+          | chunks xs = let val (a, b) = chop arity xs in a :: chunks b end;
+        fun conj_of ((A, pred), names) =
+          let
+            val (i_t, w_n, x_n) =
+              if insensitive then (zero, nth names 0, nth names 1)
+              else (Free (nth names 0, HOLogic.natT), nth names 1, nth names 2);
+            val w = Free (w_n, wordT);
+            val x = Free (x_n, carrier_of A);
+            val pred_app = if insensitive then pred $ w $ x else pred $ i_t $ w $ x;
+          in HOLogic.mk_imp (pred_app, body A i_t w x) end;
+        val prop =
+          norm (HOLogic.mk_Trueprop
+            (foldr1 HOLogic.mk_conj (map conj_of (preds ~~ chunks fresh))));
+        fun P_of (A, _) =
+          let
+            val i = Free ("__i", HOLogic.natT);
+            val w = Free ("__w", wordT);
+            val x = Free ("__x", carrier_of A);
+            val lam = Term.lambda w (Term.lambda x (body A (if insensitive then zero else i) w x));
+          in norm (if insensitive then lam else Term.lambda i lam) end;
+        (* the predicate variables: P for a single predicate, P1, \<dots>, Pn otherwise *)
+        fun p_index nm =
+          if nm = "P" then SOME 0
+          else if String.isPrefix "P" nm then Int.fromString (unprefix "P" nm)
+          else NONE;
+        val p_vars =
+          Term.add_vars (Thm.prop_of induct) []
+          |> filter (is_some o p_index o #1 o #1)
+          |> sort (int_ord o apply2 (the o p_index o #1 o #1));
+        val _ =
+          if length p_vars = n then ()
+          else raise Fail "prove_family: predicate variables of the induction rule";
+        val insts = map2 (fn (v, _) => fn pr => (v, Thm.cterm_of ctxt (P_of pr))) p_vars preds;
+        val induct' =
+          Drule.infer_instantiate ctxt insts induct
+          |> not (null lowers) ? strengthen_induct ctxt arity lowers;
+        val names = map fst preds;
+        val idxs =
+          map_filter (fn (k, A) => if member (op =) names A then SOME k else NONE)
+            (map_index I prod_lhss);
+        fun tac {context, ...} =
+          (if n = 1 then
+             HEADGOAL (resolve_tac context @{thms impI})
+             THEN HEADGOAL (eresolve_tac context [induct'])
+           else HEADGOAL (resolve_tac context [induct']))
+          THEN EVERY (map (case_tac context) idxs);
+        val th = Goal.prove_sorry ctxt fresh [] prop tac;
+        fun conjunct k =
+          let val rest = funpow k (fn t => @{thm conjunct2} OF [t]) th
+          in if k = n - 1 then rest else @{thm conjunct1} OF [rest] end;
+      in names ~~ map (fn k => conjunct k RS @{thm mp}) (0 upto n - 1) end;
+    fun step (comp as (preds, _)) (lowers, results) =
       let
-        val i = Free ("__i", HOLogic.natT);
-        val w = Free ("__w", wordT);
-        val x = Free ("__x", carrier_of A);
-        val lam = Term.lambda w (Term.lambda x (body A (if insensitive then zero else i) w x));
-      in norm (if insensitive then lam else Term.lambda i lam) end;
-    val induct' =
-      if n = 1 then induct
-      else
-        let
-          val p_vars =
-            Term.add_vars (Thm.prop_of induct) []
-            |> filter (fn ((nm, _), _) =>
-                 String.isPrefix "P" nm andalso Int.fromString (unprefix "P" nm) <> NONE)
-            |> sort (int_ord o apply2 (fn ((nm, _), _) => the (Int.fromString (unprefix "P" nm))));
-          val insts = map2 (fn (v, _) => fn pr => (v, Thm.cterm_of ctxt (P_of pr))) p_vars preds;
-        in Drule.infer_instantiate ctxt insts induct end;
-    fun tac {context, ...} =
-      (if n = 1 then
-         HEADGOAL (resolve_tac context @{thms impI}) THEN HEADGOAL (eresolve_tac context [induct])
-       else HEADGOAL (resolve_tac context [induct']))
-      THEN cases_tac context;
-    val th = Goal.prove ctxt fresh [] prop tac;
-    fun conjunct k =
-      let val rest = funpow k (fn t => @{thm conjunct2} OF [t]) th
-      in if k = n - 1 then rest else @{thm conjunct1} OF [rest] end;
-  in map (fn k => conjunct k RS @{thm mp}) (0 upto n - 1) end;
+        val ths = prove_comp comp lowers;
+        val lowers' = map2 (fn (A, pt) => fn (_, th) => (pt, body_prop A, th)) preds ths;
+      in (lowers @ lowers', results @ ths) end;
+  in #2 (fold step comps ([], [])) end;
 
 datatype iv_child =
     NTc of string
@@ -336,11 +458,10 @@ fun length_dispatch_dec astT outT ks body_at_length xs_var =
       end;
   in go 0 [] xs_var end;
 
-fun eqns_for_nt_dec (gram: Grammar_Common.grammar) lthy carrier_of dec_of A =
+(* the decoder of A on Node n xs, for the decoders dec_of of the nonterminals *)
+fun node_body_dec (gram: Grammar_Common.grammar) lthy carrier_of dec_of A n_v xs_v =
   let
-    val {tokenT, astT, ...} = Grammar_Common.get_desc gram;
-    val astListT = HOLogic.listT astT;
-    val dec_free = dec_of A;
+    val {astT, ...} = Grammar_Common.get_desc gram;
     val outT = carrier_of A;
     val outOptT = mk_optionT outT;
 
@@ -351,8 +472,6 @@ fun eqns_for_nt_dec (gram: Grammar_Common.grammar) lthy carrier_of dec_of A =
         prods_A [];
     val ks = map fst by_len;
 
-    val n_v = Free ("dnv_" ^ A, HOLogic.stringT);
-    val xs_v = Free ("dxs_" ^ A, astListT);
     val name_lit = HOLogic.mk_string A;
 
     fun body_at_length k cs =
@@ -373,11 +492,23 @@ fun eqns_for_nt_dec (gram: Grammar_Common.grammar) lthy carrier_of dec_of A =
           in go prods_k all_names end;
       in chain_prods_dec outT bodies end;
 
-    val node_body =
-      mk_if_c outOptT
-        $ HOLogic.mk_eq (n_v, name_lit)
-        $ length_dispatch_dec astT outT ks body_at_length xs_v
-        $ mk_None outT;
+  in
+    mk_if_c outOptT
+      $ HOLogic.mk_eq (n_v, name_lit)
+      $ length_dispatch_dec astT outT ks body_at_length xs_v
+      $ mk_None outT
+  end;
+
+(* the equations of the decoder of A, one for Node and one for Leaf *)
+fun eqns_for_nt_dec (gram: Grammar_Common.grammar) lthy carrier_of dec_of A =
+  let
+    val {tokenT, astT, ...} = Grammar_Common.get_desc gram;
+    val astListT = HOLogic.listT astT;
+    val dec_free = dec_of A;
+    val outT = carrier_of A;
+    val n_v = Free ("dnv_" ^ A, HOLogic.stringT);
+    val xs_v = Free ("dxs_" ^ A, astListT);
+    val node_body = node_body_dec gram lthy carrier_of dec_of A n_v xs_v;
 
     val Leaf_c = Const (\<^const_name>\<open>Leaf\<close>, tokenT --> astT);
     val Node_c = Const (\<^const_name>\<open>Node\<close>, HOLogic.stringT --> astListT --> astT);
@@ -390,45 +521,163 @@ fun eqns_for_nt_dec (gram: Grammar_Common.grammar) lthy carrier_of dec_of A =
     val eq_leaf = HOLogic.mk_Trueprop (HOLogic.mk_eq (lhs_leaf, mk_None outT));
   in [eq_node, eq_leaf] end;
 
+(* a balanced sum type over the types Ts, with an injection and a projection
+   for each of them *)
+fun mk_val_sum [U] = (U, [(U, (Abs ("x", U, Bound 0), mk_Some U))])
+  | mk_val_sum Ts =
+      let
+        val (ls, rs) = chop (length Ts div 2) Ts;
+        val (LTy, linjs) = mk_val_sum ls;
+        val (RTy, rinjs) = mk_val_sum rs;
+        val VT = Type (\<^type_name>\<open>sum\<close>, [LTy, RTy]);
+        fun lift left (U, (inj, proj)) =
+          let
+            val optT = mk_optionT U;
+            val none = Abs ("v", if left then RTy else LTy, mk_None U);
+            val inj_c =
+              if left then Const (\<^const_name>\<open>Inl\<close>, LTy --> VT)
+              else Const (\<^const_name>\<open>Inr\<close>, RTy --> VT);
+            val case_c =
+              Const (\<^const_name>\<open>case_sum\<close>,
+                (LTy --> optT) --> (RTy --> optT) --> VT --> optT);
+            val proj' =
+              if left then case_c $ proj $ none else case_c $ none $ proj;
+          in
+            (U, (Envir.beta_eta_contract (Abs ("x", U, inj_c $ (inj $ Bound 0))),
+              proj'))
+          end;
+      in
+        (VT,
+          map (lift true) linjs @ map (lift false) rinjs)
+      end;
+
+(* The decoders are defined through a single functional G__disp on a selector
+   (the index of the nonterminal) and a tree, with values in a sum of the
+   carriers, closed by ast_rec: a mutual function over all nonterminals is much
+   slower to define. The decoder of A is G__disp's fixpoint at the index of A
+   followed by the projection to the carrier of A; its Node and Leaf equations
+   are derived. *)
 fun define_decoders (gram: Grammar_Common.grammar) lthy =
   let
-    val {astT, ...} = Grammar_Common.get_desc gram;
+    val {tokenT, astT, ...} = Grammar_Common.get_desc gram;
+    val astListT = HOLogic.listT astT;
     val gram_b = #name gram;
     val nts = Grammar_Common.nonterms_list gram;
     val nnames = map fst nts;
     val carriers = map (#carrier o snd) nts;
     val carrier_of = Grammar_Common.carrier_of gram;
-    (* G__dec_A: distinct from every relation name G_<nonterminal>, as a
-       nonterminal cannot start with an underscore *)
-    val dec_bindings = map (fn nm => suffix_bind ("__dec_" ^ nm) gram_b) nnames;
-    val dec_types = map (fn cT => astT --> mk_optionT cT) carriers;
-    val dec_frees =
-      map2 (fn b => fn T => Free (Binding.name_of b, T)) dec_bindings dec_types;
-    fun dec_of A = nth dec_frees (find_index (curry (op =) A) nnames);
+    fun index_of A = HOLogic.mk_nat (find_index (curry (op =) A) nnames);
+    fun timed label f x =
+      Grammar_Common.timed lthy (Binding.name_of (#name gram)) ("decoders: " ^ label) f x;
 
-    val all_eqns =
-      maps (fn A => eqns_for_nt_dec gram lthy carrier_of dec_of A) nnames;
-    val eqns : Specification.multi_specs =
-      map (fn e => ((Binding.empty_atts, e), [], [])) all_eqns;
-    val fixes = map2 (fn b => fn T => (b, SOME T, NoSyn)) dec_bindings dec_types;
-    (* as the fun command: pattern completeness by auto, termination by the
-       default prover; the info record holds the constants and the simps *)
-    fun pat_completeness_auto ctxt =
-      Pat_Completeness.pat_completeness_tac ctxt 1 THEN auto_tac ctxt;
-    val lthy' =
-      Function.add_function fixes eqns Function_Common.default_config
-        pat_completeness_auto lthy |> snd;
-    val (info, lthy') =
-      Function.prove_termination NONE
-        (Function_Common.termination_prover_tac false lthy') lthy';
-    val simps =
-      (case #simps info of
-        SOME ths => ths
-      | NONE => raise Fail "define_decoders: no simps after termination");
-    (* the simps are the code equations; inside a locale with assumptions they
-       stay conditional and are not declared globally *)
-    val lthy' = Grammar_Common.declare_code_global {default = true} simps lthy';
-  in ((nnames ~~ #fs info), lthy') end;
+    val (valT, injs) = mk_val_sum (distinct (op =) carriers);
+    val valOptT = mk_optionT valT;
+    fun inj_of A = fst (the (AList.lookup (op =) injs (carrier_of A)));
+    fun proj_of A = snd (the (AList.lookup (op =) injs (carrier_of A)));
+    fun mk_map_option_c U =
+      Const (\<^const_name>\<open>map_option\<close>, (U --> valT) --> mk_optionT U --> valOptT);
+    fun dec_via decode A =
+      let val c = Free ("c", astT) in
+        Term.lambda c
+          (mk_bind_c valT (carrier_of A) $ (decode $ index_of A $ c) $ proj_of A)
+      end;
+
+    (* G__disp, G__dec_A: distinct from every relation name G_<nonterminal>,
+       as a nonterminal cannot start with an underscore *)
+    val recT = HOLogic.natT --> astT --> valOptT;
+    val dispT = recT --> HOLogic.natT --> HOLogic.stringT --> astListT --> valOptT;
+    val f_v = Free ("dfun", recT);
+    val sel_v = Free ("dsel", HOLogic.natT);
+    val n_v = Free ("dnv", HOLogic.stringT);
+    val xs_v = Free ("dxs", astListT);
+    val dispatch =
+      fold_rev (fn A => fn rest =>
+          mk_if_c valOptT $ HOLogic.mk_eq (sel_v, index_of A)
+            $ (mk_map_option_c (carrier_of A) $ inj_of A
+                $ node_body_dec gram lthy carrier_of (dec_via f_v) A n_v xs_v)
+            $ rest)
+        nnames (mk_None valT)
+      |> Envir.beta_norm;
+    val disp_b = suffix_bind "__disp" gram_b;
+    val ((disp, disp_def), lthy1) =
+      define_const false
+        (disp_b, Thm.def_binding disp_b, fold_rev Term.lambda [f_v, sel_v, n_v, xs_v] dispatch)
+        lthy;
+    val ast_rec_c =
+      Const (\<^const_name>\<open>ast_rec\<close>, dispT --> valOptT --> recT);
+    val decode = ast_rec_c $ disp $ mk_None valT;
+
+    val dec_bindings = map (fn nm => suffix_bind ("__dec_" ^ nm) gram_b) nnames;
+    val (dec_defs, lthy2) =
+      fold_map (fn (b, A) =>
+          define_const false (b, Thm.def_binding b, dec_via decode A))
+        (dec_bindings ~~ nnames) lthy1;
+    val decs = map fst dec_defs;
+    val dec_def_eqs = map snd dec_defs;
+    fun dec_of A = nth decs (find_index (curry (op =) A) nnames);
+
+    (* bind (map_option inj x) proj = x, for each carrier *)
+    fun bind_map_lemma (U, (inj, proj)) =
+      let
+        val x = Free ("x", mk_optionT U);
+        val goal =
+          HOLogic.mk_Trueprop (HOLogic.mk_eq
+            (mk_bind_c valT U $ (mk_map_option_c U $ inj $ x) $ proj, x));
+      in
+        (U, Goal.prove_sorry lthy2 ["x"] [] goal (fn {context = ctxt, ...} =>
+          HEADGOAL (Induct_Tacs.case_tac ctxt "x" [] NONE) THEN
+          ALLGOALS (asm_full_simp_tac ctxt)) |> mk_meta_eq)
+      end;
+    val bind_maps = map bind_map_lemma injs;
+
+    (* decide the selector conditions of the dispatch one by one *)
+    fun dispatch_conv ctxt ct =
+      (Conv.fun_conv (Conv.fun_conv (Conv.arg_conv (Simplifier.rewrite ctxt))) then_conv
+        (Conv.rewr_conv @{thm if_True[THEN eq_reflection]} else_conv
+          (Conv.rewr_conv @{thm if_False[THEN eq_reflection]} then_conv
+            dispatch_conv ctxt))) ct;
+    fun lhs_conv ctxt A =
+      (Conv.arg1_conv
+        (Conv.rewr_conv @{thm ast_rec.simps(1)[THEN eq_reflection]} then_conv
+          funpow 4 Conv.fun_conv (Conv.rewr_conv disp_def) then_conv
+          Thm.beta_conversion true then_conv
+          dispatch_conv ctxt) then_conv
+        Conv.rewr_conv (the (AList.lookup (op =) bind_maps (carrier_of A))))
+      else_conv
+      (Conv.arg1_conv (Conv.rewr_conv @{thm ast_rec.simps(2)[THEN eq_reflection]}) then_conv
+        Conv.rewr_conv @{thm Option.bind_lzero[THEN eq_reflection]});
+    (* the recursive calls of the functional are on children: decided by the
+       case distinctions on the children list *)
+    fun children_ctxt ctxt =
+      put_simpset HOL_basic_ss ctxt
+        addsimps @{thms list.set insert_iff simp_thms if_True}
+      |> Simplifier.add_cong @{thm list.case_cong};
+    fun prove_eqn A goal =
+      let
+        val frees =
+          Term.add_free_names goal [] |> filter_out (Variable.is_fixed lthy2);
+      in
+        Goal.prove_sorry lthy2 frees [] goal (fn {context = ctxt, ...} =>
+          rewrite_goal_tac ctxt dec_def_eqs 1 THEN
+          CONVERSION (HOLogic.Trueprop_conv (Conv.arg1_conv (lhs_conv ctxt A))) 1 THEN
+          asm_full_simp_tac (children_ctxt ctxt) 1)
+      end;
+    val eqns = timed "derive equations" (fn () =>
+      map (fn A => map (prove_eqn A) (eqns_for_nt_dec gram lthy2 carrier_of dec_of A))
+        nnames) ();
+    val (_, lthy3) =
+      fold_map (fn (b, ths) =>
+          Local_Theory.note
+            ((Binding.qualify_name true b "simps",
+              [Attrib.internal \<^here> (K Simplifier.simp_add)]), ths))
+        (dec_bindings ~~ eqns) lthy2;
+    (* the equations are the code equations, also of interpretations; inside a
+       locale with assumptions they stay conditional and are not declared
+       globally *)
+    val lthy3 = lthy3
+      |> Code.declare_default_eqns (map (rpair true) (flat eqns))
+      |> Grammar_Common.declare_code_global {default = true} (flat eqns);
+  in ((nnames ~~ decs), lthy3) end;
 
 (* the decoder of nonterminal A of grammar G, from the registered artifacts *)
 fun decoder_of _ (gram: Grammar_Common.grammar) A =
@@ -625,10 +874,43 @@ fun gen_define_relation gram_t gram_th (gram: Grammar_Common.grammar) lthy =
       {quiet_mode = true, verbose = false, alt_name = Binding.empty,
        coind = false, no_elim = false, no_ind = false, skip_mono = false};
 
-    val (ind_result, lthy) =
-      timed "Inductive.add_inductive"
-        (with_concealed (Inductive.add_inductive add_flags pred_specs [] intro_props []))
-        lthy;
+    (* one inductive definition per strongly connected component, lower
+       components first: the inductive package is quadratic in the number of
+       introduction rules of one definition.  Later intros refer to the
+       predicates defined before. *)
+    val comps = components gram;
+    fun nt_index A = find_index (curry (op =) A) nnames;
+    fun define_comp comp (defined, lthy) =
+      let
+        val idxs =
+          map_filter (fn (k, p: Grammar_Common.prod) =>
+              if member (op =) comp (#lhs p) then SOME k else NONE)
+            (map_index I prods);
+        val intros =
+          map (fn k => nth intro_props k |> apsnd (Term.subst_free defined)) idxs;
+        val specs = map (nth pred_specs o nt_index) comp;
+        val (res, lthy') =
+          with_concealed (Inductive.add_inductive add_flags specs [] intros []) lthy;
+        val defined' = defined @ (map pred_of comp ~~ #preds res);
+      in ((comp, idxs, res), (defined', lthy')) end;
+    val (comp_results, (_, lthy)) =
+      timed "Inductive.add_inductive" (fold_map define_comp comps) ([], lthy);
+
+    (* the predicates, and the intros and inducts in the order of the grammar *)
+    val pred_tab =
+      fold (fn (comp, _, res) => fold2 (curry Symtab.update) comp (#preds res))
+        comp_results Symtab.empty;
+    fun pred_of A = the (Symtab.lookup pred_tab A);
+    val all_intrs =
+      fold (fn (_, idxs, res) => fold2 (curry Inttab.update) idxs (#intrs res))
+        comp_results Inttab.empty
+      |> Inttab.dest |> map #2;
+    val all_inducts =
+      let
+        val tab =
+          fold (fn (comp, _, res) => fold2 (curry Symtab.update) comp (#inducts res))
+            comp_results Symtab.empty;
+      in map (the o Symtab.lookup tab) nnames end;
 
     val cleanup =
       Simplifier.full_simplify
@@ -637,10 +919,10 @@ fun gen_define_relation gram_t gram_th (gram: Grammar_Common.grammar) lthy =
             (@{thms append.simps col_of_Nil col_of_Cons} @ @{thms token.simps}));
 
     val cleaned_intros =
-      timed "cleanup intros" (map cleanup) (#intrs ind_result);
+      timed "cleanup intros" (map cleanup) all_intrs;
 
     val cleaned_inducts =
-      timed "cleanup inducts" (map cleanup) (#inducts ind_result);
+      timed "cleanup inducts" (map cleanup) all_inducts;
 
     (** cornerstone lemmas: relate the mutual predicate family to wf_ptree **)
     val symT = Type (\<^type_name>\<open>sym\<close>, [HOLogic.stringT, tokT]);
@@ -689,7 +971,79 @@ fun gen_define_relation gram_t gram_th (gram: Grammar_Common.grammar) lthy =
              HOL.simp_thms fst_conv snd_conv insert_iff empty_iff
              prod.inject sym.inject sym.distinct char.inject};
 
-    fun sound_case_tac ctxt (prod: Grammar_Common.prod, (i_name, assigned)) =
+    (* iprods G = [p\<^sub>0, \<dots>]: membership in the productions is decided on
+       this list, without unfolding the grammar constant elsewhere *)
+    fun iprods_info_of () =
+      let
+        val gram_rhs =
+          (case Thm.prop_of gram_th of
+            Const (\<^const_name>\<open>Pure.eq\<close>, _) $ _ $ r => r
+          | t => snd (HOLogic.dest_eq (HOLogic.dest_Trueprop t)));
+        val ps =
+          (case gram_rhs of
+            _ $ ps $ _ $ _ => ps
+          | _ => raise Fail "iprods_info: grammar constant");
+        val iprods_c =
+          Const (\<^const_name>\<open>iprods\<close>, fastype_of gram_t --> fastype_of ps);
+        val iprods_eq =
+          Goal.prove_sorry lthy [] [] (HOLogic.mk_Trueprop (HOLogic.mk_eq (iprods_c $ gram_t, ps)))
+            (fn {context, ...} =>
+              HEADGOAL (simp_only context
+                (@{thms is_cfg.make_def is_cfg.select_convs} @ [gram_th])));
+      in (ps, iprods_c, iprods_eq) end;
+    val iprods_info = timed "iprods equation" (try iprods_info_of) ();
+
+    (* (A, rhs) \<in> set (iprods G) for each production, by walking the list of
+       productions: simp on the unfolded grammar compares the production with
+       all others, quadratic in the number of productions *)
+    fun prod_mems_of (ps, _, iprods_eq) =
+      let
+        val fold_iprods =
+          HOLogic.Trueprop_conv (Conv.arg_conv (Conv.arg_conv
+            (Conv.rewr_conv (Thm.symmetric (mk_meta_eq iprods_eq)))));
+        fun tails ct =
+          (case Thm.term_of ct of
+            Const (\<^const_name>\<open>Nil\<close>, _) => []
+          | _ => ct :: tails (Thm.dest_arg ct));
+        val tls = tails (Thm.cterm_of lthy ps);
+        (* instantiated without unification: each step only compares the
+           premise with the previous step's conclusion *)
+        val prodT =
+          (case fastype_of ps of
+            Type (\<^type_name>\<open>list\<close>, [T]) => T
+          | _ => raise Fail "prod_mems: productions");
+        val cT = Thm.ctyp_of lthy prodT;
+        val listT = HOLogic.listT prodT;
+        val mem_hd = Thm.instantiate' [SOME cT] [] @{lemma \<open>x \<in> set (x # xs)\<close> by simp};
+        val mem_tl =
+          Thm.instantiate' [SOME cT] [] @{lemma \<open>x \<in> set xs \<Longrightarrow> x \<in> set (y # xs)\<close> by simp};
+        fun inst th insts =
+          Thm.instantiate (TVars.empty,
+            Vars.make (map (fn ((n, T), ct) => (((n, 0), T), ct)) insts)) th;
+        (* x \<in> set (tls ! j) for the head x of tls ! k, j \<le> k *)
+        fun mem k =
+          let
+            val tl_k = nth tls k;
+            val x = Thm.dest_arg1 tl_k;
+            val th0 = inst mem_hd [(("x", prodT), x), (("xs", listT), Thm.dest_arg tl_k)];
+            fun up j th =
+              if j < 0 then th
+              else
+                let val tl_j = nth tls j in
+                  up (j - 1)
+                    (Thm.implies_elim
+                      (inst mem_tl
+                        [(("x", prodT), x), (("y", prodT), Thm.dest_arg1 tl_j),
+                         (("xs", listT), Thm.dest_arg tl_j)])
+                      th)
+                end;
+          in Conv.fconv_rule fold_iprods (up (k - 1) th0) end;
+      in map_index (fn (k, _) => try mem k) prods end;
+    val prod_mems =
+      timed "production memberships"
+        (the_default (map (K NONE) prods) o Option.mapPartial (try prod_mems_of)) iprods_info;
+
+    fun sound_case_tac ctxt ((prod: Grammar_Common.prod, (i_name, assigned)), prod_mem) =
       let
         val nt_count =
           length (filter (fn (NTc _, _, _) => true | _ => false) assigned);
@@ -730,11 +1084,18 @@ fun gen_define_relation gram_t gram_th (gram: Grammar_Common.grammar) lthy =
             val wf_node_inst =
               Drule.infer_instantiate context
                 [((("rhs", 0)), rhs_ct), ((("pts", 0)), pts_ct)] @{thm wf_node};
+            fun solved st = if Thm.nprems_of st = 0 then all_tac st else no_tac st;
+            val by_mem =
+              (case prod_mem of
+                SOME th =>
+                  HEADGOAL (resolve_tac context [th])
+                  THEN ALLGOALS (simp_only context sound_simps) THEN solved
+              | NONE => no_tac);
           in
             HEADGOAL (resolve_tac context [exI_inst])
             THEN HEADGOAL (resolve_tac context [@{thm conjI}])
             THEN HEADGOAL (resolve_tac context [wf_node_inst])
-            THEN ALLGOALS (simp_only context (sound_simps @ [gram_th]))
+            THEN (by_mem ORELSE ALLGOALS (simp_only context (sound_simps @ [gram_th])))
           end) ctxt;
 
       in elim_step THEN HEADGOAL focus end;
@@ -744,11 +1105,13 @@ fun gen_define_relation gram_t gram_th (gram: Grammar_Common.grammar) lthy =
     val sound_thms =
       timed "prove sound_conj" (fn () =>
         prove_family lthy
-          {preds = nnames ~~ pred_frees, insensitive = insensitive,
-           induct = #induct ind_result, wordT = wordT, carrier_of = carrier_of,
-           norm = ground_tvars}
+          {comps = map (fn (comp, _, res) => (map (fn A => (A, pred_of A)) comp, #induct res))
+             comp_results,
+           prod_lhss = map #lhs prods, insensitive = insensitive,
+           wordT = wordT, carrier_of = carrier_of, norm = ground_tvars}
           (fn A => fn i_t => fn w => fn _ => sound_body_of A i_t w)
-          (fn ctxt => EVERY (map (sound_case_tac ctxt) prods_meta))) ();
+          (fn ctxt => fn k => sound_case_tac ctxt (nth prods_meta k, nth prod_mems k))
+        |> (fn ths => map (the o AList.lookup (op =) ths) nnames)) ();
 
     val (_, lthy) =
       timed "Local_Theory.notes (intros + inducts)"
@@ -836,15 +1199,50 @@ fun gen_define_relation gram_t gram_th (gram: Grammar_Common.grammar) lthy =
       then complete_prod0_tac ctxt sel_eqs k
       else complete_prod1_tac ctxt sel_eqs k;
 
+    (* (A, rhs) \<in> set (iprods G) \<equiv> A = A\<^sub>0 \<and> rhs = rhs\<^sub>0 \<or> \<dots>, derived on the
+       list of productions, so that the node case does not unfold the grammar
+       constant: every production case would carry it *)
+    fun mem_iprods_iff_of (_, iprods_c, iprods_eq) =
+      let
+        val prodT =
+          (case range_type (fastype_of iprods_c) of
+            Type (\<^type_name>\<open>list\<close>, [T]) => T
+          | _ => raise Fail "mem_iprods_iff: productions");
+        val (a_T, rhs_T) = HOLogic.dest_prodT prodT;
+        val (a_n, rhs_n) =
+          (case Variable.variant_fixes ["A", "rhs"] lthy |> fst of
+            [a, b] => (a, b)
+          | _ => raise Fail "mem_iprods_iff");
+        val set_c =
+          Const (\<^const_name>\<open>set\<close>, HOLogic.listT prodT --> HOLogic.mk_setT prodT);
+        val mem_t =
+          HOLogic.mk_mem (HOLogic.mk_prod (Free (a_n, a_T), Free (rhs_n, rhs_T)),
+            set_c $ (iprods_c $ gram_t));
+        val ss =
+          put_simpset HOL_basic_ss lthy
+            addsimps @{thms list.set insert_iff singleton_iff empty_iff prod.inject};
+        val eq =
+          (Conv.arg_conv (Conv.arg_conv (Conv.rewr_conv (mk_meta_eq iprods_eq)))
+            then_conv Simplifier.rewrite ss) (Thm.cterm_of lthy mem_t);
+      in
+        Goal.prove_sorry lthy [a_n, rhs_n] [] (Thm.prop_of eq)
+          (fn {context, ...} => HEADGOAL (resolve_tac context [eq]))
+      end;
+    val mem_iprods_iff =
+      timed "membership disjunction" (Option.mapPartial (try mem_iprods_iff_of)) iprods_info;
+
     (* the node case: the conclusion to \<open>P A (PNode A i pts)\<close>, the membership
        to a disjunction over the productions, one case each *)
     fun complete_node_tac ctxt sel_eqs =
       simp_only ctxt @{thms proot.simps fst_conv sym.inject simp_thms}
-      THEN' simp_only ctxt
-              (@{thms prod.inject sym.inject
-                      is_cfg.make_def is_cfg.select_convs list.set
-                      insert_iff singleton_iff empty_iff}
-               @ [gram_th])
+      THEN' (case mem_iprods_iff of
+              SOME th => simp_only ctxt (th :: @{thms prod.inject sym.inject})
+            | NONE =>
+                simp_only ctxt
+                  (@{thms prod.inject sym.inject
+                          is_cfg.make_def is_cfg.select_convs list.set
+                          insert_iff singleton_iff empty_iff}
+                   @ [gram_th]))
       THEN' REPEAT_ALL_NEW (eresolve_tac ctxt @{thms disjE[OF disj_commute[THEN iffD1]]})
       THEN' eresolve_tac ctxt @{thms FalseE}
       THEN' EVERY' (map_index (SOLVED' o complete_prod_tac ctxt sel_eqs) (rev prods));
@@ -867,7 +1265,7 @@ fun gen_define_relation gram_t gram_th (gram: Grammar_Common.grammar) lthy =
     val istart_eq_prop =
       HOLogic.mk_Trueprop (HOLogic.mk_eq (istart_c $ gram_t, start_lit));
     val istart_eq_th =
-      Goal.prove lthy [] [] istart_eq_prop
+      Goal.prove_sorry lthy [] [] istart_eq_prop
         (fn {context, ...} =>
            HEADGOAL (asm_full_simp_tac
              (context addsimps [gram_simp])));
@@ -875,7 +1273,7 @@ fun gen_define_relation gram_t gram_th (gram: Grammar_Common.grammar) lthy =
     val istart_ind_eq_prop =
       HOLogic.mk_Trueprop (HOLogic.mk_eq (istart_ind_c $ gram_t, zero_nat));
     val istart_ind_eq_th =
-      Goal.prove lthy [] [] istart_ind_eq_prop
+      Goal.prove_sorry lthy [] [] istart_ind_eq_prop
         (fn {context, ...} =>
            HEADGOAL (asm_full_simp_tac
              (context addsimps [gram_simp])));
@@ -939,7 +1337,7 @@ fun gen_define_relation gram_t gram_th (gram: Grammar_Common.grammar) lthy =
           THEN' bridge_focus lthy_gen;
         val raw_th =
           timed "prove lang" (fn () =>
-            Goal.prove lthy_gen [] [] prop
+            Goal.prove_sorry lthy_gen [] [] prop
               (fn {context, ...} =>
                  HEADGOAL (resolve_tac context [@{thm iffI}])
                  (*Forward: \<open>\<exists>x. pred w x \<Longrightarrow> w \<in> ilang G\<close>.*)
@@ -956,7 +1354,7 @@ fun gen_define_relation gram_t gram_th (gram: Grammar_Common.grammar) lthy =
         (Local_Theory.notes
           [((qualify_bind gram_b "lang", []), [([lang_th], [])])]) lthy;
 
-  in (nnames ~~ #preds ind_result, cleaned_intros, cleaned_inducts, sound_thms, lthy)
+  in (map (fn A => (A, pred_of A)) nnames, cleaned_intros, cleaned_inducts, sound_thms, lthy)
   end;
 
 

@@ -79,6 +79,13 @@ grammar (relation) cyc =
 
 parser cyc_parse for cyc
 
+text \<open>The code equation runs on the action table of the product automaton,
+  and numbers the tokens by a case distinction.\<close>
+
+term \<open>cyc_parse_ptabs\<close>
+lemma \<open>cyc_parse_tnum DId = pnum cyc_parse_ptabs DId\<close>
+  by eval
+
 lemma \<open>acc_conflicts cyc ''!'' \<noteq> []\<close>
   by eval
 
@@ -101,6 +108,18 @@ text \<open>So \<open>cyc_S w x \<Longrightarrow> cyc_parse w = Some x\<close> i
 
 lemma \<open>acc_conflicts cyc ''!'' = [] \<Longrightarrow> cyc_S w x \<Longrightarrow> cyc_parse w = Some x\<close>
   by (fact cyc_parse.complete)
+
+text \<open>The simple driver on integer indices (\<open>parser_int_tables\<close>): the same
+  parser, whose code equation runs on the integer tables \<open>cyc_parse_int_ztabs\<close>.\<close>
+
+declare [[parser_int_tables]]
+parser cyc_parse_int for cyc
+declare [[parser_int_tables = false]]
+
+term cyc_parse_int_ztabs
+
+lemma \<open>cyc_parse_int [tu 1 DId ''x''] = Some 0\<close> \<open>cyc_parse_int [tu 1 DDo ''do''] = None\<close>
+  by eval+
 
 subsection \<open>The rejection path: an ambiguous grammar keeps \<open>mdet\<close>\<close>
 
@@ -814,5 +833,41 @@ lemma \<open>term_first_S w x \<Longrightarrow> shadow_parse w = Some x\<close>
   by (fact shadow_parse.complete)
 
 end
+
+subsection \<open>Several components\<close>
+
+text \<open>The relation is defined by one inductive definition per strongly connected
+  component of the nonterminals, lower components first: here \<open>N\<close>
+  (not recursive), \<open>E\<close> and \<open>T\<close>, and \<open>S\<close>.  The soundness and the bridge
+  proofs go through the components in the same order.\<close>
+
+datatype lay_tok = LX | LNum | LPlus | LSemi | LLP | LRP
+
+grammar (relation) lay =
+  tokens \<open>lay_tok\<close>
+  productions
+    S :: \<open>nat list\<close> = E LSemi S \<Rightarrow> \<open>\<lambda>e _ s. e # s\<close> | E \<Rightarrow> \<open>\<lambda>e. [e]\<close>
+  and
+    E :: \<open>nat\<close> = E LPlus T \<Rightarrow> \<open>\<lambda>a _ b. a + b\<close> | T
+  and
+    T :: \<open>nat\<close> = N | LLP E LRP \<Rightarrow> \<open>\<lambda>_ e _. e\<close>
+  and
+    N :: \<open>nat\<close> = LX \<Rightarrow> \<open>\<lambda>_. 1\<close> | LNum \<Rightarrow> \<open>\<lambda>_. 2\<close>
+
+ML_val \<open>
+  val g = snd (Grammar_Common.check_grammar \<^context> ("lay", Position.none));
+  val _ =
+    Grammar_Defs.components g = [["N"], ["E", "T"], ["S"]]
+    orelse error "components of lay";
+\<close>
+
+parser lay_parse for lay
+
+lemma \<open>lay_parse [tu 1 LX ''x'', tu 2 LPlus ''+'', tu 3 LLP ''('', tu 4 LNum ''2'',
+    tu 5 LRP '')'', tu 6 LSemi '';'', tu 7 LX ''x''] = Some [3, 1]\<close>
+  by eval
+
+lemma \<open>lay_S w x \<longleftrightarrow> lay_parse w = Some x\<close>
+  using lay_parse.sound lay_parse.complete by blast
 
 end
