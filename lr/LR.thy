@@ -1867,6 +1867,14 @@ qed
 definition la_fix :: \<open>('n, 't) is_cfg \<Rightarrow> 'n \<Rightarrow> ('n, 't) lacell list\<close> where
   \<open>la_fix G Shn = la_fix_gen G Shn (la_gtab G (lr0_states G Shn)) (lr0_states G Shn)\<close>
 
+text \<open>The automaton is the expensive part of every table, so the code
+  equation binds it once rather than building it for the goto table and
+  again for the state list.\<close>
+
+lemma la_fix_code [code]:
+  \<open>la_fix G Shn = (let sts = lr0_states G Shn in la_fix_gen G Shn (la_gtab G sts) sts)\<close>
+  by (simp add: la_fix_def Let_def)
+
 abbreviation la_step0 :: \<open>('n, 't) is_cfg \<Rightarrow> 'n \<Rightarrow> ('n, 't) lacell list \<Rightarrow>
     ('n, 't) lacell list\<close> where
   \<open>la_step0 G Shn \<equiv> la_step G (ffix G) (nullables G)

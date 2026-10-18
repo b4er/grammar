@@ -144,16 +144,34 @@ fun lr_build_parse
     val acc_t = app \<^const_name>\<open>acc_conflicts\<close> [gram_t, shn_t];
     val ii_t = app \<^const_name>\<open>ii\<close> [gram_t];
 
-    val (literals, eqs) =
-      eval_all lthy
-        [states_t, gtab_t, redtab_t, xinit_t, xclos_t, i0_t, rlalr_t, acc_t, ii_t];
-    val (states_l, gtab_l, redtab_l, xinit_l, xclos_l, i0_l, rlalr_l, ii_l) =
+    (* One evaluation for all nine components. \<^const>\<open>lr_tables\<close> binds the
+       automaton, its goto table, the saturated cell table and the precise
+       automaton once for the six tables and the two conflict reports, and
+       \<^text>\<open>lr_tables_eq\<close> transports the result back to the unshared
+       terms the parse body is specialised to, so nothing downstream sees the
+       sharing; \<^const>\<open>ii\<close> rides along as the second component of a pair. *)
+    val bundle_t = app \<^const_name>\<open>lr_tables\<close> [gram_t, shn_t];
+    val pair_t = HOLogic.mk_prod (bundle_t, ii_t);
+    val pair_l = timed lthy "value (tables + checks)" (Value_Command.value lthy) pair_t;
+    val pair_th =
+      timed lthy "eval (tables + checks)" (fn () =>
+        Goal.prove_sorry lthy [] [] (HOLogic.mk_Trueprop (HOLogic.mk_eq (pair_t, pair_l)))
+          (fn {context, ...} => HEADGOAL (Parser_Generators.eval_tac context))) ();
+    val (bundle_l, ii_l) = HOLogic.dest_prod pair_l;
+    val (bundle_eq, ii_eq) =
+      (case split_tuple_eq 2 pair_th of
+        [a, b] => (a, b)
+      | _ => raise Fail "lr_build_parse: pair equation");
+    val tables_eq = @{thm trans} OF [@{thm lr_tables_eq} RS @{thm sym}, bundle_eq];
+    val literals = dest_tuple 8 bundle_l @ [ii_l];
+    val eqs = split_tuple_eq 8 tables_eq @ [ii_eq];
+    val (states_l, gtab_l, redtab_l, xinit_l, xclos_l, i0_l, rlalr_l) =
       (case literals of
-        [a, b, c, d, e, f, g, _, i] => (a, b, c, d, e, f, g, i)
+        [a, b, c, d, e, f, g, _, _] => (a, b, c, d, e, f, g)
       | _ => raise Fail "lr_build_parse: tuple literal");
-    val (states_e, gtab_e, redtab_e, xinit_e, xclos_e, i0_e, rlalr_eq, acc_eq, ii_eq) =
+    val (states_e, gtab_e, redtab_e, xinit_e, xclos_e, i0_e, rlalr_eq, acc_eq) =
       (case eqs of
-        [a, b, c, d, e, f, g, h, i] => (a, b, c, d, e, f, g, h, i)
+        [a, b, c, d, e, f, g, h, _] => (a, b, c, d, e, f, g, h)
       | _ => raise Fail "lr_build_parse: tuple equations");
 
     val (states_eq, lthy) = define_table parse_bind "states" (states_e, states_l) [] lthy;
