@@ -36,8 +36,8 @@ locale input_transfer =
   fixes enc :: \<open>('t, 'ch, 'm) token_scheme \<Rightarrow> 'w\<close> and dec :: \<open>'w \<Rightarrow> ('t, 'ch, 'm) token_scheme\<close>
     and ctl1 :: \<open>('m, 'ch, 't) sctl_t \<Rightarrow> (('n, 't) dact \<times> ('m, 'ch, 't) sctl_t) option\<close>
     and fin1 :: \<open>('m, 'ch, 't) sctl_t \<Rightarrow> bool\<close>
-    and ctl2 :: \<open>(nat \<times> nat) list \<times> 'w list \<Rightarrow> (('n, 't) dact \<times> (nat \<times> nat) list \<times> 'w list) option\<close>
-    and fin2 :: \<open>(nat \<times> nat) list \<times> 'w list \<Rightarrow> bool\<close>
+    and ctl2 :: \<open>nat list \<times> 'w list \<Rightarrow> (('n, 't) dact \<times> nat list \<times> 'w list) option\<close>
+    and fin2 :: \<open>nat list \<times> 'w list \<Rightarrow> bool\<close>
   assumes dec: \<open>\<And>x. dec (enc x) = x\<close>
     and ctl: \<open>\<And>stk v. ctl2 (stk, map enc v) =
       map_option (\<lambda>(a, stk', v'). (a, stk', map enc v')) (ctl1 (stk, v))\<close>
@@ -145,24 +145,24 @@ subsection \<open>The trie step on numbered input\<close>
 definition jenc :: \<open>('n, 't) jtabs \<Rightarrow> ('t, 'ch, 'm) token_scheme \<Rightarrow> ('t, 'ch, 'm) token_scheme \<times> nat\<close> where
   \<open>jenc J x = (x, jla J [x])\<close>
 
-definition jctl2 :: \<open>('n, 't) jtabs \<Rightarrow> (nat \<times> nat) list \<times> (('t, 'ch, 'm) token_scheme \<times> nat) list \<Rightarrow>
-    (('n, 't) dact \<times> (nat \<times> nat) list \<times> (('t, 'ch, 'm) token_scheme \<times> nat) list) option\<close> where
+definition jctl2 :: \<open>('n, 't) jtabs \<Rightarrow> nat list \<times> (('t, 'ch, 'm) token_scheme \<times> nat) list \<Rightarrow>
+    (('n, 't) dact \<times> nat list \<times> (('t, 'ch, 'm) token_scheme \<times> nat) list) option\<close> where
   \<open>jctl2 J c = (case c of (stk, v) \<Rightarrow>
-     (case stk of [] \<Rightarrow> None | (i, p) # _ \<Rightarrow>
+     (case stk of [] \<Rightarrow> None | i # _ \<Rightarrow>
        let l = (case v of [] \<Rightarrow> 0 | (_, l) # _ \<Rightarrow> l);
            lics = jget (jt_lic J) i l;
-           comps = (case tlookup (jt_pc J) p of None \<Rightarrow> [] | Some cs \<Rightarrow> cs);
+           comps = (case tlookup (jt_pc J) i of None \<Rightarrow> [] | Some cs \<Rightarrow> cs);
            cands = (case v of [] \<Rightarrow> [] | _ \<Rightarrow> [IShift]) @ map IReduce (filter (jlicd lics) comps)
        in (case spick (jtarget J stk l) cands of
             None \<Rightarrow> None
-          | Some (IShift, q) \<Rightarrow> Some (DShift, (jgo (jt_cgT J) (jt_ns J) i l, q) # stk, tl v)
+          | Some (IShift, q) \<Rightarrow> Some (DShift, q # stk, tl v)
           | Some (IReduce j, q) \<Rightarrow> (case tlookup (jt_prs J) j of None \<Rightarrow> None | Some (pr, A) \<Rightarrow>
-              (case drop_as (snd pr) stk of [] \<Rightarrow> None | (i', _) # _ \<Rightarrow>
-                 Some (DReduce pr, (jgo (jt_cgN J) (jt_ns J) i' A, q) # drop_as (snd pr) stk, v))))))\<close>
+              Some (DReduce pr, q # drop_as (snd pr) stk, v)))))\<close>
 
-definition jfinal2 :: \<open>('n, 't) jtabs \<Rightarrow> (nat \<times> nat) list \<times> (('t, 'ch, 'm) token_scheme \<times> nat) list \<Rightarrow> bool\<close> where
+definition jfinal2 :: \<open>('n, 't) jtabs \<Rightarrow> nat list \<times> (('t, 'ch, 'm) token_scheme \<times> nat) list \<Rightarrow>
+    bool\<close> where
   \<open>jfinal2 J c \<longleftrightarrow> (case c of (stk, v) \<Rightarrow> v = [] \<and>
-     (case stk of [] \<Rightarrow> False | (i, p) # _ \<Rightarrow> tlookup (jt_pf J) p = Some True))\<close>
+     (case stk of [] \<Rightarrow> False | i # _ \<Rightarrow> tlookup (jt_pf J) i = Some True))\<close>
 
 lemma jla_enc: \<open>(case map (jenc J) v of [] \<Rightarrow> 0 | (_, l) # _ \<Rightarrow> l) = jla J v\<close>
   unfolding jenc_def jla_def by (cases v) auto
@@ -196,15 +196,13 @@ qed
 
 lemma dparse_via_trie_tok_tables:
   assumes static: \<open>sstatic G Shn\<close>
-    and st: \<open>lr0_states G Shn = sts\<close> and gt: \<open>la_gtab G sts = gtab\<close>
+    and st: \<open>pr0_states G Shn = sts\<close> and gt: \<open>pgtab G sts = gtab\<close>
     and rt: \<open>red_buckets G Shn (length sts) = redtab\<close>
-    and ps: \<open>pr0_states G Shn = psts\<close> and pg: \<open>pgtab G psts = pgt\<close>
-    and pcs: \<open>pcomps G psts = pc\<close> and pfs: \<open>pfins Shn psts = pf\<close>
+    and pcs: \<open>pcomps G sts = pc\<close> and pfs: \<open>pfins Shn sts = pf\<close>
     and i0: \<open>st_find sts (lr0_start G Shn) = i\<^sub>0\<close>
-    and p0: \<open>st_find psts (lr0_start G Shn) = p\<^sub>0\<close>
-    and lt: \<open>mk_ltabs gtab sts redtab pgt psts pc pf = L\<close>
+    and lt: \<open>mk_ltabs gtab sts redtab pc pf = L\<close>
     and jt: \<open>jtabs_of L = J\<close>
-  shows \<open>dparse G Shn w = xrun_hist (jctl2 J) (jfinal2 J) fst [] ([(i\<^sub>0, p\<^sub>0)], map (jenc J) w, [])\<close>
-  unfolding dparse_via_trie_tables[OF static st gt rt ps pg pcs pfs i0 p0 lt jt] xrun_jctl2 ..
+  shows \<open>dparse G Shn w = xrun_hist (jctl2 J) (jfinal2 J) fst [] ([i\<^sub>0], map (jenc J) w, [])\<close>
+  unfolding dparse_via_trie_tables[OF static st gt rt pcs pfs i0 lt jt] xrun_jctl2 ..
 
 end

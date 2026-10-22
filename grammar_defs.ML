@@ -556,7 +556,7 @@ fun mk_val_sum [U] = (U, [(U, (Abs ("x", U, Bound 0), mk_Some U))])
    carriers, closed by ast_rec: a mutual function over all nonterminals is much
    slower to define. The decoder of A is G__disp's fixpoint at the index of A
    followed by the projection to the carrier of A; its Node and Leaf equations
-   are derived. *)
+   are derived, in parallel over the nonterminals. *)
 fun define_decoders (gram: Grammar_Common.grammar) lthy =
   let
     val {tokenT, astT, ...} = Grammar_Common.get_desc gram;
@@ -590,18 +590,18 @@ fun define_decoders (gram: Grammar_Common.grammar) lthy =
     val sel_v = Free ("dsel", HOLogic.natT);
     val n_v = Free ("dnv", HOLogic.stringT);
     val xs_v = Free ("dxs", astListT);
-    val dispatch =
+    val dispatch = timed "dispatch term" (fn () =>
       fold_rev (fn A => fn rest =>
           mk_if_c valOptT $ HOLogic.mk_eq (sel_v, index_of A)
             $ (mk_map_option_c (carrier_of A) $ inj_of A
                 $ node_body_dec gram lthy carrier_of (dec_via f_v) A n_v xs_v)
             $ rest)
         nnames (mk_None valT)
-      |> Envir.beta_norm;
+      |> Envir.beta_norm) ();
     val disp_b = suffix_bind "__disp" gram_b;
     val ((disp, disp_def), lthy1) =
-      define_const false
-        (disp_b, Thm.def_binding disp_b, fold_rev Term.lambda [f_v, sel_v, n_v, xs_v] dispatch)
+      timed "define dispatch" (define_const false
+        (disp_b, Thm.def_binding disp_b, fold_rev Term.lambda [f_v, sel_v, n_v, xs_v] dispatch))
         lthy;
     val ast_rec_c =
       Const (\<^const_name>\<open>ast_rec\<close>, dispT --> valOptT --> recT);
@@ -609,9 +609,9 @@ fun define_decoders (gram: Grammar_Common.grammar) lthy =
 
     val dec_bindings = map (fn nm => suffix_bind ("__dec_" ^ nm) gram_b) nnames;
     val (dec_defs, lthy2) =
-      fold_map (fn (b, A) =>
+      timed "define decoders" (fold_map (fn (b, A) =>
           define_const false (b, Thm.def_binding b, dec_via decode A))
-        (dec_bindings ~~ nnames) lthy1;
+        (dec_bindings ~~ nnames)) lthy1;
     val decs = map fst dec_defs;
     val dec_def_eqs = map snd dec_defs;
     fun dec_of A = nth decs (find_index (curry (op =) A) nnames);
@@ -628,7 +628,7 @@ fun define_decoders (gram: Grammar_Common.grammar) lthy =
           HEADGOAL (Induct_Tacs.case_tac ctxt "x" [] NONE) THEN
           ALLGOALS (asm_full_simp_tac ctxt)) |> mk_meta_eq)
       end;
-    val bind_maps = map bind_map_lemma injs;
+    val bind_maps = timed "bind_map lemmas" (map bind_map_lemma) injs;
 
     (* decide the selector conditions of the dispatch one by one *)
     fun dispatch_conv ctxt ct =
@@ -663,20 +663,22 @@ fun define_decoders (gram: Grammar_Common.grammar) lthy =
           asm_full_simp_tac (children_ctxt ctxt) 1)
       end;
     val eqns = timed "derive equations" (fn () =>
-      map (fn A => map (prove_eqn A) (eqns_for_nt_dec gram lthy2 carrier_of dec_of A))
+      Par_List.map (fn A =>
+          map_index (fn (k, goal) =>
+              timed ("equation " ^ A ^ " " ^ string_of_int (k + 1)) (prove_eqn A) goal)
+            (eqns_for_nt_dec gram lthy2 carrier_of dec_of A))
         nnames) ();
     val (_, lthy3) =
-      fold_map (fn (b, ths) =>
-          Local_Theory.note
-            ((Binding.qualify_name true b "simps",
-              [Attrib.internal \<^here> (K Simplifier.simp_add)]), ths))
-        (dec_bindings ~~ eqns) lthy2;
+      timed "note simps" (Local_Theory.notes (map (fn (b, ths) =>
+          ((Binding.qualify_name true b "simps",
+              [Attrib.internal \<^here> (K Simplifier.simp_add)]), [(ths, [])]))
+        (dec_bindings ~~ eqns))) lthy2;
     (* the equations are the code equations, also of interpretations; inside a
        locale with assumptions they stay conditional and are not declared
        globally *)
-    val lthy3 = lthy3
+    val lthy3 = timed "code equations" (fn lthy => lthy
       |> Code.declare_default_eqns (map (rpair true) (flat eqns))
-      |> Grammar_Common.declare_code_global {default = true} (flat eqns);
+      |> Grammar_Common.declare_code_global {default = true} (flat eqns)) lthy3;
   in ((nnames ~~ decs), lthy3) end;
 
 (* the decoder of nonterminal A of grammar G, from the registered artifacts *)

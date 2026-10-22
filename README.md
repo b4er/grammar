@@ -12,7 +12,7 @@ Languages* (POPL 2013):
 The documentation is the generated PDF, `output/document.pdf`:
 
 ```shell
-    isabelle build -d . Grammar_Command
+    isabelle build -o document=pdf -d . Grammar_Command
 ```
 
 Sessions defined in `ROOT`:

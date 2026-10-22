@@ -784,6 +784,70 @@ proof -
   qed
 qed
 
+
+subsection \<open>Saturation bounded by the increment, not the universe\<close>
+
+lemma funpow_saturates_delta:
+  fixes f :: \<open>'a list \<Rightarrow> 'a list\<close> and D :: \<open>'a set\<close>
+  assumes ext: \<open>\<And>xs ys. set xs = set ys \<Longrightarrow> set (f xs) = set (f ys)\<close>
+    and mono: \<open>\<And>xs. set xs \<subseteq> set (f xs)\<close>
+    and delta: \<open>\<And>xs. set (f xs) \<subseteq> set xs \<union> D\<close>
+    and fin: \<open>finite D\<close>
+    and N: \<open>card D \<le> N\<close>
+  shows \<open>set (f ((f ^^ N) xs\<^sub>0)) = set ((f ^^ N) xs\<^sub>0)\<close>
+proof -
+  have chain: \<open>set ((f ^^ k) xs\<^sub>0) \<subseteq> set ((f ^^ Suc k) xs\<^sub>0)\<close> for k
+    using mono by simp
+  have incr: \<open>set xs\<^sub>0 \<subseteq> set ((f ^^ k) xs\<^sub>0)\<close> for k
+    by (induction k) (use chain in auto)
+  have inD: \<open>set ((f ^^ k) xs\<^sub>0) \<subseteq> set xs\<^sub>0 \<union> D\<close> for k
+    by (induction k) (use delta in auto)
+  show ?thesis
+  proof (cases \<open>\<exists>k < N. set (f ((f ^^ k) xs\<^sub>0)) = set ((f ^^ k) xs\<^sub>0)\<close>)
+    case True
+    then obtain k where k: \<open>k < N\<close>
+      and st: \<open>set (f ((f ^^ k) xs\<^sub>0)) = set ((f ^^ k) xs\<^sub>0)\<close> by blast
+    have stab: \<open>set ((f ^^ (k + d)) xs\<^sub>0) = set ((f ^^ k) xs\<^sub>0)\<close> for d
+    proof (induction d)
+      case (Suc d)
+      have \<open>set ((f ^^ (k + Suc d)) xs\<^sub>0) = set (f ((f ^^ (k + d)) xs\<^sub>0))\<close>
+        by (simp add: funpow_swap1)
+      also have \<open>\<dots> = set (f ((f ^^ k) xs\<^sub>0))\<close> by (rule ext[OF Suc.IH])
+      also have \<open>\<dots> = set ((f ^^ k) xs\<^sub>0)\<close> by (rule st)
+      finally show ?case .
+    qed simp
+    have \<open>set ((f ^^ N) xs\<^sub>0) = set ((f ^^ k) xs\<^sub>0)\<close>
+      using stab[of \<open>N - k\<close>] k by simp
+    then show ?thesis using st ext by metis
+  next
+    case False
+    \<comment> \<open>no early fixed point: each of the first \<open>N\<close> steps strictly grows,
+        so the increment exhausts \<^term>\<open>D\<close>\<close>
+    have strict: \<open>k < N \<Longrightarrow> set ((f ^^ k) xs\<^sub>0) \<subset> set ((f ^^ Suc k) xs\<^sub>0)\<close> for k
+      using False chain by (simp add: psubset_eq) blast
+    have card_ge: \<open>k \<le> N \<Longrightarrow> k \<le> card (set ((f ^^ k) xs\<^sub>0) - set xs\<^sub>0)\<close> for k
+    proof (induction k)
+      case (Suc k)
+      have fk: \<open>finite (set ((f ^^ k) xs\<^sub>0) - set xs\<^sub>0)\<close> by simp
+      have sub: \<open>set ((f ^^ k) xs\<^sub>0) - set xs\<^sub>0 \<subset> set ((f ^^ Suc k) xs\<^sub>0) - set xs\<^sub>0\<close>
+        using strict[of k] Suc.prems incr[of k] by auto
+      have \<open>k \<le> card (set ((f ^^ k) xs\<^sub>0) - set xs\<^sub>0)\<close> using Suc by simp
+      moreover have \<open>card (set ((f ^^ k) xs\<^sub>0) - set xs\<^sub>0)
+            < card (set ((f ^^ Suc k) xs\<^sub>0) - set xs\<^sub>0)\<close>
+        by (rule psubset_card_mono) (use sub in auto)
+      ultimately show ?case by simp
+    qed simp
+    have dsub: \<open>set ((f ^^ N) xs\<^sub>0) - set xs\<^sub>0 \<subseteq> D\<close> using inD by auto
+    have \<open>N \<le> card (set ((f ^^ N) xs\<^sub>0) - set xs\<^sub>0)\<close> by (rule card_ge) simp
+    moreover have \<open>card (set ((f ^^ N) xs\<^sub>0) - set xs\<^sub>0) \<le> card D\<close>
+      by (rule card_mono[OF fin dsub])
+    ultimately have eqD: \<open>set ((f ^^ N) xs\<^sub>0) - set xs\<^sub>0 = D\<close>
+      using N card_subset_eq[OF fin dsub] by simp
+    have \<open>set (f ((f ^^ N) xs\<^sub>0)) \<subseteq> set ((f ^^ N) xs\<^sub>0)\<close>
+      using delta[of \<open>(f ^^ N) xs\<^sub>0\<close>] eqD by auto
+    with mono show ?thesis by blast
+  qed
+qed
 subsection \<open>Executable nullability\<close>
 
 definition nsym :: \<open>'n list \<Rightarrow> ('n, 't) sym \<Rightarrow> bool\<close> where
@@ -1452,6 +1516,23 @@ definition la_gtab :: \<open>('n, 't) is_cfg \<Rightarrow> ('n, 't) citem list l
         (remdups (concat (map (\<lambda>(pr, m).
            if m < length (snd pr) then [fst (snd pr ! m)] else []) cl)))) sts\<close>
 
+lemma map_of_map_pair:
+  \<open>map_of (map (\<lambda>X. (X, f X)) xs) X = (if X \<in> set xs then Some (f X) else None)\<close>
+  by (induction xs) auto
+
+lemma la_gtab_lookup:
+  assumes \<open>i < length sts\<close> and \<open>(pr, m) \<in> set (cclosure G (sts ! i))\<close> and \<open>m < length (snd pr)\<close>
+  shows \<open>map_of (la_gtab G sts ! i) (fst (snd pr ! m)) =
+           Some (st_find sts (cgoto (cclosure G (sts ! i)) (fst (snd pr ! m))))\<close>
+proof -
+  let ?f = \<open>\<lambda>(pr, m). if m < length (snd pr) then [fst (snd pr ! m)] else []\<close>
+  have h1: \<open>fst (snd pr ! m) \<in> set (?f (pr, m))\<close> using assms(3) by simp
+  have mem: \<open>fst (snd pr ! m) \<in> set (concat (map ?f (cclosure G (sts ! i))))\<close>
+    unfolding set_concat set_map using h1 assms(2) by blast
+  show ?thesis unfolding la_gtab_def using assms(1) mem
+    by (simp add: Let_def map_of_map_pair)
+qed
+
 definition la_start :: \<open>('n, 't) is_cfg \<Rightarrow> 'n \<Rightarrow> ('n, 't) citem list list \<Rightarrow>
     ('n, 't) lacell list\<close> where
   \<open>la_start G Shn sts =
@@ -1864,29 +1945,6 @@ proof -
   qed
 qed
 
-definition la_fix :: \<open>('n, 't) is_cfg \<Rightarrow> 'n \<Rightarrow> ('n, 't) lacell list\<close> where
-  \<open>la_fix G Shn = la_fix_gen G Shn (la_gtab G (lr0_states G Shn)) (lr0_states G Shn)\<close>
-
-text \<open>The automaton is the expensive part of every table, so the code
-  equation binds it once rather than building it for the goto table and
-  again for the state list.\<close>
-
-lemma la_fix_code [code]:
-  \<open>la_fix G Shn = (let sts = lr0_states G Shn in la_fix_gen G Shn (la_gtab G sts) sts)\<close>
-  by (simp add: la_fix_def Let_def)
-
-abbreviation la_step0 :: \<open>('n, 't) is_cfg \<Rightarrow> 'n \<Rightarrow> ('n, 't) lacell list \<Rightarrow>
-    ('n, 't) lacell list\<close> where
-  \<open>la_step0 G Shn \<equiv> la_step G (ffix G) (nullables G)
-     (la_gtab G (lr0_states G Shn)) (lr0_states G Shn)\<close>
-
-theorem la_fix_stable:
-  \<open>set (la_step0 G Shn (la_fix G Shn)) = set (la_fix G Shn)\<close>
-  unfolding la_fix_def by (rule la_fix_gen_stable)
-
-lemma la_fix_start: \<open>set (la_start G Shn (lr0_states G Shn)) \<subseteq> set (la_fix G Shn)\<close>
-  unfolding la_fix_def by (rule la_fix_gen_start)
-
 subsection \<open>The canonical conflict report\<close>
 
 text \<open>Reduce lookahead comes from the canonical cells, the anchoring to the
@@ -1967,10 +2025,6 @@ definition lalr_conflict_at :: \<open>('n, 't) is_cfg \<Rightarrow> 'n \<Rightar
     ('n, 't) lacell list \<Rightarrow> nat \<Rightarrow> bool\<close> where
   \<open>lalr_conflict_at G Shn sts L i = (lalr_confs_at G Shn sts L i \<noteq> [])\<close>
 
-definition lalr_conflicts :: \<open>('n, 't) is_cfg \<Rightarrow> 'n \<Rightarrow> nat list\<close> where
-  \<open>lalr_conflicts G Shn = (let sts = lr0_states G Shn in
-     filter (lalr_conflict_at G Shn sts (la_fix G Shn)) [0..<length sts])\<close>
-
 subsection \<open>The precise automaton\<close>
 
 text \<open>\<^const>\<open>cclosure\<close> predicts every production in every state, so a
@@ -1998,5 +2052,335 @@ definition pgtab :: \<open>('n, 't) is_cfg \<Rightarrow> ('n, 't) citem list lis
       map (\<lambda>X. (X, st_find sts (cgoto cl X)))
         (remdups (concat (map (\<lambda>(pr, m).
            if m < length (snd pr) then [fst (snd pr ! m)] else []) cl)))) sts\<close>
+
+
+subsection \<open>The precise automaton: its states\<close>
+
+text \<open>\<^const>\<open>pr0_states\<close> is the worklist construction of \<open>LR\<close> with the
+  reachable closure \<^const>\<open>creach\<close> in place of \<^const>\<open>cclosure\<close>; the
+  generic \<^text>\<open>wl_states_inv\<close> gives goto-closedness, the start state and
+  the universe bound once a goto through \<^const>\<open>creach\<close> is known to stay
+  in the universe.\<close>
+
+lemma cgoto_creach_univ:
+  assumes \<open>set s \<subseteq> cuniv G Shn\<close>
+  shows \<open>set (cgoto (creach G s) X) \<subseteq> cuniv G Shn\<close>
+  using cgoto_set_mono[OF creach_sound] cgoto_cclosure_univ[OF assms] by blast
+
+lemma pr0_states_inv:
+  \<open>wl_inv G Shn (creach G) {set (lr0_start G Shn), {}} (pr0_states G Shn, [])\<close>
+  unfolding pr0_states_def by (rule wl_states_inv[OF cgoto_creach_univ])
+
+theorem pr0_states_closed:
+  assumes \<open>s \<in> set (pr0_states G Shn)\<close> and \<open>X \<in> set (gram_syms G)\<close>
+  shows \<open>\<exists>t \<in> set (pr0_states G Shn). set t = set (cgoto (creach G s) X)\<close>
+  using pr0_states_inv assms unfolding wl_inv_def by fastforce
+
+theorem pr0_states_start:
+  \<open>\<exists>t \<in> set (pr0_states G Shn). set t = set (ccore (xinit G Shn))\<close>
+proof -
+  have \<open>set (lr0_start G Shn) \<in> set ` set (pr0_states G Shn)\<close>
+    using pr0_states_inv[of G Shn] unfolding wl_inv_def by auto
+  moreover have \<open>set (ccore (xinit G Shn)) = set (lr0_start G Shn)\<close>
+    unfolding ccore_def xinit_def lr0_start_def start_prod_def by simp
+  ultimately show ?thesis by auto
+qed
+
+lemma pr0_states_univ:
+  \<open>s \<in> set (pr0_states G Shn) \<Longrightarrow> set s \<subseteq> cuniv G Shn\<close>
+  using pr0_states_inv[of G Shn] unfolding wl_inv_def by auto
+
+
+subsection \<open>The live part of a frame closure lies in the reachable closure\<close>
+
+text \<open>The frame closure \<^const>\<open>xclosure_auto\<close> predicts every production
+  (dead slots carry empty \<^typ>\<open>indrep\<close>s), but an item that carries an
+  \<open>anchor\<close> was predicted through a chain of anchored items: its core lies in
+  \<^const>\<open>creach\<close> of any kernel covering the anchored kernel items.  This
+  connects a runtime frame to the \<open>precise\<close> automaton state of its
+  context.  First the \<^const>\<open>creach\<close> lemmas: a set-level characterisation
+  of the step, saturation of the fuelled closure (via
+  \<open>funpow_saturates_delta\<close>), monotonicity, and the emit lemma.\<close>
+
+lemma creach_step_set:
+  \<open>set (creach_step G cs) = set cs \<union>
+     {(pr, 0) | pr. pr \<in> set (iprods G) \<and>
+        (\<exists>pr' m'. (pr', m') \<in> set cs \<and> m' < length (snd pr') \<and>
+                  fst (snd pr' ! m') = Nt (fst pr))}\<close>
+  unfolding creach_step_def by (fastforce simp: list_ex_iff split: if_splits)
+
+lemma creach_step_ext:
+  \<open>set cs = set cs' \<Longrightarrow> set (creach_step G cs) = set (creach_step G cs')\<close>
+  by (simp add: creach_step_set)
+
+lemma creach_step_dot0_delta:
+  \<open>set (creach_step G cs) \<subseteq> set cs \<union> set (map (\<lambda>pr. (pr, 0)) (iprods G))\<close>
+  by (auto simp: creach_step_set)
+
+theorem creach_stable: \<open>set (creach_step G (creach G cs)) = set (creach G cs)\<close>
+  unfolding creach_def
+proof (rule funpow_saturates_delta[where D = \<open>set (map (\<lambda>pr. (pr, 0)) (iprods G))\<close>])
+  show \<open>\<And>xs ys. set xs = set ys \<Longrightarrow> set (creach_step G xs) = set (creach_step G ys)\<close>
+    by (rule creach_step_ext)
+  show \<open>\<And>xs. set xs \<subseteq> set (creach_step G xs)\<close> by (rule creach_step_mono)
+  show \<open>\<And>xs. set (creach_step G xs) \<subseteq> set xs \<union> set (map (\<lambda>pr. (pr, 0)) (iprods G))\<close>
+    by (rule creach_step_dot0_delta)
+  show \<open>finite (set (map (\<lambda>pr. (pr, 0)) (iprods G)))\<close> by simp
+  show \<open>card (set (map (\<lambda>pr. (pr, 0)) (iprods G))) \<le> Suc (length (iprods G))\<close>
+    by (metis card_length length_map le_SucI)
+qed
+
+lemma creach_emit:
+  assumes mem: \<open>(pr', m') \<in> set (creach G cs)\<close>
+    and m_lt: \<open>m' < length (snd pr')\<close>
+    and nxt: \<open>fst (snd pr' ! m') = Nt (fst br)\<close>
+    and br: \<open>br \<in> set (iprods G)\<close>
+  shows \<open>(br, 0) \<in> set (creach G cs)\<close>
+proof -
+  have \<open>(br, 0) \<in> set (creach_step G (creach G cs))\<close>
+    unfolding creach_step_set using mem m_lt nxt br by blast
+  then show ?thesis unfolding creach_stable .
+qed
+
+text \<open>The live-closure lemma, by induction on the round number: a
+  slot with a non-empty anchor set was contributed by an anchored item,
+  which is a live kernel item or an earlier live slot.\<close>
+
+lemma xiter_live_creach:
+  assumes kern: \<open>\<And>pr m R. (pr, m, R) \<in> set xs \<Longrightarrow> irep_nonempty R \<Longrightarrow> (pr, m) \<in> set s\<close>
+  shows \<open>p < length (iprods G) \<Longrightarrow> j \<in> irep_set (xiter G xs t ! p) \<Longrightarrow>
+     (iprods G ! p, 0) \<in> set (creach G s)\<close>
+proof (induction t arbitrary: p j)
+  case 0
+  then show ?case by simp
+next
+  case (Suc t)
+  have len: \<open>length (xiter G xs t) = length (iprods G)\<close> by simp
+  have \<open>xiter G xs (Suc t) ! p =
+      fold (xcontrib (iprods G ! p)) (xslots G xs (xiter G xs t)) (xiter G xs t ! p)\<close>
+    by (simp add: xround_nth[OF len Suc.prems(1)])
+  with Suc.prems(2) have
+    \<open>j \<in> irep_set (xiter G xs t ! p) \<or>
+     (\<exists>xit \<in> set (xslots G xs (xiter G xs t)). j \<in> ximg (iprods G ! p) xit)\<close>
+    by (simp add: fold_xcontrib_set)
+  then show ?case
+  proof
+    assume \<open>j \<in> irep_set (xiter G xs t ! p)\<close>
+    from Suc.IH[OF Suc.prems(1) this] show ?thesis .
+  next
+    assume \<open>\<exists>xit \<in> set (xslots G xs (xiter G xs t)). j \<in> ximg (iprods G ! p) xit\<close>
+    then obtain xit where xit: \<open>xit \<in> set (xslots G xs (xiter G xs t))\<close>
+      and jimg: \<open>j \<in> ximg (iprods G ! p) xit\<close> by blast
+    obtain pr' m' R' where xeq: \<open>xit = (pr', m', R')\<close> by (cases xit) auto
+    obtain A rhs where pr': \<open>pr' = (A, rhs)\<close> by (cases pr')
+    from jimg have m_lt: \<open>m' < length rhs\<close>
+      and nxt: \<open>fst (rhs ! m') = Nt (fst (iprods G ! p))\<close>
+      and jsat: \<open>\<exists>i \<in> irep_set R'. irel_sat (snd (rhs ! m')) j i\<close>
+      unfolding xeq pr' by (auto split: if_splits)
+    from jsat obtain i where iR: \<open>i \<in> irep_set R'\<close> by blast
+    have src: \<open>(pr', m') \<in> set (creach G s)\<close>
+      using xit
+    proof (rule xslots_memE)
+      assume \<open>xit \<in> set xs\<close>
+      then have memxs: \<open>(pr', m', R') \<in> set xs\<close> using xeq by simp
+      have \<open>(pr', m') \<in> set s\<close> using kern[OF memxs] iR by auto
+      then show ?thesis using creach_superset by (auto simp: creach_def creach_funpow_mono)
+    next
+      fix q assume q: \<open>q < length (iprods G)\<close> and \<open>q < length (xiter G xs t)\<close>
+        and xq: \<open>xit = (iprods G ! q, 0, xiter G xs t ! q)\<close>
+      have pq: \<open>pr' = iprods G ! q\<close> and mq: \<open>m' = 0\<close>
+        and Rq: \<open>R' = xiter G xs t ! q\<close> using xq xeq by auto
+      have \<open>i \<in> irep_set (xiter G xs t ! q)\<close> using iR Rq by simp
+      from Suc.IH[OF q this] show ?thesis unfolding pq mq by simp
+    qed
+    have m_lt': \<open>m' < length (snd pr')\<close> using m_lt pr' by simp
+    have nxt': \<open>fst (snd pr' ! m') = Nt (fst (iprods G ! p))\<close> using nxt pr' by simp
+    have prp: \<open>iprods G ! p \<in> set (iprods G)\<close> using Suc.prems(1) by simp
+    from creach_emit[OF src m_lt' nxt' prp] show ?thesis .
+  qed
+qed
+
+theorem xclosure_auto_live_creach:
+  assumes kern: \<open>\<And>pr m R. (pr, m, R) \<in> set xs \<Longrightarrow> irep_nonempty R \<Longrightarrow> (pr, m) \<in> set s\<close>
+    and mem: \<open>(pr, m, R) \<in> set (xclosure_auto G xs)\<close>
+    and jR: \<open>j \<in> irep_set R\<close>
+  shows \<open>(pr, m) \<in> set (creach G s)\<close>
+proof -
+  have mem': \<open>(pr, m, R) \<in> set (xslots G xs (xiter G xs (xfuel G xs)))\<close>
+    using mem unfolding xclosure_auto_def xclosure_def .
+  show ?thesis
+    using mem'
+  proof (rule xslots_memE)
+    assume mem2: \<open>(pr, m, R) \<in> set xs\<close>
+    have \<open>(pr, m) \<in> set s\<close> using kern[OF mem2] jR by auto
+    then show ?thesis using creach_superset by auto
+  next
+    fix q assume q: \<open>q < length (iprods G)\<close>
+      and \<open>q < length (xiter G xs (xfuel G xs))\<close>
+      and eq: \<open>(pr, m, R) = (iprods G ! q, 0, xiter G xs (xfuel G xs) ! q)\<close>
+    have \<open>j \<in> irep_set (xiter G xs (xfuel G xs) ! q)\<close> using jR eq by simp
+    from xiter_live_creach[OF kern q this] show ?thesis using eq by simp
+  qed
+qed
+
+
+subsection \<open>The live core of a frame\<close>
+
+text \<open>The live core of a frame: the items whose anchor set is non-empty.  A
+  frame owes its obligations only there: a dead frame never contributes a
+  candidate, and by \<open>xclosure_auto_live_creach\<close> over the empty kernel a dead
+  kernel has a dead closure.\<close>
+
+definition lcore :: \<open>('n, 't) xitem list \<Rightarrow> ('n, 't) citem set\<close> where
+  \<open>lcore xs = {(pr, m) | pr m R. (pr, m, R) \<in> set xs \<and> irep_nonempty R}\<close>
+
+lemma lcoreI: \<open>(pr, m, R) \<in> set xs \<Longrightarrow> j \<in> irep_set R \<Longrightarrow> (pr, m) \<in> lcore xs\<close>
+  unfolding lcore_def by (cases pr) auto
+
+lemma lcore_sub_ccore: \<open>lcore xs \<subseteq> set (ccore xs)\<close>
+  unfolding lcore_def ccore_def by force
+
+lemma lcore_subD:
+  \<open>lcore xs \<subseteq> S \<Longrightarrow> (pr, m, R) \<in> set xs \<Longrightarrow> j \<in> irep_set R \<Longrightarrow> (pr, m) \<in> S\<close>
+  using lcoreI by blast
+
+lemma lcore_subD_ne:
+  \<open>lcore xs \<subseteq> S \<Longrightarrow> (pr, m, R) \<in> set xs \<Longrightarrow> irep_nonempty R \<Longrightarrow> (pr, m) \<in> S\<close>
+  unfolding irep_nonempty_correct using lcore_subD by blast
+
+lemma live_lcore: \<open>live xs \<longleftrightarrow> lcore xs \<noteq> {}\<close>
+  unfolding live_def lcore_def list_ex_iff by fastforce
+
+lemma lcore_xinit: \<open>lcore (xinit G Shn) = set (lr0_start G Shn)\<close>
+  unfolding lcore_def xinit_def lr0_start_def start_prod_def by auto
+
+lemma creach_Nil [simp]: \<open>set (creach G []) = {}\<close>
+proof -
+  have \<open>set ((creach_step G ^^ k) []) = {}\<close> for k
+    by (induction k) (auto simp: creach_step_set)
+  then show ?thesis unfolding creach_def by blast
+qed
+
+text \<open>A closure with an anchored item sits on a live kernel: by
+  \<^text>\<open>xclosure_auto_live_creach\<close> the item's core would otherwise lie in
+  the reachable closure of the empty kernel.\<close>
+
+lemma closure_live_kernel:
+  assumes mem: \<open>(pr, m, R) \<in> set (xclosure_auto G xs)\<close> and jR: \<open>j \<in> irep_set R\<close>
+  shows \<open>lcore xs \<noteq> {}\<close>
+proof
+  assume dead: \<open>lcore xs = {}\<close>
+  have kern: \<open>\<And>pr' m' R'. (pr', m', R') \<in> set xs \<Longrightarrow> irep_nonempty R' \<Longrightarrow>
+      (pr', m') \<in> set []\<close>
+    using dead by (auto simp: lcore_def)
+  from xclosure_auto_live_creach[OF kern mem jR]
+  have \<open>(pr, m) \<in> set (creach G [])\<close> .
+  then show False by simp
+qed
+
+subsection \<open>The precise goto table\<close>
+
+lemma dot_sym_gram:
+  assumes univ: \<open>set cs \<subseteq> cuniv G Shn\<close>
+    and mem: \<open>(pr, m) \<in> set cs\<close> and m: \<open>m < length (snd pr)\<close>
+  shows \<open>fst (snd pr ! m) \<in> set (gram_syms G)\<close>
+proof (cases \<open>pr = start_prod G Shn\<close>)
+  case True
+  then show ?thesis using m by (simp add: start_prod_def gram_syms_def)
+next
+  case False
+  then have \<open>pr \<in> set (iprods G)\<close> using univ mem unfolding cuniv_def by auto
+  then obtain A rhs where preq: \<open>pr = (A, rhs)\<close> and Ar: \<open>(A, rhs) \<in> set (iprods G)\<close>
+    by (metis prod.collapse)
+  moreover have \<open>rhs ! m \<in> set rhs\<close> using m preq by simp
+  ultimately show ?thesis unfolding gram_syms_def by force
+qed
+
+lemma pgtab_len [simp]: \<open>length (pgtab G sp) = length sp\<close>
+  unfolding pgtab_def by simp
+
+lemma pgtab_mem:
+  assumes p: \<open>p < length sp\<close>
+    and mem: \<open>(pr, m) \<in> set (creach G (sp ! p))\<close> and m: \<open>m < length (snd pr)\<close>
+  shows \<open>(fst (snd pr ! m),
+          st_find sp (cgoto (creach G (sp ! p)) (fst (snd pr ! m))))
+         \<in> set (pgtab G sp ! p)\<close>
+proof -
+  let ?f = \<open>\<lambda>(pr, m). if m < length (snd pr) then [fst (snd pr ! m)] else []\<close>
+  have h1: \<open>fst (snd pr ! m) \<in> set (?f (pr, m))\<close> using m by simp
+  have \<open>fst (snd pr ! m) \<in> \<Union> (set ` ?f ` set (creach G (sp ! p)))\<close>
+    using h1 mem by blast
+  then have \<open>fst (snd pr ! m) \<in> set (concat (map ?f (creach G (sp ! p))))\<close>
+    by simp
+  then show ?thesis unfolding pgtab_def using p by (simp add: Let_def)
+qed
+
+lemma pgtab_lookup:
+  assumes \<open>i < length sts\<close> and \<open>(pr, m) \<in> set (creach G (sts ! i))\<close> and \<open>m < length (snd pr)\<close>
+  shows \<open>map_of (pgtab G sts ! i) (fst (snd pr ! m)) =
+           Some (st_find sts (cgoto (creach G (sts ! i)) (fst (snd pr ! m))))\<close>
+proof -
+  let ?f = \<open>\<lambda>(pr, m). if m < length (snd pr) then [fst (snd pr ! m)] else []\<close>
+  have h1: \<open>fst (snd pr ! m) \<in> set (?f (pr, m))\<close> using assms(3) by simp
+  have mem: \<open>fst (snd pr ! m) \<in> set (concat (map ?f (creach G (sts ! i))))\<close>
+    unfolding set_concat set_map using h1 assms(2) by blast
+  show ?thesis unfolding pgtab_def using assms(1) mem
+    by (simp add: Let_def map_of_map_pair)
+qed
+
+lemma pgtab_none:
+  assumes \<open>i < length sts\<close>
+    and \<open>\<And>pr m. (pr, m) \<in> set (creach G (sts ! i)) \<Longrightarrow> m < length (snd pr) \<Longrightarrow> fst (snd pr ! m) \<noteq> X\<close>
+  shows \<open>map_of (pgtab G sts ! i) X = None\<close>
+proof -
+  let ?f = \<open>\<lambda>(pr, m). if m < length (snd pr) then [fst (snd pr ! m)] else []\<close>
+  have \<open>X \<notin> set (concat (map ?f (creach G (sts ! i))))\<close>
+  proof
+    assume \<open>X \<in> set (concat (map ?f (creach G (sts ! i))))\<close>
+    then obtain pr m where \<open>(pr, m) \<in> set (creach G (sts ! i))\<close> \<open>m < length (snd pr)\<close>
+      \<open>fst (snd pr ! m) = X\<close> by (auto split: if_splits)
+    with assms(2) show False by blast
+  qed
+  then show ?thesis unfolding pgtab_def using assms(1)
+    by (simp add: Let_def map_of_map_pair)
+qed
+
+text \<open>The start state of the precise automaton.\<close>
+
+definition p0start :: \<open>('n, 't) is_cfg \<Rightarrow> 'n \<Rightarrow> nat\<close> where
+  \<open>p0start G Shn = st_find (pr0_states G Shn) (lr0_start G Shn)\<close>
+
+subsection \<open>The cells of the precise automaton\<close>
+
+text \<open>The driver's cell table: the lookahead cells over the precise automaton.
+  The automaton is the expensive part of every table, so the code equation
+  binds it once rather than building it for the goto table and again for the
+  state list.\<close>
+
+definition la_fix :: \<open>('n, 't) is_cfg \<Rightarrow> 'n \<Rightarrow> ('n, 't) lacell list\<close> where
+  \<open>la_fix G Shn = la_fix_gen G Shn (pgtab G (pr0_states G Shn)) (pr0_states G Shn)\<close>
+
+lemma la_fix_code [code]:
+  \<open>la_fix G Shn = (let sts = pr0_states G Shn in la_fix_gen G Shn (pgtab G sts) sts)\<close>
+  by (simp add: la_fix_def Let_def)
+
+abbreviation la_step0 :: \<open>('n, 't) is_cfg \<Rightarrow> 'n \<Rightarrow> ('n, 't) lacell list \<Rightarrow>
+    ('n, 't) lacell list\<close> where
+  \<open>la_step0 G Shn \<equiv> la_step G (ffix G) (nullables G)
+     (pgtab G (pr0_states G Shn)) (pr0_states G Shn)\<close>
+
+theorem la_fix_stable:
+  \<open>set (la_step0 G Shn (la_fix G Shn)) = set (la_fix G Shn)\<close>
+  unfolding la_fix_def by (rule la_fix_gen_stable)
+
+lemma la_fix_start: \<open>set (la_start G Shn (pr0_states G Shn)) \<subseteq> set (la_fix G Shn)\<close>
+  unfolding la_fix_def by (rule la_fix_gen_start)
+
+text \<open>The canonical conflict report over the precise automaton and its cells.\<close>
+
+definition lalr_conflicts :: \<open>('n, 't) is_cfg \<Rightarrow> 'n \<Rightarrow> nat list\<close> where
+  \<open>lalr_conflicts G Shn = (let sts = pr0_states G Shn in
+     filter (lalr_conflict_at G Shn sts (la_fix G Shn)) [0..<length sts])\<close>
+
 
 end

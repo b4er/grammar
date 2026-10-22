@@ -396,9 +396,9 @@ lemmas drun\<^sub>w\<^sub>f_simps [simp] = drun\<^sub>w\<^sub>f.simps
 text \<open>Not a code equation: generated code runs \<^text>\<open>drun_hist\<close>, which ends a
   run that revisits a configuration (\<^text>\<open>drun\<^sub>w\<^sub>f_code\<close> below).\<close>
 
-text \<open>Entry points over the coarse automaton: the six tables the
-  \<^text>\<open>parser\<close> command precomputes, so generated code never recomputes
-  them (\<^text>\<open>dparse_via_tables\<close> below).\<close>
+text \<open>Entry points over the precise automaton: the six tables the
+  \<^text>\<open>parser\<close> command defines as constants, so generated code computes
+  each once (\<^text>\<open>dparse_via_tables\<close> below).\<close>
 
 definition dinit :: \<open>('n, 't) is_cfg \<Rightarrow> 'n \<Rightarrow> ('n, 't) citem list list \<Rightarrow> ('m, 'ch, 't) tword \<Rightarrow>
     ('m, 'ch, 'n, 't) dst\<close> where
@@ -407,24 +407,26 @@ definition dinit :: \<open>('n, 't) is_cfg \<Rightarrow> 'n \<Rightarrow> ('n, '
 
 definition dparse\<^sub>n :: \<open>('n, 't) is_cfg \<Rightarrow> 'n \<Rightarrow> nat \<Rightarrow> ('m, 'ch, 't) tword \<Rightarrow>
     ('m, 'ch, 'n, 't) ast option\<close> where
-  \<open>dparse\<^sub>n G Shn fuel w = (let sts = lr0_states G Shn; gt = la_gtab G sts;
+  \<open>dparse\<^sub>n G Shn fuel w = (let sts = pr0_states G Shn; gt = pgtab G sts;
        redtab = red_buckets G Shn (length sts)
      in drun G Shn gt sts redtab fuel (dinit G Shn sts w))\<close>
 
 definition dparse :: \<open>('n, 't) is_cfg \<Rightarrow> 'n \<Rightarrow> ('m, 'ch, 't) tword \<Rightarrow>
     ('m, 'ch, 'n, 't) ast option\<close> where
-  \<open>dparse G Shn w = (let sts = lr0_states G Shn; gt = la_gtab G sts;
+  \<open>dparse G Shn w = (let sts = pr0_states G Shn; gt = pgtab G sts;
        redtab = red_buckets G Shn (length sts)
      in drun\<^sub>w\<^sub>f G Shn gt sts redtab (dinit G Shn sts w))\<close>
 
-text \<open>Table inlining for the code generator: the six tables are precomputed
-  once at parser-definition time and the driver applied to the resulting
-  constants, so exported code never recomputes them and each step is O(frame).
-  The backend's \<^text>\<open>lr_build_parse\<close> consumes this equation.\<close>
+text \<open>Table inlining for the code generator: the six tables become constants,
+  each defined by its term over the ones before it (or by its value under
+  \<^text>\<open>parser_literal_tables\<close>), and the driver is applied to those
+  constants, so exported code computes each table once when it loads and each
+  step is O(frame). The backend's \<^text>\<open>lr_build_parse\<close> consumes this
+  equation.\<close>
 
 lemma dparse_via_tables:
-  assumes st:  \<open>lr0_states G Shn = sts\<close>
-    and   gt:  \<open>la_gtab G sts = gtab\<close>
+  assumes st:  \<open>pr0_states G Shn = sts\<close>
+    and   gt:  \<open>pgtab G sts = gtab\<close>
     and   rt:  \<open>red_buckets G Shn (length sts) = redtab\<close>
     and   xi:  \<open>xinit G Shn = xin\<close>
     and   xc:  \<open>xclosure_auto G xin = xclos\<close>
@@ -1528,14 +1530,16 @@ proof -
     using j'_slot ip unfolding xclosure_auto_def xclosure_def by auto
 qed
 
-subsection \<open>The runtime tables are the coarse ones\<close>
+subsection \<open>The runtime tables are the precise ones\<close>
 
-text \<open>The driver runs over \<^const>\<open>lr0_states\<close>: the machine's frame closure is
-  \<^const>\<open>xclosure_auto\<close>, whose core is \<^const>\<open>cclosure\<close> (a dot-0 slot for
-  every production), and \<^text>\<open>cores_ok_goto\<close> shows every reachable frame's
-  core is tabulated there. \<^const>\<open>pr0_states\<close>, the context-precise automaton
-  of \<^text>\<open>LR\<close>, is a diagnostic: it sharpens the conflict report but does not
-  describe the frames.\<close>
+text \<open>The driver indexes its frames by \<^const>\<open>pr0_states\<close>, the automaton of
+  the reachable closure \<^const>\<open>creach\<close>.  A frame's closure
+  \<^const>\<open>xclosure_auto\<close> has a slot for every production, but only its live
+  slots (a non-empty anchor set) matter to the driver, and
+  \<open>xclosure_auto_live_creach\<close> places every live slot in \<^const>\<open>creach\<close> of
+  any state covering the frame's live kernel items.  So a precise state covers
+  each frame's live core, and the goto table resolves every live symbol after a
+  dot.\<close>
 
 lemma cell_buckets_red_buckets: \<open>cell_buckets (la_fix G Shn) n = red_buckets G Shn n\<close>
   by (simp add: red_buckets_def)
@@ -1543,65 +1547,47 @@ lemma cell_buckets_red_buckets: \<open>cell_buckets (la_fix G Shn) n = red_bucke
 subsection \<open>The table contract\<close>
 
 text \<open>What the completeness proof needs from the three tables: the start
-  state is present, the state list is closed under goto through the frame
-  closure \<^const>\<open>cclosure\<close>, the goto table resolves every symbol after a dot,
-  and the cell table contains the start cell and is closed under
-  \<^const>\<open>la_cell\<close>.\<close>
+  state is present, the state list is closed under goto through the reachable
+  closure \<^const>\<open>creach\<close>, the goto table resolves every symbol after a dot
+  of a reachable item, and the cell table contains the start cell and is
+  closed under \<^const>\<open>la_cell\<close>.\<close>
 
 definition tables_ok :: \<open>('n, 't) is_cfg \<Rightarrow> 'n \<Rightarrow> ('n, 't) citem list list \<Rightarrow>
     (('n, 't) sym \<times> nat) list list \<Rightarrow> ('n, 't) lacell list \<Rightarrow> bool\<close> where
   \<open>tables_ok G Shn sts gt L \<longleftrightarrow>
      (\<exists>t \<in> set sts. set t = set (lr0_start G Shn)) \<and>
-     (\<forall>s \<in> set sts. \<forall>X \<in> set (gram_syms G). \<exists>t \<in> set sts. set t = set (cgoto (cclosure G s) X)) \<and>
+     (\<forall>s \<in> set sts. \<forall>X \<in> set (gram_syms G). \<exists>t \<in> set sts. set t = set (cgoto (creach G s) X)) \<and>
      (\<forall>s \<in> set sts. set s \<subseteq> cuniv G Shn) \<and>
      length gt = length sts \<and>
-     (\<forall>i < length sts. \<forall>pr m. (pr, m) \<in> set (cclosure G (sts ! i)) \<longrightarrow> m < length (snd pr) \<longrightarrow>
+     (\<forall>i < length sts. \<forall>pr m. (pr, m) \<in> set (creach G (sts ! i)) \<longrightarrow> m < length (snd pr) \<longrightarrow>
          map_of (gt ! i) (fst (snd pr ! m)) =
-           Some (st_find sts (cgoto (cclosure G (sts ! i)) (fst (snd pr ! m))))) \<and>
+           Some (st_find sts (cgoto (creach G (sts ! i)) (fst (snd pr ! m))))) \<and>
      set (la_start G Shn sts) \<subseteq> set L \<and>
      set (la_step G (ffix G) (nullables G) gt sts L) = set L\<close>
 
-lemma map_of_map_pair:
-  \<open>map_of (map (\<lambda>X. (X, f X)) xs) X = (if X \<in> set xs then Some (f X) else None)\<close>
-  by (induction xs) auto
-
-lemma la_gtab_lookup:
-  assumes \<open>i < length sts\<close> and \<open>(pr, m) \<in> set (cclosure G (sts ! i))\<close> and \<open>m < length (snd pr)\<close>
-  shows \<open>map_of (la_gtab G sts ! i) (fst (snd pr ! m)) =
-           Some (st_find sts (cgoto (cclosure G (sts ! i)) (fst (snd pr ! m))))\<close>
-proof -
-  let ?f = \<open>\<lambda>(pr, m). if m < length (snd pr) then [fst (snd pr ! m)] else []\<close>
-  have h1: \<open>fst (snd pr ! m) \<in> set (?f (pr, m))\<close> using assms(3) by simp
-  have mem: \<open>fst (snd pr ! m) \<in> set (concat (map ?f (cclosure G (sts ! i))))\<close>
-    unfolding set_concat set_map using h1 assms(2) by blast
-  show ?thesis unfolding la_gtab_def using assms(1) mem
-    by (simp add: Let_def map_of_map_pair)
-qed
-
 theorem tables_ok_concrete:
-  \<open>tables_ok G Shn (lr0_states G Shn) (la_gtab G (lr0_states G Shn)) (la_fix G Shn)\<close>
+  \<open>tables_ok G Shn (pr0_states G Shn) (pgtab G (pr0_states G Shn)) (la_fix G Shn)\<close>
   unfolding tables_ok_def
 proof (intro conjI)
-  show \<open>\<exists>t \<in> set (lr0_states G Shn). set t = set (lr0_start G Shn)\<close>
-    using lr0_states_start[of G Shn]
+  show \<open>\<exists>t \<in> set (pr0_states G Shn). set t = set (lr0_start G Shn)\<close>
+    using pr0_states_start[of G Shn]
     by (auto simp: ccore_def xinit_def lr0_start_def start_prod_def)
-  show \<open>\<forall>s \<in> set (lr0_states G Shn). \<forall>X \<in> set (gram_syms G).
-      \<exists>t \<in> set (lr0_states G Shn). set t = set (cgoto (cclosure G s) X)\<close>
-    by (intro ballI lr0_states_closed)
-  show \<open>\<forall>s \<in> set (lr0_states G Shn). set s \<subseteq> cuniv G Shn\<close>
-    by (intro ballI lr0_states_univ)
-  show \<open>length (la_gtab G (lr0_states G Shn)) = length (lr0_states G Shn)\<close>
-    unfolding la_gtab_def by simp
-  show \<open>\<forall>i < length (lr0_states G Shn). \<forall>pr m.
-      (pr, m) \<in> set (cclosure G (lr0_states G Shn ! i)) \<longrightarrow> m < length (snd pr) \<longrightarrow>
-      map_of (la_gtab G (lr0_states G Shn) ! i) (fst (snd pr ! m)) =
-        Some (st_find (lr0_states G Shn)
-                (cgoto (cclosure G (lr0_states G Shn ! i)) (fst (snd pr ! m))))\<close>
-    by (intro allI impI la_gtab_lookup)
-  show \<open>set (la_start G Shn (lr0_states G Shn)) \<subseteq> set (la_fix G Shn)\<close>
+  show \<open>\<forall>s \<in> set (pr0_states G Shn). \<forall>X \<in> set (gram_syms G).
+      \<exists>t \<in> set (pr0_states G Shn). set t = set (cgoto (creach G s) X)\<close>
+    by (intro ballI pr0_states_closed)
+  show \<open>\<forall>s \<in> set (pr0_states G Shn). set s \<subseteq> cuniv G Shn\<close>
+    by (intro ballI pr0_states_univ)
+  show \<open>length (pgtab G (pr0_states G Shn)) = length (pr0_states G Shn)\<close> by simp
+  show \<open>\<forall>i < length (pr0_states G Shn). \<forall>pr m.
+      (pr, m) \<in> set (creach G (pr0_states G Shn ! i)) \<longrightarrow> m < length (snd pr) \<longrightarrow>
+      map_of (pgtab G (pr0_states G Shn) ! i) (fst (snd pr ! m)) =
+        Some (st_find (pr0_states G Shn)
+                (cgoto (creach G (pr0_states G Shn ! i)) (fst (snd pr ! m))))\<close>
+    by (intro allI impI pgtab_lookup)
+  show \<open>set (la_start G Shn (pr0_states G Shn)) \<subseteq> set (la_fix G Shn)\<close>
     by (rule la_fix_start)
-  show \<open>set (la_step G (ffix G) (nullables G) (la_gtab G (lr0_states G Shn))
-        (lr0_states G Shn) (la_fix G Shn)) = set (la_fix G Shn)\<close>
+  show \<open>set (la_step G (ffix G) (nullables G) (pgtab G (pr0_states G Shn))
+        (pr0_states G Shn) (la_fix G Shn)) = set (la_fix G Shn)\<close>
     using la_fix_stable[of G Shn] by simp
 qed
 
@@ -1610,31 +1596,34 @@ text \<open>A symbol after a dot of a frame-closure item of a tabulated state is
 
 lemma dnext_resolve:
   assumes tab: \<open>tables_ok G Shn sts gt L\<close> and i_lt: \<open>i < length sts\<close>
-    and mem: \<open>(pr, m) \<in> set (cclosure G (sts ! i))\<close> and m_lt: \<open>m < length (snd pr)\<close>
+    and mem: \<open>(pr, m) \<in> set (creach G (sts ! i))\<close> and m_lt: \<open>m < length (snd pr)\<close>
   shows \<open>dnext gt sts i (fst (snd pr ! m)) < length sts\<close>
-    and \<open>set (sts ! dnext gt sts i (fst (snd pr ! m))) = set (cgoto (cclosure G (sts ! i)) (fst (snd pr ! m)))\<close>
+    and \<open>set (sts ! dnext gt sts i (fst (snd pr ! m))) =
+      set (cgoto (creach G (sts ! i)) (fst (snd pr ! m)))\<close>
     and \<open>dnext gt sts i (fst (snd pr ! m)) = la_next gt sts i (fst (snd pr ! m))\<close>
 proof -
   let ?X = \<open>fst (snd pr ! m)\<close>
   have s_in: \<open>sts ! i \<in> set sts\<close> using i_lt by simp
   have univ: \<open>set (sts ! i) \<subseteq> cuniv G Shn\<close> using tab s_in unfolding tables_ok_def by blast
-  have \<open>(pr, m) \<in> cuniv G Shn\<close> using cclosure_univ[OF univ] mem by blast
+  have \<open>(pr, m) \<in> cuniv G Shn\<close> using creach_univ[OF univ] mem by blast
   from cuniv_next_gram_syms[OF this m_lt] have X_sym: \<open>?X \<in> set (gram_syms G)\<close> .
-  obtain t where \<open>t \<in> set sts\<close> and \<open>set t = set (cgoto (cclosure G (sts ! i)) ?X)\<close>
+  obtain t where \<open>t \<in> set sts\<close> and \<open>set t = set (cgoto (creach G (sts ! i)) ?X)\<close>
     using tab s_in X_sym unfolding tables_ok_def by blast
   from st_find_found[OF this]
-  have sf_lt: \<open>st_find sts (cgoto (cclosure G (sts ! i)) ?X) < length sts\<close>
-    and sf_set: \<open>set (sts ! st_find sts (cgoto (cclosure G (sts ! i)) ?X)) = set (cgoto (cclosure G (sts ! i)) ?X)\<close>
+  have sf_lt: \<open>st_find sts (cgoto (creach G (sts ! i)) ?X) < length sts\<close>
+    and sf_set: \<open>set (sts ! st_find sts (cgoto (creach G (sts ! i)) ?X)) =
+      set (cgoto (creach G (sts ! i)) ?X)\<close>
     by auto
-  have lookup: \<open>map_of (gt ! i) ?X = Some (st_find sts (cgoto (cclosure G (sts ! i)) ?X))\<close>
+  have lookup: \<open>map_of (gt ! i) ?X = Some (st_find sts (cgoto (creach G (sts ! i)) ?X))\<close>
     using tab i_lt mem m_lt unfolding tables_ok_def by blast
   have len_gt: \<open>length gt = length sts\<close> using tab unfolding tables_ok_def by blast
-  have la: \<open>la_next gt sts i ?X = st_find sts (cgoto (cclosure G (sts ! i)) ?X)\<close>
+  have la: \<open>la_next gt sts i ?X = st_find sts (cgoto (creach G (sts ! i)) ?X)\<close>
     unfolding la_next_def lookup using sf_lt by simp
   have dn: \<open>dnext gt sts i ?X = la_next gt sts i ?X\<close>
     unfolding dnext_def using i_lt len_gt by simp
   show \<open>dnext gt sts i ?X < length sts\<close> using dn la sf_lt by simp
-  show \<open>set (sts ! dnext gt sts i ?X) = set (cgoto (cclosure G (sts ! i)) ?X)\<close> using dn la sf_set by simp
+  show \<open>set (sts ! dnext gt sts i ?X) = set (cgoto (creach G (sts ! i)) ?X)\<close>
+    using dn la sf_set by simp
   show \<open>dnext gt sts i ?X = la_next gt sts i ?X\<close> by (rule dn)
 qed
 
@@ -1748,89 +1737,144 @@ qed
 definition didx_ok :: \<open>('n, 't) is_cfg \<Rightarrow> ('n, 't) citem list list \<Rightarrow>
     ('n, 't) xitem list list \<Rightarrow> nat list \<Rightarrow> bool\<close> where
   \<open>didx_ok G sts Xs istk \<longleftrightarrow> length istk = length Xs \<and>
-     (\<forall>k < length Xs. istk ! k < length sts \<and>
-        set (sts ! (istk ! k)) = set (ccore (Xs ! k)))\<close>
+     (\<forall>k < length Xs. lcore (Xs ! k) \<noteq> {} \<longrightarrow>
+        istk ! k < length sts \<and> lcore (Xs ! k) \<subseteq> set (sts ! (istk ! k)))\<close>
 
 lemma didx_okD:
-  \<open>didx_ok G sts Xs istk \<Longrightarrow> k < length Xs \<Longrightarrow>
-     istk ! k < length sts \<and> set (sts ! (istk ! k)) = set (ccore (Xs ! k))\<close>
+  \<open>didx_ok G sts Xs istk \<Longrightarrow> k < length Xs \<Longrightarrow> lcore (Xs ! k) \<noteq> {} \<Longrightarrow>
+     istk ! k < length sts \<and> lcore (Xs ! k) \<subseteq> set (sts ! (istk ! k))\<close>
   unfolding didx_ok_def by blast
 
 lemma didx_ok_len: \<open>didx_ok G sts Xs istk \<Longrightarrow> length istk = length Xs\<close>
   unfolding didx_ok_def by blast
 
 lemma didx_ok_init:
-  \<open>didx_ok G (lr0_states G Shn) [xinit G Shn]
-     [st_find (lr0_states G Shn) (lr0_start G Shn)]\<close>
+  assumes tab: \<open>tables_ok G Shn sts gt L\<close>
+  shows \<open>didx_ok G sts [xinit G Shn] [st_find sts (lr0_start G Shn)]\<close>
 proof -
-  obtain t where t: \<open>t \<in> set (lr0_states G Shn)\<close> and te: \<open>set t = set (ccore (xinit G Shn))\<close>
-    using lr0_states_start[of G Shn] by blast
-  have te': \<open>set t = set (lr0_start G Shn)\<close> using te ccore_xinit by simp
-  from st_find_found[OF t te'] have
-      lt: \<open>st_find (lr0_states G Shn) (lr0_start G Shn) < length (lr0_states G Shn)\<close>
-    and eq: \<open>set (lr0_states G Shn ! st_find (lr0_states G Shn) (lr0_start G Shn)) =
-             set (lr0_start G Shn)\<close> by auto
-  show ?thesis unfolding didx_ok_def using lt eq by (simp add: ccore_xinit)
+  obtain t where t: \<open>t \<in> set sts\<close> and te: \<open>set t = set (lr0_start G Shn)\<close>
+    using tab unfolding tables_ok_def by blast
+  from st_find_found[OF t te] have lt: \<open>st_find sts (lr0_start G Shn) < length sts\<close>
+    and eq: \<open>set (sts ! st_find sts (lr0_start G Shn)) = set (lr0_start G Shn)\<close> by auto
+  show ?thesis unfolding didx_ok_def using lt eq by (simp add: lcore_xinit)
 qed
 
-text \<open>The step case: a \<^const>\<open>dlive\<close> successor gives the goto witness, so
-  \<^text>\<open>dnext_resolve\<close> places the pushed index in range and agrees it with the
-  pushed frame's core.\<close>
+text \<open>The step case: a live item of the goto frame comes from a live item of
+  the source closure, which lies in \<^const>\<open>creach\<close> of the tracked state, so
+  the lookup resolves and the target state covers the goto frame's live core.\<close>
 
 lemma didx_ok_push:
   assumes tab: \<open>tables_ok G Shn sts gt L\<close>
     and ok: \<open>didx_ok G sts Xs istk\<close>
     and d_lt: \<open>d < length Xs\<close>
-    and ne: \<open>lgoto (xclosure_auto G (Xs ! d)) X RA \<noteq> []\<close>
   shows \<open>didx_ok G sts (lgoto (xclosure_auto G (Xs ! d)) X RA # drop d Xs)
            (dnext gt sts (istk ! d) X # drop d istk)\<close>
 proof -
   let ?F = \<open>lgoto (xclosure_auto G (Xs ! d)) X RA\<close>
-  from didx_okD[OF ok d_lt] have i_lt: \<open>istk ! d < length sts\<close>
-    and agree: \<open>set (sts ! (istk ! d)) = set (ccore (Xs ! d))\<close> by auto
-  from lgoto_ne_sym[OF ne] obtain pr m where
-      memc: \<open>(pr, m) \<in> set (ccore (xclosure_auto G (Xs ! d)))\<close>
-    and m_lt: \<open>m < length (snd pr)\<close> and Xeq: \<open>fst (snd pr ! m) = X\<close> .
-  have cl_eq: \<open>set (ccore (xclosure_auto G (Xs ! d))) = set (cclosure G (sts ! (istk ! d)))\<close>
-    using set_ccore_xclosure_auto[of G \<open>Xs ! d\<close>] set_cclosure_cong[OF agree] by simp
-  have mem: \<open>(pr, m) \<in> set (cclosure G (sts ! (istk ! d)))\<close> using memc cl_eq by simp
-  from dnext_resolve[OF tab i_lt mem m_lt]
-  have nxt_lt: \<open>dnext gt sts (istk ! d) X < length sts\<close>
-    and nxt_set: \<open>set (sts ! dnext gt sts (istk ! d) X) =
-          set (cgoto (cclosure G (sts ! (istk ! d))) X)\<close>
-    using Xeq by auto
-  have core_F: \<open>set (ccore ?F) = set (cgoto (cclosure G (sts ! (istk ! d))) X)\<close>
-    using set_ccore_lgoto[of \<open>xclosure_auto G (Xs ! d)\<close> X RA] cl_eq
-      set_cgoto_cong[OF cl_eq] by simp
+  let ?j = \<open>dnext gt sts (istk ! d) X\<close>
   have len: \<open>length istk = length Xs\<close> by (rule didx_ok_len[OF ok])
+  have top: \<open>?j < length sts \<and> lcore ?F \<subseteq> set (sts ! ?j)\<close> if live': \<open>lcore ?F \<noteq> {}\<close>
+  proof -
+    from live' obtain pr\<^sub>0 n\<^sub>0 R\<^sub>0' j\<^sub>0 where
+      g0: \<open>(pr\<^sub>0, n\<^sub>0, R\<^sub>0') \<in> set ?F\<close> and j0: \<open>j\<^sub>0 \<in> irep_set R\<^sub>0'\<close>
+      unfolding lcore_def by auto
+    obtain m\<^sub>0 where n0: \<open>n\<^sub>0 = Suc m\<^sub>0\<close> using lgoto_dot_pos[OF g0] by (cases n\<^sub>0) auto
+    from lgoto_kernel_step[OF g0[unfolded n0]] obtain R\<^sub>0 where
+      src0: \<open>(pr\<^sub>0, m\<^sub>0, R\<^sub>0) \<in> set (xclosure_auto G (Xs ! d))\<close>
+      and m0_lt: \<open>m\<^sub>0 < length (snd pr\<^sub>0)\<close> and X0: \<open>fst (snd pr\<^sub>0 ! m\<^sub>0) = X\<close>
+      and R0': \<open>R\<^sub>0' = irep_inter R\<^sub>0 (irep_pre (snd (snd pr\<^sub>0 ! m\<^sub>0)) RA)\<close> .
+    have j0R0: \<open>j\<^sub>0 \<in> irep_set R\<^sub>0\<close> using j0 unfolding R0' by auto
+    have f_live: \<open>lcore (Xs ! d) \<noteq> {}\<close> by (rule closure_live_kernel[OF src0 j0R0])
+    from didx_okD[OF ok d_lt f_live] have p_lt: \<open>istk ! d < length sts\<close>
+      and cover: \<open>lcore (Xs ! d) \<subseteq> set (sts ! (istk ! d))\<close> by auto
+    have kern: \<open>\<And>pr m R. (pr, m, R) \<in> set (Xs ! d) \<Longrightarrow> irep_nonempty R \<Longrightarrow>
+        (pr, m) \<in> set (sts ! (istk ! d))\<close>
+      using cover by (fastforce simp: lcore_def)
+    have src0_cr: \<open>(pr\<^sub>0, m\<^sub>0) \<in> set (creach G (sts ! (istk ! d)))\<close>
+      by (rule xclosure_auto_live_creach[OF kern src0 j0R0])
+    have j_lt: \<open>?j < length sts\<close>
+      and j_set: \<open>set (sts ! ?j) = set (cgoto (creach G (sts ! (istk ! d))) X)\<close>
+      using dnext_resolve[OF tab p_lt src0_cr m0_lt] X0 by auto
+    have cov': \<open>lcore ?F \<subseteq> set (sts ! ?j)\<close>
+    proof
+      fix c assume \<open>c \<in> lcore ?F\<close>
+      then obtain pr\<^sub>2 n\<^sub>2 R\<^sub>2' where ceq: \<open>c = (pr\<^sub>2, n\<^sub>2)\<close>
+        and g2: \<open>(pr\<^sub>2, n\<^sub>2, R\<^sub>2') \<in> set ?F\<close> and ne2: \<open>irep_nonempty R\<^sub>2'\<close>
+        unfolding lcore_def by blast
+      obtain j\<^sub>2 where j2: \<open>j\<^sub>2 \<in> irep_set R\<^sub>2'\<close> using ne2 by auto
+      obtain m\<^sub>2 where n2: \<open>n\<^sub>2 = Suc m\<^sub>2\<close> using lgoto_dot_pos[OF g2] by (cases n\<^sub>2) auto
+      from lgoto_kernel_step[OF g2[unfolded n2]] obtain R\<^sub>2 where
+        src2: \<open>(pr\<^sub>2, m\<^sub>2, R\<^sub>2) \<in> set (xclosure_auto G (Xs ! d))\<close>
+        and m2_lt: \<open>m\<^sub>2 < length (snd pr\<^sub>2)\<close> and X2: \<open>fst (snd pr\<^sub>2 ! m\<^sub>2) = X\<close>
+        and R2': \<open>R\<^sub>2' = irep_inter R\<^sub>2 (irep_pre (snd (snd pr\<^sub>2 ! m\<^sub>2)) RA)\<close> .
+      have j2R2: \<open>j\<^sub>2 \<in> irep_set R\<^sub>2\<close> using j2 unfolding R2' by auto
+      have \<open>(pr\<^sub>2, m\<^sub>2) \<in> set (creach G (sts ! (istk ! d)))\<close>
+        by (rule xclosure_auto_live_creach[OF kern src2 j2R2])
+      from cgoto_memI[OF this m2_lt X2] show \<open>c \<in> set (sts ! ?j)\<close>
+        unfolding ceq n2 j_set by simp
+    qed
+    show ?thesis using j_lt cov' by blast
+  qed
   show ?thesis
     unfolding didx_ok_def
-  proof (intro conjI)
-    show \<open>length (dnext gt sts (istk ! d) X # drop d istk) =
-        length (?F # drop d Xs)\<close> using len by simp
+  proof (rule conjI)
+    show \<open>length (?j # drop d istk) = length (?F # drop d Xs)\<close> using len by simp
   next
-    show \<open>\<forall>k < length (?F # drop d Xs).
-        (dnext gt sts (istk ! d) X # drop d istk) ! k < length sts \<and>
-        set (sts ! ((dnext gt sts (istk ! d) X # drop d istk) ! k)) =
-        set (ccore ((?F # drop d Xs) ! k))\<close>
+    show \<open>\<forall>k < length (?F # drop d Xs). lcore ((?F # drop d Xs) ! k) \<noteq> {} \<longrightarrow>
+        (?j # drop d istk) ! k < length sts \<and>
+        lcore ((?F # drop d Xs) ! k) \<subseteq> set (sts ! ((?j # drop d istk) ! k))\<close>
     proof (intro allI impI)
       fix k assume k_lt: \<open>k < length (?F # drop d Xs)\<close>
-      show \<open>(dnext gt sts (istk ! d) X # drop d istk) ! k < length sts \<and>
-          set (sts ! ((dnext gt sts (istk ! d) X # drop d istk) ! k)) =
-          set (ccore ((?F # drop d Xs) ! k))\<close>
+        and lv: \<open>lcore ((?F # drop d Xs) ! k) \<noteq> {}\<close>
+      show \<open>(?j # drop d istk) ! k < length sts \<and>
+          lcore ((?F # drop d Xs) ! k) \<subseteq> set (sts ! ((?j # drop d istk) ! k))\<close>
       proof (cases k)
         case 0
-        show ?thesis unfolding 0 using nxt_lt nxt_set core_F by simp
+        show ?thesis unfolding 0 using top lv[unfolded 0] by simp
       next
         case (Suc k\<^sub>0)
         have k0: \<open>d + k\<^sub>0 < length Xs\<close> using k_lt Suc d_lt by simp
-        have i1: \<open>(dnext gt sts (istk ! d) X # drop d istk) ! Suc k\<^sub>0 = istk ! (d + k\<^sub>0)\<close>
-          using k0 len by simp
+        have i1: \<open>(?j # drop d istk) ! Suc k\<^sub>0 = istk ! (d + k\<^sub>0)\<close> using k0 len by simp
         have i2: \<open>(?F # drop d Xs) ! Suc k\<^sub>0 = Xs ! (d + k\<^sub>0)\<close> using k0 by simp
-        show ?thesis unfolding Suc i1 i2 by (rule didx_okD[OF ok k0])
+        show ?thesis unfolding Suc i1 i2 using didx_okD[OF ok k0] lv Suc i2 by simp
       qed
     qed
   qed
+qed
+
+text \<open>A live closure item of the top frame lies in the reachable closure of the
+  tracked state, and that state is in range.\<close>
+
+lemma didx_ok_creach:
+  assumes ok: \<open>didx_ok G sts Xs istk\<close> and ne: \<open>Xs \<noteq> []\<close>
+    and mem: \<open>(pr, m, R) \<in> set (xclosure_auto G (hd Xs))\<close> and jR: \<open>j \<in> irep_set R\<close>
+  shows \<open>hd istk < length sts\<close> and \<open>(pr, m) \<in> set (creach G (sts ! hd istk))\<close>
+proof -
+  have istk_ne: \<open>istk \<noteq> []\<close> using ok ne by (auto dest: didx_ok_len)
+  have hd: \<open>istk ! 0 = hd istk\<close> \<open>Xs ! 0 = hd Xs\<close>
+    using istk_ne ne by (simp_all add: hd_conv_nth)
+  have live: \<open>lcore (hd Xs) \<noteq> {}\<close> by (rule closure_live_kernel[OF mem jR])
+  from didx_okD[OF ok, of 0] ne live hd have lt: \<open>hd istk < length sts\<close>
+    and cover: \<open>lcore (hd Xs) \<subseteq> set (sts ! hd istk)\<close> by auto
+  show \<open>hd istk < length sts\<close> by (rule lt)
+  have kern: \<open>\<And>pr' m' R'. (pr', m', R') \<in> set (hd Xs) \<Longrightarrow> irep_nonempty R' \<Longrightarrow>
+      (pr', m') \<in> set (sts ! hd istk)\<close>
+    using cover by (fastforce simp: lcore_def)
+  show \<open>(pr, m) \<in> set (creach G (sts ! hd istk))\<close>
+    by (rule xclosure_auto_live_creach[OF kern mem jR])
+qed
+
+lemma dlive_lcore: \<open>dlive (X # Xs, w) \<longleftrightarrow> lcore X \<noteq> {}\<close>
+  unfolding dlive_def by (simp add: live_lcore)
+
+lemma didx_ok_hd_lt:
+  assumes ok: \<open>didx_ok G sts Xs istk\<close> and lv: \<open>dlive (Xs, w)\<close>
+  shows \<open>hd istk < length sts\<close>
+proof -
+  have ne: \<open>Xs \<noteq> []\<close> and live: \<open>lcore (Xs ! 0) \<noteq> {}\<close>
+    using lv unfolding dlive_def live_lcore by (auto simp: hd_conv_nth)
+  have istk_ne: \<open>istk \<noteq> []\<close> using ok ne by (auto dest: didx_ok_len)
+  show ?thesis using didx_okD[OF ok _ live] ne istk_ne by (simp add: hd_conv_nth)
 qed
 
 subsection \<open>Cell propagation: down to an item's children\<close>
@@ -1896,6 +1940,85 @@ lemma imstep_mstep: \<open>imstep G gt sts ic act = Some ic' \<Longrightarrow> m
 
 lemma imrun_mrun: \<open>imrun G gt sts as ic = Some ic' \<Longrightarrow> mrun G as (fst ic) = Some (fst ic')\<close>
   by (induction as arbitrary: ic) (auto split: option.splits dest: imstep_mstep)
+
+subsection \<open>Reachability of the index-carrying machine\<close>
+
+text \<open>The configurations the driver can be in: from the initial frame and the
+  start state, by steps whose successor is \<^const>\<open>dlive\<close>.  The determinism
+  hypothesis below is stated over these, since the index of a frame is the one
+  the driver built, not a function of the frame.\<close>
+
+inductive imreach :: \<open>('n, 't) is_cfg \<Rightarrow> 'n \<Rightarrow> (('n, 't) sym \<times> nat) list list \<Rightarrow>
+    ('n, 't) citem list list \<Rightarrow> ('n, 't) icfg \<Rightarrow> bool\<close> for G Shn gt sts where
+  imreach_init: \<open>imreach G Shn gt sts (([xinit G Shn], w), [st_find sts (lr0_start G Shn)])\<close>
+| imreach_step: \<open>imreach G Shn gt sts ic \<Longrightarrow> imstep G gt sts ic act = Some ic' \<Longrightarrow>
+    dlive (fst ic') \<Longrightarrow> imreach G Shn gt sts ic'\<close>
+
+lemma imreach_mreach: \<open>imreach G Shn gt sts ic \<Longrightarrow> mreach G Shn (fst ic)\<close>
+  by (induction rule: imreach.induct) (auto intro: mreach_init mreach_step dest: imstep_mstep)
+
+lemma imreach_dlive: \<open>imreach G Shn gt sts ic \<Longrightarrow> dlive (fst ic)\<close>
+  by (induction rule: imreach.induct)
+     (auto simp: dlive_lcore lcore_xinit lr0_start_def)
+
+text \<open>The index invariant along the machine: each step pushes through
+  \<^const>\<open>dnext\<close> from a frame the stack tracks.\<close>
+
+lemma imstep_didx_ok:
+  assumes tab: \<open>tables_ok G Shn sts gt L\<close> and ok: \<open>didx_ok G sts Xs istk\<close>
+    and step: \<open>imstep G gt sts ((Xs, w), istk) act = Some ((Xs', w'), istk')\<close>
+  shows \<open>didx_ok G sts Xs' istk'\<close>
+proof (cases act)
+  case DShift
+  have ms: \<open>mstep G (Xs, w) DShift = Some (Xs', w')\<close>
+    using imstep_mstep[OF step] DShift by simp
+  from mstep_shift_shape[OF ms[unfolded mstep_def, simplified]]
+  obtain a c w'' where w: \<open>w = (a, c) # w''\<close> and ne: \<open>Xs \<noteq> []\<close>
+    and Xs': \<open>(Xs', w') = (lgoto (hd (map (xclosure_auto G) Xs)) (Tm a) (FinRep [c]) # Xs, w'')\<close>
+    using ms unfolding mstep_def by (metis prod.inject)
+  have istk': \<open>istk' = dnext gt sts (hd istk) (Tm a) # istk\<close>
+    using step[unfolded imstep_def DShift w] ms[unfolded w] by simp
+  have istk_ne: \<open>istk \<noteq> []\<close> using ne didx_ok_len[OF ok] by auto
+  have hd0: \<open>Xs ! 0 = hd Xs\<close> and i0: \<open>istk ! 0 = hd istk\<close>
+    using ne istk_ne by (simp_all add: hd_conv_nth)
+  have \<open>didx_ok G sts (lgoto (xclosure_auto G (Xs ! 0)) (Tm a) (FinRep [c]) # drop 0 Xs)
+      (dnext gt sts (istk ! 0) (Tm a) # drop 0 istk)\<close>
+    by (rule didx_ok_push[OF tab ok]) (use ne in simp)
+  then show ?thesis using Xs' istk' ne hd0 i0 by (simp add: hd_map)
+next
+  case (DReduce pr)
+  let ?k = \<open>length (snd pr)\<close>
+  have ms: \<open>mstep G (Xs, w) (DReduce pr) = Some (Xs', w')\<close>
+    using imstep_mstep[OF step] DReduce by simp
+  from ms[unfolded mstep_def]
+  have k_lt: \<open>?k < length Xs\<close>
+    and Xs': \<open>Xs' = lgoto (map (xclosure_auto G) Xs ! ?k) (Nt (fst pr))
+                     (red_set (hd (map (xclosure_auto G) Xs)) pr) # drop ?k Xs\<close>
+    unfolding mstep_cached_def by (auto simp: Let_def split: if_splits)
+  have istk': \<open>istk' = dnext gt sts (istk ! ?k) (Nt (fst pr)) # drop ?k istk\<close>
+    using step unfolding imstep_def DReduce by (simp add: ms)
+  have nth_map: \<open>map (xclosure_auto G) Xs ! ?k = xclosure_auto G (Xs ! ?k)\<close>
+    using k_lt by simp
+  show ?thesis unfolding Xs' istk' nth_map by (rule didx_ok_push[OF tab ok k_lt])
+qed
+
+lemma imreach_didx_ok:
+  assumes tab: \<open>tables_ok G Shn sts gt L\<close>
+  shows \<open>imreach G Shn gt sts ic \<Longrightarrow> didx_ok G sts (fst (fst ic)) (snd ic)\<close>
+proof (induction rule: imreach.induct)
+  case (imreach_init w)
+  show ?case using didx_ok_init[OF tab] by simp
+next
+  case (imreach_step ic act ic')
+  obtain gc istk where ic: \<open>ic = (gc, istk)\<close> by (cases ic)
+  obtain Xs w where gc: \<open>gc = (Xs, w)\<close> by (cases gc)
+  obtain gc' istk' where ic': \<open>ic' = (gc', istk')\<close> by (cases ic')
+  obtain Xs' w' where gc': \<open>gc' = (Xs', w')\<close> by (cases gc')
+  show ?case
+    using imstep_didx_ok[OF tab imreach_step.IH[unfolded ic gc, simplified]
+        imreach_step.hyps(2)[unfolded ic gc ic' gc']]
+    unfolding ic' gc' by simp
+qed
 
 subsection \<open>Licensing of the reduces along a run\<close>
 
@@ -2104,11 +2227,9 @@ text \<open>
 
 definition mdet :: \<open>('n, 't) is_cfg \<Rightarrow> 'n \<Rightarrow> bool\<close> where
   \<open>mdet G Shn \<longleftrightarrow> (\<forall>gc istk i redtab CL a\<^sub>1 a\<^sub>2 gc\<^sub>1 gc\<^sub>2.
-      mreach G Shn gc \<longrightarrow>
-      fst gc \<noteq> [] \<longrightarrow>
-      didx_ok G (lr0_states G Shn) (fst gc) istk \<longrightarrow>
+      imreach G Shn (pgtab G (pr0_states G Shn)) (pr0_states G Shn) (gc, istk) \<longrightarrow>
       i = hd istk \<longrightarrow>
-      redtab = red_buckets G Shn (length (lr0_states G Shn)) ! i \<longrightarrow>
+      redtab = red_buckets G Shn (length (pr0_states G Shn)) ! i \<longrightarrow>
       CL = xclosure_auto G (hd (fst gc)) \<longrightarrow>
       a\<^sub>1 \<in> set (dcands G i redtab CL gc) \<longrightarrow>
       a\<^sub>2 \<in> set (dcands G i redtab CL gc) \<longrightarrow>
@@ -2122,11 +2243,9 @@ text \<open>Its consequence for \<^const>\<open>dpick\<close>: if the trace's ac
 
 lemma dpick_forced:
   assumes det: \<open>mdet G Shn\<close>
-    and reach: \<open>mreach G Shn gc\<close>
-    and gcne: \<open>fst gc \<noteq> []\<close>
-    and ok: \<open>didx_ok G (lr0_states G Shn) (fst gc) istk\<close>
+    and ireach: \<open>imreach G Shn (pgtab G (pr0_states G Shn)) (pr0_states G Shn) (gc, istk)\<close>
     and ieq: \<open>i = hd istk\<close>
-    and req: \<open>redtab = red_buckets G Shn (length (lr0_states G Shn)) ! i\<close>
+    and req: \<open>redtab = red_buckets G Shn (length (pr0_states G Shn)) ! i\<close>
     and CL: \<open>CL = xclosure_auto G (hd (fst gc))\<close>
     and okc: \<open>cstk = map (xclosure_auto G) (fst gc)\<close>
     and a_mem: \<open>a \<in> set (dcands G i redtab CL gc)\<close>
@@ -2166,7 +2285,7 @@ proof -
             case True
             have \<open>mstep G gc act' = Some gc''\<close> using Some mc by simp
             from det[unfolded mdet_def, rule_format,
-                     OF reach gcne ok ieq req CL act'_mem a_mem ne this step True live]
+                     OF ireach ieq req CL act'_mem a_mem ne this step True live]
             show ?thesis ..
           next
             case False
@@ -2384,11 +2503,12 @@ text \<open>The driver takes the trace's action: it is among the candidates, and
 
 lemma dstep_of_imstep_exact:
   assumes tab: \<open>tables_ok G Shn sts gt L\<close>
-    and stc: \<open>sts = lr0_states G Shn\<close>
+    and stc: \<open>sts = pr0_states G Shn\<close>
+    and gtc: \<open>gt = pgtab G sts\<close>
     and Lc: \<open>L = la_fix G Shn\<close>
     and rt: \<open>redtab = red_buckets G Shn (length sts)\<close>
     and det: \<open>mdet G Shn\<close>
-    and reach: \<open>mreach G Shn (Xs, w)\<close>
+    and ireach: \<open>imreach G Shn gt sts ((Xs, w), istk)\<close>
     and inv: \<open>dfollow_ok G sts ((Xs, w), cstk, istk, v, tstk)\<close>
     and step: \<open>imstep G gt sts ((Xs, w), istk) act = Some (gc', istk')\<close>
     and live: \<open>dlive gc'\<close>
@@ -2415,18 +2535,17 @@ proof -
   have hd_cstk: \<open>hd cstk = xclosure_auto G (hd Xs)\<close>
     using cstk_eq Xs_ne by (simp add: hd_map)
   have i_lt: \<open>hd istk < length sts\<close>
-    using didx_okD[OF ok, of 0] Xs_ne istk_ne by (simp add: hd_conv_nth)
+    using didx_ok_hd_lt[OF ok] imreach_dlive[OF ireach] by simp
   have gc'_ne: \<open>fst gc' \<noteq> []\<close> and gc'_live: \<open>live (hd (fst gc'))\<close>
     using live unfolding dlive_def by (cases gc'; simp)+
   let ?i = \<open>hd istk\<close> and ?CL = \<open>xclosure_auto G (hd Xs)\<close>
   let ?cells = \<open>cell_buckets L (length sts) ! ?i\<close>
   have rt': \<open>redtab = cell_buckets L (length sts)\<close>
     unfolding rt Lc stc by (rule cell_buckets_red_buckets[symmetric])
-  have req: \<open>?cells = red_buckets G Shn (length (lr0_states G Shn)) ! ?i\<close>
+  have req: \<open>?cells = red_buckets G Shn (length (pr0_states G Shn)) ! ?i\<close>
     unfolding Lc stc by (simp add: cell_buckets_red_buckets)
-  have ok': \<open>didx_ok G (lr0_states G Shn) (fst (Xs, w)) istk\<close>
-    using ok stc by simp
-  have gcne: \<open>fst (Xs, w) \<noteq> []\<close> using Xs_ne by simp
+  have ireach': \<open>imreach G Shn (pgtab G (pr0_states G Shn)) (pr0_states G Shn) ((Xs, w), istk)\<close>
+    using ireach unfolding gtc stc .
   have cells_eq: \<open>(if ?i < length redtab then redtab ! ?i else []) = ?cells\<close>
     using i_lt rt' by simp
   have CL_eq: \<open>(case cstk of [] \<Rightarrow> [] | c # _ \<Rightarrow> c) = ?CL\<close>
@@ -2449,7 +2568,7 @@ proof -
     have offered: \<open>DShift \<in> set (dcands G ?i ?cells ?CL (Xs, w))\<close>
       by (rule dcands_shift) (use Xs_ne w_eq in auto)
     have pick: \<open>dpick G cstk (Xs, w) (dcands G ?i ?cells ?CL (Xs, w)) = Some (DShift, gc')\<close>
-      by (rule dpick_forced[OF det reach gcne ok' refl req _ cstk_eq' offered _ live])
+      by (rule dpick_forced[OF det ireach' refl req _ cstk_eq' offered _ live])
          (use ms DShift in simp_all)
     have dstep_eq: \<open>dstep G gt sts redtab ((Xs, w), cstk, istk, v, tstk) =
         Some (gc', xclosure_auto G (hd (fst gc')) # cstk,
@@ -2495,7 +2614,7 @@ proof -
     have offered: \<open>DReduce pr \<in> set (dcands G ?i ?cells ?CL (Xs, w))\<close>
       by (rule dcands_reduceI[OF _ compR RS_ne']) (use Xs_ne dlic' in auto)
     have pick: \<open>dpick G cstk (Xs, w) (dcands G ?i ?cells ?CL (Xs, w)) = Some (DReduce pr, gc')\<close>
-      by (rule dpick_forced[OF det reach gcne ok' refl req _ cstk_eq' offered _ live])
+      by (rule dpick_forced[OF det ireach' refl req _ cstk_eq' offered _ live])
          (use ms DReduce in simp_all)
     have dstep_eq: \<open>dstep G gt sts redtab ((Xs, w), cstk, istk, v, tstk) =
         Some (gc', xclosure_auto G (hd (fst gc')) # drop ?k cstk,
@@ -2531,11 +2650,12 @@ qed
 
 lemma dstep_of_imstep:
   assumes tab: \<open>tables_ok G Shn sts gt L\<close>
-    and stc: \<open>sts = lr0_states G Shn\<close>
+    and stc: \<open>sts = pr0_states G Shn\<close>
+    and gtc: \<open>gt = pgtab G sts\<close>
     and Lc: \<open>L = la_fix G Shn\<close>
     and rt: \<open>redtab = red_buckets G Shn (length sts)\<close>
     and det: \<open>mdet G Shn\<close>
-    and reach: \<open>mreach G Shn (Xs, w)\<close>
+    and ireach: \<open>imreach G Shn gt sts ((Xs, w), istk)\<close>
     and inv: \<open>dfollow_ok G sts ((Xs, w), cstk, istk, v, tstk)\<close>
     and step: \<open>imstep G gt sts ((Xs, w), istk) act = Some (gc', istk')\<close>
     and live: \<open>dlive gc'\<close>
@@ -2549,11 +2669,12 @@ subsection \<open>Iterating: the driver follows the whole run\<close>
 
 lemma dsteps_of_mdrive:
   assumes tab: \<open>tables_ok G Shn sts gt L\<close>
-    and stc: \<open>sts = lr0_states G Shn\<close>
+    and stc: \<open>sts = pr0_states G Shn\<close>
+    and gtc: \<open>gt = pgtab G sts\<close>
     and Lc: \<open>L = la_fix G Shn\<close>
     and rt: \<open>redtab = red_buckets G Shn (length sts)\<close>
     and det: \<open>mdet G Shn\<close>
-  shows \<open>mdrive G gt sts L acts (gc, istk) \<Longrightarrow> mreach G Shn gc \<Longrightarrow>
+  shows \<open>mdrive G gt sts L acts (gc, istk) \<Longrightarrow> imreach G Shn gt sts (gc, istk) \<Longrightarrow>
      dfollow_ok G sts (gc, cstk, istk, v, tstk) \<Longrightarrow>
      \<exists>gc' istk' v' tstk'. imrun G gt sts acts (gc, istk) = Some (gc', istk') \<and>
         dsteps G gt sts redtab (length acts) (gc, cstk, istk, v, tstk)
@@ -2578,19 +2699,20 @@ next
   have lv: \<open>dlive gc\<^sub>1\<close> using lv\<^sub>0 ic\<^sub>1 by simp
   have lc: \<open>\<forall>pr. act = DReduce pr \<longrightarrow> lic_at G L sts ((Xs, w), istk) pr\<close>
     using lc\<^sub>0 gc_eq by simp
-  have reach: \<open>mreach G Shn (Xs, w)\<close> using Cons.prems(2) gc_eq by simp
+  have ireach: \<open>imreach G Shn gt sts ((Xs, w), istk)\<close> using Cons.prems(2) gc_eq by simp
   have inv: \<open>dfollow_ok G sts ((Xs, w), cstk, istk, v, tstk)\<close>
     using Cons.prems(3) gc_eq by simp
-  from dstep_of_imstep[OF tab stc Lc rt det reach inv st lv lc] obtain v\<^sub>1 tstk\<^sub>1 where
+  from dstep_of_imstep[OF tab stc gtc Lc rt det ireach inv st lv lc] obtain v\<^sub>1 tstk\<^sub>1 where
       ds: \<open>dstep G gt sts redtab ((Xs, w), cstk, istk, v, tstk) =
             Some (gc\<^sub>1, map (xclosure_auto G) (fst gc\<^sub>1), istk\<^sub>1, v\<^sub>1, tstk\<^sub>1)\<close>
     and inv\<^sub>1: \<open>dfollow_ok G sts (gc\<^sub>1, map (xclosure_auto G) (fst gc\<^sub>1), istk\<^sub>1, v\<^sub>1, tstk\<^sub>1)\<close>
     by blast
   have ms: \<open>mstep G gc act = Some gc\<^sub>1\<close>
     using imstep_mstep[of G gt sts \<open>(gc, istk)\<close> act ic\<^sub>1] st\<^sub>0 ic\<^sub>1 by simp
-  have reach\<^sub>1: \<open>mreach G Shn gc\<^sub>1\<close> by (rule mreach_step[OF Cons.prems(2) ms])
+  have ireach\<^sub>1: \<open>imreach G Shn gt sts (gc\<^sub>1, istk\<^sub>1)\<close>
+    using imreach_step[OF Cons.prems(2) st\<^sub>0 lv\<^sub>0] ic\<^sub>1 by simp
   have rest: \<open>mdrive G gt sts L acts (gc\<^sub>1, istk\<^sub>1)\<close> using rest\<^sub>0 ic\<^sub>1 by simp
-  from Cons.IH[OF rest reach\<^sub>1 inv\<^sub>1] obtain gc' istk' v' tstk' where
+  from Cons.IH[OF rest ireach\<^sub>1 inv\<^sub>1] obtain gc' istk' v' tstk' where
       ir: \<open>imrun G gt sts acts (gc\<^sub>1, istk\<^sub>1) = Some (gc', istk')\<close>
     and dr: \<open>dsteps G gt sts redtab (length acts)
               (gc\<^sub>1, map (xclosure_auto G) (fst gc\<^sub>1), istk\<^sub>1, v\<^sub>1, tstk\<^sub>1) =
@@ -2650,29 +2772,29 @@ qed
 subsection \<open>The driver is complete for any licensed, deterministic trace\<close>
 
 lemma dfollow_ok_dinit:
-  \<open>dfollow_ok G (lr0_states G Shn) (dinit G Shn (lr0_states G Shn) w)\<close>
-  unfolding dfollow_ok_def dinit_def using didx_ok_init[of G Shn] by simp
+  \<open>dfollow_ok G (pr0_states G Shn) (dinit G Shn (pr0_states G Shn) w)\<close>
+  unfolding dfollow_ok_def dinit_def using didx_ok_init[OF tables_ok_concrete] by simp
 
 lemma not_gfinal_xinit: \<open>\<not> gfinal G Shn ([xinit G Shn], u)\<close>
   unfolding gfinal_def xinit_def start_prod_def by simp
 
 theorem dparse_ne_of_mdrive:
   assumes det: \<open>mdet G Shn\<close>
-    and drv: \<open>mdrive G (la_gtab G (lr0_states G Shn)) (lr0_states G Shn) (la_fix G Shn)
-                acts (([xinit G Shn], tcols w), [st_find (lr0_states G Shn) (lr0_start G Shn)])\<close>
+    and drv: \<open>mdrive G (pgtab G (pr0_states G Shn)) (pr0_states G Shn) (la_fix G Shn)
+                acts (([xinit G Shn], tcols w), [st_find (pr0_states G Shn) (lr0_start G Shn)])\<close>
     and fin: \<open>mcompletes G Shn acts ([xinit G Shn], tcols w)\<close>
   shows \<open>dparse G Shn w \<noteq> None\<close>
 proof -
-  let ?sts = \<open>lr0_states G Shn\<close> and ?gt = \<open>la_gtab G (lr0_states G Shn)\<close>
-  let ?L = \<open>la_fix G Shn\<close> and ?redtab = \<open>red_buckets G Shn (length (lr0_states G Shn))\<close>
+  let ?sts = \<open>pr0_states G Shn\<close> and ?gt = \<open>pgtab G (pr0_states G Shn)\<close>
+  let ?L = \<open>la_fix G Shn\<close> and ?redtab = \<open>red_buckets G Shn (length (pr0_states G Shn))\<close>
   have tab: \<open>tables_ok G Shn ?sts ?gt ?L\<close> by (rule tables_ok_concrete)
   have rt: \<open>?redtab = red_buckets G Shn (length ?sts)\<close> by (rule refl)
   let ?ist = \<open>[st_find ?sts (lr0_start G Shn)]\<close>
   have inv: \<open>dfollow_ok G ?sts (([xinit G Shn], tcols w),
       [xclosure_auto G (xinit G Shn)], ?ist, w, [])\<close>
     using dfollow_ok_dinit[of G Shn w] unfolding dinit_def .
-  have reach: \<open>mreach G Shn ([xinit G Shn], tcols w)\<close> by (rule mreach_init)
-  from dsteps_of_mdrive[OF tab refl refl rt det drv reach inv] obtain gc' istk' v' tstk' where
+  from dsteps_of_mdrive[OF tab refl refl refl rt det drv imreach_init inv]
+  obtain gc' istk' v' tstk' where
       ir: \<open>imrun G ?gt ?sts acts (([xinit G Shn], tcols w), ?ist) = Some (gc', istk')\<close>
     and dr: \<open>dsteps G ?gt ?sts ?redtab (length acts)
               (([xinit G Shn], tcols w), [xclosure_auto G (xinit G Shn)], ?ist, w, []) =
@@ -2688,8 +2810,8 @@ qed
 
 theorem dparse_complete_of_mdrive:
   assumes fn: \<open>fresh_name G Shn\<close> and det: \<open>mdet G Shn\<close>
-    and drv: \<open>mdrive G (la_gtab G (lr0_states G Shn)) (lr0_states G Shn) (la_fix G Shn)
-                acts (([xinit G Shn], tcols w), [st_find (lr0_states G Shn) (lr0_start G Shn)])\<close>
+    and drv: \<open>mdrive G (pgtab G (pr0_states G Shn)) (pr0_states G Shn) (la_fix G Shn)
+                acts (([xinit G Shn], tcols w), [st_find (pr0_states G Shn) (lr0_start G Shn)])\<close>
     and fin: \<open>mcompletes G Shn acts ([xinit G Shn], tcols w)\<close>
   shows \<open>\<exists>t. dparse G Shn w = Some t \<and> ast_of G (Nt (istart G)) (istart_ind G) t w\<close>
   by (rule dparse_complete_of_ne[OF fn dparse_ne_of_mdrive[OF det drv fin]])
@@ -2822,20 +2944,6 @@ lemma slot_ok_dlive:
   unfolding dlive_def by (simp add: slot_ok_live)
 
 subsection \<open>Moving the cell along with the index stack\<close>
-
-lemma didx_ok_cclosure:
-  assumes ok: \<open>didx_ok G sts Xs istk\<close> and ne: \<open>Xs \<noteq> []\<close>
-    and mem: \<open>(pr, m, R) \<in> set (xclosure_auto G (hd Xs))\<close>
-  shows \<open>(pr, m) \<in> set (cclosure G (sts ! hd istk))\<close>
-proof -
-  have istk_ne: \<open>istk \<noteq> []\<close> using ok ne by (auto dest: didx_ok_len)
-  from didx_okD[OF ok, of 0] ne have agree: \<open>set (sts ! (istk ! 0)) = set (ccore (Xs ! 0))\<close> by simp
-  have hd: \<open>istk ! 0 = hd istk\<close> \<open>Xs ! 0 = hd Xs\<close>
-    using istk_ne ne by (simp_all add: hd_conv_nth)
-  have \<open>(pr, m) \<in> set (ccore (xclosure_auto G (hd Xs)))\<close> using mem unfolding ccore_def by force
-  then show ?thesis
-    using set_ccore_xclosure_auto[of G \<open>hd Xs\<close>] set_cclosure_cong[OF agree] hd by simp
-qed
 
 lemma cell_ok_step:
   assumes tab: \<open>tables_ok G Shn sts gt L\<close>
@@ -3029,9 +3137,9 @@ proof -
       using didx_ok_push[OF tab ok_c, of 0 \<open>fst (proot ?pt)\<close> RA] Xsc_ne F_ne x\<^sub>0 iq\<^sub>0 by simp
     \<comment> \<open>the cell moves with the index\<close>
     have i_lt_c: \<open>hd istk\<^sub>c < length sts\<close>
-      using didx_okD[OF ok_c, of 0] Xsc_ne iq\<^sub>0 by simp
-    have core_c: \<open>((A, rhs), c) \<in> set (cclosure G (sts ! hd istk\<^sub>c))\<close>
-      by (rule didx_ok_cclosure[OF ok_c Xsc_ne item_c])
+      by (rule didx_ok_creach(1)[OF ok_c Xsc_ne item_c i_c])
+    have core_c: \<open>((A, rhs), c) \<in> set (creach G (sts ! hd istk\<^sub>c))\<close>
+      by (rule didx_ok_creach(2)[OF ok_c Xsc_ne item_c i_c])
     have dn: \<open>?j = la_next gt sts (hd istk\<^sub>c) (fst (snd (A, rhs) ! c))\<close>
       using dnext_resolve(3)[OF tab i_lt_c core_c c_rhs] kid_c by simp
     have cell': \<open>cell_ok L ?j (A, rhs) (Suc c) rest i\<close>
@@ -3145,7 +3253,7 @@ next
       dnext gt sts (hd istk) (Nt A) # istk))\<close>
     using slot_ok_dlive[OF slot\<^sub>0 RS_i] by simp
   have in_lt: \<open>hd istk\<^sub>n < length sts\<close>
-    using didx_okD[OF ok_n, of 0] Xsn_ne istkn_ne by (simp add: hd_conv_nth)
+    by (rule didx_ok_creach(1)[OF ok_n Xsn_ne item_n i_n])
   have cell_n': \<open>cell_ok L (hd istk\<^sub>n) (A, rhs) (length (snd (A, rhs))) rest i\<close>
     using cell_n len_pr by simp
   have lic: \<open>lic_at G L sts ((Xs\<^sub>n, rest), istk\<^sub>n) (A, rhs)\<close>
@@ -3185,17 +3293,17 @@ lemma mtrace_root:
   assumes wf: \<open>wf_ptree G pt\<close> and rt: \<open>proot pt = (Nt (istart G), istart_ind G)\<close>
     and tr: \<open>mtrace G pt acts\<close>
   shows \<open>\<exists>RA. istart_ind G \<in> irep_set RA \<and>
-    mdrive G (la_gtab G (lr0_states G Shn)) (lr0_states G Shn) (la_fix G Shn) acts
-      (([xinit G Shn], tcols (pyield pt)), [st_find (lr0_states G Shn) (lr0_start G Shn)]) \<and>
-    imrun G (la_gtab G (lr0_states G Shn)) (lr0_states G Shn) acts
-      (([xinit G Shn], tcols (pyield pt)), [st_find (lr0_states G Shn) (lr0_start G Shn)]) =
+    mdrive G (pgtab G (pr0_states G Shn)) (pr0_states G Shn) (la_fix G Shn) acts
+      (([xinit G Shn], tcols (pyield pt)), [st_find (pr0_states G Shn) (lr0_start G Shn)]) \<and>
+    imrun G (pgtab G (pr0_states G Shn)) (pr0_states G Shn) acts
+      (([xinit G Shn], tcols (pyield pt)), [st_find (pr0_states G Shn) (lr0_start G Shn)]) =
       Some ((lgoto (xclosure_auto G (xinit G Shn)) (Nt (istart G)) RA # [xinit G Shn], []),
-            dnext (la_gtab G (lr0_states G Shn)) (lr0_states G Shn)
-              (st_find (lr0_states G Shn) (lr0_start G Shn)) (Nt (istart G))
-            # [st_find (lr0_states G Shn) (lr0_start G Shn)])\<close>
+            dnext (pgtab G (pr0_states G Shn)) (pr0_states G Shn)
+              (st_find (pr0_states G Shn) (lr0_start G Shn)) (Nt (istart G))
+            # [st_find (pr0_states G Shn) (lr0_start G Shn)])\<close>
 proof -
-  let ?sts = \<open>lr0_states G Shn\<close> and ?gt = \<open>la_gtab G (lr0_states G Shn)\<close>
-  let ?L = \<open>la_fix G Shn\<close> and ?i\<^sub>0 = \<open>st_find (lr0_states G Shn) (lr0_start G Shn)\<close>
+  let ?sts = \<open>pr0_states G Shn\<close> and ?gt = \<open>pgtab G (pr0_states G Shn)\<close>
+  let ?L = \<open>la_fix G Shn\<close> and ?i\<^sub>0 = \<open>st_find (pr0_states G Shn) (lr0_start G Shn)\<close>
   have tab: \<open>tables_ok G Shn ?sts ?gt ?L\<close> by (rule tables_ok_concrete)
   obtain pts where pt: \<open>pt = PNode (istart G) (istart_ind G) pts\<close>
     using rt by (cases pt) auto
@@ -3223,7 +3331,7 @@ proof -
       using acts_eq R' jR' cell j by auto
   qed
   have ne: \<open>[xinit G Shn] \<noteq> []\<close> by simp
-  have ok\<^sub>0: \<open>didx_ok G ?sts [xinit G Shn] [?i\<^sub>0]\<close> by (rule didx_ok_init)
+  have ok\<^sub>0: \<open>didx_ok G ?sts [xinit G Shn] [?i\<^sub>0]\<close> by (rule didx_ok_init[OF tab])
   have ctx': \<open>nctx G ?L (hd [?i\<^sub>0]) pt acts [xinit G Shn] []\<close> using ctx by simp
   from mtrace_mdrive[OF tab tr wf ne ok\<^sub>0 ctx'] show ?thesis using rt by simp
 qed
@@ -3231,8 +3339,8 @@ qed
 lemma mdrive_root:
   assumes wf: \<open>wf_ptree G pt\<close> and rt: \<open>proot pt = (Nt (istart G), istart_ind G)\<close>
     and tr: \<open>mtrace G pt acts\<close>
-  shows \<open>mdrive G (la_gtab G (lr0_states G Shn)) (lr0_states G Shn) (la_fix G Shn) acts
-           (([xinit G Shn], tcols (pyield pt)), [st_find (lr0_states G Shn) (lr0_start G Shn)])\<close>
+  shows \<open>mdrive G (pgtab G (pr0_states G Shn)) (pr0_states G Shn) (la_fix G Shn) acts
+           (([xinit G Shn], tcols (pyield pt)), [st_find (pr0_states G Shn) (lr0_start G Shn)])\<close>
   using mtrace_root[OF wf rt tr] by blast
 
 theorem mtrace_completes:
@@ -3242,12 +3350,12 @@ theorem mtrace_completes:
 proof -
   from mtrace_root[OF wf rt tr] obtain RA where
       i0: \<open>istart_ind G \<in> irep_set RA\<close>
-    and run': \<open>imrun G (la_gtab G (lr0_states G Shn)) (lr0_states G Shn) acts
-      (([xinit G Shn], tcols (pyield pt)), [st_find (lr0_states G Shn) (lr0_start G Shn)]) =
+    and run': \<open>imrun G (pgtab G (pr0_states G Shn)) (pr0_states G Shn) acts
+      (([xinit G Shn], tcols (pyield pt)), [st_find (pr0_states G Shn) (lr0_start G Shn)]) =
       Some ((lgoto (xclosure_auto G (xinit G Shn)) (Nt (istart G)) RA # [xinit G Shn], []),
-            dnext (la_gtab G (lr0_states G Shn)) (lr0_states G Shn)
-              (st_find (lr0_states G Shn) (lr0_start G Shn)) (Nt (istart G))
-            # [st_find (lr0_states G Shn) (lr0_start G Shn)])\<close> by blast
+            dnext (pgtab G (pr0_states G Shn)) (pr0_states G Shn)
+              (st_find (pr0_states G Shn) (lr0_start G Shn)) (Nt (istart G))
+            # [st_find (pr0_states G Shn) (lr0_start G Shn)])\<close> by blast
   have run: \<open>mrun G acts ([xinit G Shn], tcols (pyield pt)) =
       Some (lgoto (xclosure_auto G (xinit G Shn)) (Nt (istart G)) RA # [xinit G Shn], [])\<close>
     using imrun_mrun[OF run'] by simp

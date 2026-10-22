@@ -145,11 +145,12 @@ text \<open>\<^text>\<open>dstep_of_imstep_exact\<close> in terms of \<^const>\<
 
 lemma dstep_exact:
   assumes tab: \<open>tables_ok G Shn sts gt L\<close>
-    and stc: \<open>sts = lr0_states G Shn\<close>
+    and stc: \<open>sts = pr0_states G Shn\<close>
+    and gtc: \<open>gt = pgtab G sts\<close>
     and Lc: \<open>L = la_fix G Shn\<close>
     and rt: \<open>redtab = red_buckets G Shn (length sts)\<close>
     and det: \<open>mdet G Shn\<close>
-    and reach: \<open>mreach G Shn (Xs, w)\<close>
+    and ireach: \<open>imreach G Shn gt sts ((Xs, w), istk)\<close>
     and inv: \<open>dfollow_ok G sts ((Xs, w), cstk, istk, v, tstk)\<close>
     and step: \<open>imstep G gt sts ((Xs, w), istk) act = Some (gc', istk')\<close>
     and live: \<open>dlive gc'\<close>
@@ -184,11 +185,12 @@ subsection \<open>The driver follows the trace without stopping early\<close>
 
 lemma dsteps_trace:
   assumes tab: \<open>tables_ok G Shn sts gt L\<close>
-    and stc: \<open>sts = lr0_states G Shn\<close>
+    and stc: \<open>sts = pr0_states G Shn\<close>
+    and gtc: \<open>gt = pgtab G sts\<close>
     and Lc: \<open>L = la_fix G Shn\<close>
     and rt: \<open>redtab = red_buckets G Shn (length sts)\<close>
     and det: \<open>mdet G Shn\<close> and fn: \<open>fresh_name G Shn\<close> and chk: \<open>acc_conflicts G Shn = []\<close>
-  shows \<open>mdrive G gt sts L acts (gc, istk) \<Longrightarrow> mreach G Shn gc \<Longrightarrow>
+  shows \<open>mdrive G gt sts L acts (gc, istk) \<Longrightarrow> imreach G Shn gt sts (gc, istk) \<Longrightarrow>
      dfollow_ok G sts (gc, cstk, istk, v, tstk) \<Longrightarrow> dinv G Shn w (gc, cstk, istk, v, tstk) \<Longrightarrow>
      tsteps acts (v, tstk) = Some (v', tstk') \<Longrightarrow>
      (\<forall>k < length acts. \<exists>st\<^sub>k. dsteps G gt sts redtab k (gc, cstk, istk, v, tstk) = Some st\<^sub>k \<and>
@@ -214,10 +216,10 @@ next
   have lv: \<open>dlive gc\<^sub>1\<close> using lv\<^sub>0 ic\<^sub>1 by simp
   have lc: \<open>\<forall>pr. act = DReduce pr \<longrightarrow> lic_at G L sts ((Xs, u), istk) pr\<close>
     using lc\<^sub>0 gc by simp
-  have reach: \<open>mreach G Shn (Xs, u)\<close> using Cons.prems(2) gc by simp
+  have ireach: \<open>imreach G Shn gt sts ((Xs, u), istk)\<close> using Cons.prems(2) gc by simp
   have inv: \<open>dfollow_ok G sts ((Xs, u), cstk, istk, v, tstk)\<close>
     using Cons.prems(3) gc by simp
-  from dstep_exact[OF tab stc Lc rt det reach inv st lv lc] obtain v\<^sub>1 tstk\<^sub>1 where
+  from dstep_exact[OF tab stc gtc Lc rt det ireach inv st lv lc] obtain v\<^sub>1 tstk\<^sub>1 where
       cand: \<open>act \<in> set (dcands G (hd istk) (redtab ! hd istk) (xclosure_auto G (hd Xs)) (Xs, u))\<close>
     and ts\<^sub>1: \<open>tsteps [act] (v, tstk) = Some (v\<^sub>1, tstk\<^sub>1)\<close>
     and ds: \<open>dstep G gt sts redtab ((Xs, u), cstk, istk, v, tstk) =
@@ -236,7 +238,7 @@ next
       with ms u have False unfolding mstep_def mstep_cached_def gc by simp
       then show ?thesis ..
     qed
-    have ok: \<open>didx_ok G (lr0_states G Shn) Xs istk\<close>
+    have ok: \<open>didx_ok G (pr0_states G Shn) Xs istk\<close>
       using Cons.prems(3) gc stc unfolding dfollow_ok_def by simp
     show False
       by (rule no_reduce_at_final[OF fn chk Cons.prems(4)[unfolded gc] ok fin
@@ -244,11 +246,12 @@ next
   qed
   have dinv\<^sub>1: \<open>dinv G Shn w (gc\<^sub>1, map (xclosure_auto G) (fst gc\<^sub>1), istk\<^sub>1, v\<^sub>1, tstk\<^sub>1)\<close>
     by (rule dstep_inv[OF fn Cons.prems(4)[unfolded gc] ds])
-  have reach\<^sub>1: \<open>mreach G Shn gc\<^sub>1\<close> by (rule mreach_step[OF Cons.prems(2) ms])
+  have ireach\<^sub>1: \<open>imreach G Shn gt sts (gc\<^sub>1, istk\<^sub>1)\<close>
+    using imreach_step[OF Cons.prems(2) st\<^sub>0 lv\<^sub>0] ic\<^sub>1 by simp
   have rest: \<open>mdrive G gt sts L acts (gc\<^sub>1, istk\<^sub>1)\<close> using rest\<^sub>0 ic\<^sub>1 by simp
   have ts_rest: \<open>tsteps acts (v\<^sub>1, tstk\<^sub>1) = Some (v', tstk')\<close>
     using Cons.prems(5) ts\<^sub>1 tsteps_append[of \<open>[act]\<close> acts \<open>(v, tstk)\<close>] by simp
-  from Cons.IH[OF rest reach\<^sub>1 inv\<^sub>1 dinv\<^sub>1 ts_rest] obtain gc' istk' where
+  from Cons.IH[OF rest ireach\<^sub>1 inv\<^sub>1 dinv\<^sub>1 ts_rest] obtain gc' istk' where
       nf: \<open>\<forall>k < length acts. \<exists>st\<^sub>k. dsteps G gt sts redtab k
             (gc\<^sub>1, map (xclosure_auto G) (fst gc\<^sub>1), istk\<^sub>1, v\<^sub>1, tstk\<^sub>1) = Some st\<^sub>k \<and>
             \<not> gfinal G Shn (fst st\<^sub>k)\<close>
@@ -300,9 +303,9 @@ theorem dparse_complete_exact:
     and wf: \<open>wf_ptree G pt\<close> and rt: \<open>proot pt = (Nt (istart G), istart_ind G)\<close>
   shows \<open>dparse G Shn (pyield pt) = Some (erase pt)\<close>
 proof -
-  let ?sts = \<open>lr0_states G Shn\<close> and ?gt = \<open>la_gtab G (lr0_states G Shn)\<close>
-  let ?L = \<open>la_fix G Shn\<close> and ?i\<^sub>0 = \<open>st_find (lr0_states G Shn) (lr0_start G Shn)\<close>
-  let ?redtab = \<open>red_buckets G Shn (length (lr0_states G Shn))\<close>
+  let ?sts = \<open>pr0_states G Shn\<close> and ?gt = \<open>pgtab G (pr0_states G Shn)\<close>
+  let ?L = \<open>la_fix G Shn\<close> and ?i\<^sub>0 = \<open>st_find (pr0_states G Shn) (lr0_start G Shn)\<close>
+  let ?redtab = \<open>red_buckets G Shn (length (pr0_states G Shn))\<close>
   let ?w = \<open>pyield pt\<close>
   let ?st = \<open>(([xinit G Shn], tcols ?w), [xclosure_auto G (xinit G Shn)], [?i\<^sub>0], ?w,
              [] :: ('m, 'ch, 'n, 't) ast list)\<close>
@@ -318,7 +321,7 @@ proof -
     using dinv_init[of G Shn ?w ?sts] unfolding dinit_def .
   have ts: \<open>tsteps acts (?w, []) = Some ([], [erase pt])\<close>
     using tsteps_mtrace[OF tr, of \<open>[]\<close> \<open>[]\<close>] by simp
-  from dsteps_trace[OF tab refl refl refl det fn chk drv mreach_init inv dinv ts]
+  from dsteps_trace[OF tab refl refl refl refl det fn chk drv imreach_init inv dinv ts]
   obtain gc' istk' where
       nf: \<open>\<forall>k < length acts. \<exists>st\<^sub>k. dsteps G ?gt ?sts ?redtab k ?st = Some st\<^sub>k \<and>
              \<not> gfinal G Shn (fst st\<^sub>k)\<close>
@@ -442,34 +445,35 @@ definition prod_no :: \<open>('n, 't) is_cfg \<Rightarrow> 'n \<times> ('n, 't) 
   \<open>prod_no G pr = (case filter (\<lambda>(i, q). q = pr) (zip [0..<length (iprods G)] (iprods G)) of
      [] \<Rightarrow> length (iprods G) | (i, _) # _ \<Rightarrow> i)\<close>
 
-subsection \<open>The conflicting actions of a rigid-point pair\<close>
+subsection \<open>The conflicting actions of a reported state\<close>
 
 datatype 't xact = XShift 't wrel | XReduce nat wrel
 
-text \<open>The pairs of \<^const>\<open>rpairs_at\<close> that fire under
-  \<^const>\<open>rfire\<close>, plus the end-of-input reduce/reduce pairs of
+text \<open>The pairs of \<^const>\<open>ipairs_at\<close> that fire under
+  \<^const>\<open>ifire\<close>, plus the end-of-input reduce/reduce pairs of
   \<^const>\<open>rr_none_at\<close>, with the actions kept: each carries the relation of
-  the lookahead's column to the state's entry anchor.\<close>
+  the lookahead's column to the indentation of the acting item's left-hand
+  side.\<close>
 
 definition rpairs_explained :: \<open>('n, 't) is_cfg \<Rightarrow> 'n \<Rightarrow> ('n, 't) citem list list \<Rightarrow>
-    ('n, 't) lacell list \<Rightarrow> nat \<times> nat \<Rightarrow> ('t option \<times> 't xact \<times> 't xact) list\<close> where
-  \<open>rpairs_explained G Shn sp L = (\<lambda>(i\<^sub>p, i\<^sub>m).
-     let reds = rreds_at G Shn sp L i\<^sub>p i\<^sub>m;
-         shifts = shift_cells (wreach G (sp ! i\<^sub>p));
-         fires = (\<lambda>\<sigma>\<^sub>1 \<sigma>\<^sub>2. rfire G (p0start G Shn) sp (pgtab G sp) (anchored_nts G)
-             (Suc (length sp * 36 + length sp)) [] [(i\<^sub>p, \<sigma>\<^sub>1, \<sigma>\<^sub>2)]);
-         rr = concat (map (\<lambda>(pr, t, \<tau>).
-                List.map_filter (\<lambda>(pr', t', \<tau>').
-                  if prod_no G pr < prod_no G pr' \<and> t' = t \<and> (t = None \<or> fires \<tau> \<tau>')
+    ('n, 't) witem list list \<Rightarrow> ('n, 't) lacell list \<Rightarrow> nat \<Rightarrow>
+    ('t option \<times> 't xact \<times> 't xact) list\<close> where
+  \<open>rpairs_explained G Shn sp wrs L i =
+     (let reds = ireds_gen Shn (wrs ! i) L i;
+         shifts = ishifts (wrs ! i);
+         fires = (\<lambda>c\<^sub>1 c\<^sub>2. ifire Shn wrs (pgtab G sp) (anchored_nts G) (ifuel wrs)
+             [] [(i, c\<^sub>1, c\<^sub>2)]);
+         rr = concat (map (\<lambda>(t, (pr, m, \<tau>)).
+                List.map_filter (\<lambda>(t', (pr', m', \<tau>')).
+                  if prod_no G pr < prod_no G pr' \<and> t' = t \<and>
+                     (t = None \<or> fires (pr, m, \<tau>) (pr', m', \<tau>'))
                   then Some (t, XReduce (prod_no G pr) \<tau>, XReduce (prod_no G pr') \<tau>')
                   else None) reds) reds);
-         sr = concat (map (\<lambda>(pr, t, \<tau>). case t of None \<Rightarrow> [] | Some a \<Rightarrow>
-                List.map_filter (\<lambda>(a', \<tau>').
-                  if a' = a \<and> fires \<tau> \<tau>'
+         sr = concat (map (\<lambda>(t, (pr, m, \<tau>)). case t of None \<Rightarrow> [] | Some a \<Rightarrow>
+                List.map_filter (\<lambda>(a', (pr', m', \<tau>')).
+                  if a' = a \<and> fires (pr, m, \<tau>) (pr', m', \<tau>')
                   then Some (t, XReduce (prod_no G pr) \<tau>, XShift a \<tau>') else None) shifts) reds)
      in remdups (rr @ sr))\<close>
-
-subsection \<open>Layout witnesses\<close>
 
 text \<open>The search is budgeted: at most three columns, at most 48 annotated
   words per conflict over all its lookaheads (a witness of a real ambiguity
@@ -478,7 +482,7 @@ text \<open>The search is budgeted: at most three columns, at most 48 annotated
 
   All column assignments of a token sequence, and the first of a list
   of annotated words on which the driver reaches an admissible configuration
-  (for the report: one in the conflict's merged state) with two live
+  (for the report: one in the reported state) with two live
   candidates: the word, how many tokens remain unread there, and the
   candidates (\<^const>\<open>None\<close> for a shift, the production index for a
   reduce).  The exploration runs over precomputed tables and a frontier,
@@ -535,55 +539,119 @@ fun first_witness :: \<open>('n, 't) is_cfg \<Rightarrow> ('n, 't) xitem list \<
       | Some ((gc, _, _), acts) \<Rightarrow> Some (w, length (snd gc),
           map (\<lambda>a. case a of DShift \<Rightarrow> None | DReduce pr \<Rightarrow> Some (prod_no G pr)) acts)))\<close>
 
-subsection \<open>The two explanations\<close>
+subsection \<open>The explanations of a reported state\<close>
 
-text \<open>One entry per reported pair: the pair, the items of the precise state,
-  the symbol path and sample input reaching it, the conflicting action
-  pairs, and a layout witness for the sample extended by each conflict
-  lookahead.\<close>
+text \<open>Three levels, each over the one before: the symbol path from the start
+  state to a reported state (all the report shows under
+  \<^theory_text>\<open>[[grammar_explain = false]]\<close>); the items of the state and the
+  conflicting action pairs; and the sample input (nonterminals expanded to
+  shortest terminal words) with a layout witness for the sample extended by
+  each conflict lookahead.  The command searches witnesses in the first
+  \<^theory_text>\<open>[[grammar_explain_states]]\<close> reported states only and stops at the second
+  level for the rest; the functions themselves are total on any state list.\<close>
 
-definition explain_rp :: \<open>('n, 't) is_cfg \<Rightarrow> 'n \<Rightarrow> (nat \<times> nat) list \<Rightarrow>
-    ((nat \<times> nat) \<times> (nat \<times> nat) list \<times> ('n, 't) sym list option \<times> 't list option \<times>
+definition explain_paths :: \<open>('n, 't) is_cfg \<Rightarrow> 'n \<Rightarrow> nat list \<Rightarrow>
+    (nat \<times> ('n, 't) sym list option) list\<close> where
+  \<open>explain_paths G Shn is = (let sp = pr0_states G Shn; gp = pgtab G sp
+     in map (\<lambda>i. (i, path_bfs (\<lambda>j. if j < length gp then gp ! j else []) i
+          (Suc (length sp)) [] [(p0start G Shn, [])])) is)\<close>
+
+definition explain_rp_brief :: \<open>('n, 't) is_cfg \<Rightarrow> 'n \<Rightarrow> nat list \<Rightarrow>
+    (nat \<times> (nat \<times> nat) list \<times> ('n, 't) sym list option \<times>
+     ('t option \<times> 't xact \<times> 't xact) list) list\<close> where
+  \<open>explain_rp_brief G Shn is = (let sp = pr0_states G Shn; L = la_fix G Shn;
+       wrs = map (wreach G) sp
+     in map (\<lambda>(i, path). let
+          items = (if i < length sp then map (\<lambda>(pr, m). (prod_no G pr, m)) (sp ! i) else []);
+          prs = (if i < length sp then rpairs_explained G Shn sp wrs L i else [])
+        in (i, items, path, prs)) (explain_paths G Shn is))\<close>
+
+definition explain_rp :: \<open>('n, 't) is_cfg \<Rightarrow> 'n \<Rightarrow> nat list \<Rightarrow>
+    (nat \<times> (nat \<times> nat) list \<times> ('n, 't) sym list option \<times> 't list option \<times>
      ('t option \<times> 't xact \<times> 't xact) list \<times>
      (('t \<times> nat) list \<times> nat \<times> nat option list) option) list\<close> where
-  \<open>explain_rp G Shn pairs = (let
-       sp = pr0_states G Shn; sm = lr0_states G Shn; L = la_fix G Shn;
-       gp = pgtab G sp; gm = la_gtab G sm; mw = min_words G;
-       fuel = Suc ((length sp + 1) * (length sm + 1));
-       cands = wit_cands G sm gm (red_buckets G Shn (length sm));
-       xi = xinit G Shn; init = (xi, xclosure_auto G xi, rstart G Shn)
-     in map (\<lambda>(i\<^sub>p, i\<^sub>m). let
-          items = (if i\<^sub>p < length sp then map (\<lambda>(pr, m). (prod_no G pr, m)) (sp ! i\<^sub>p) else []);
-          path = path_bfs (xprod_succs gp gm) (i\<^sub>p, i\<^sub>m) fuel []
-                   [((p0start G Shn, rstart G Shn), [])];
+  \<open>explain_rp G Shn is = (let
+       sp = pr0_states G Shn; gp = pgtab G sp; mw = min_words G;
+       cands = wit_cands G sp gp (red_buckets G Shn (length sp));
+       xi = xinit G Shn; init = (xi, xclosure_auto G xi, p0start G Shn)
+     in map (\<lambda>(i, items, path, prs). let
           sample = (case path of None \<Rightarrow> None | Some p \<Rightarrow> syms_word mw p);
-          prs = (if i\<^sub>p < length sp then rpairs_explained G Shn sp L (i\<^sub>p, i\<^sub>m) else []);
           wit = (case sample of None \<Rightarrow> None | Some w \<Rightarrow>
                   (let ws = map (\<lambda>t. case t of None \<Rightarrow> w | Some a \<Rightarrow> w @ [a])
                               (remdups (map fst prs));
                        cs = [0..<ncols (length w + 1)]
                    in first_witness G init cands
-                        (\<lambda>(_, _, istk). istk \<noteq> [] \<and> hd istk = i\<^sub>m) (4 * (length w + 2) + 8)
+                        (\<lambda>(_, _, istk). istk \<noteq> [] \<and> hd istk = i) (4 * (length w + 2) + 8)
                         (take 48 (concat (map (\<lambda>u. layouts u cs) ws)))))
-        in ((i\<^sub>p, i\<^sub>m), items, path, sample, prs, wit)) pairs)\<close>
+        in (i, items, path, sample, prs, wit)) (explain_rp_brief G Shn is))\<close>
 
 text \<open>For \<^const>\<open>acc_conflicts\<close>: the state, the productions reduced at end
   of input next to the completed start item, and the path to it in the
-  merged automaton.\<close>
+  automaton.\<close>
 
 definition explain_acc :: \<open>('n, 't) is_cfg \<Rightarrow> 'n \<Rightarrow> nat list \<Rightarrow>
     (nat \<times> nat list \<times> ('n, 't) sym list option \<times> 't list option) list\<close> where
   \<open>explain_acc G Shn is = (let
-       sm = lr0_states G Shn; gm = la_gtab G sm; L = la_fix G Shn; mw = min_words G
+       sp = pr0_states G Shn; gp = pgtab G sp; L = la_fix G Shn; mw = min_words G
      in map (\<lambda>i. let
           prs = remdups (List.map_filter (\<lambda>(i', (pr, m), t, \<tau>).
                   if i' = i \<and> m = length (snd pr) \<and> t = None \<and> pr \<noteq> start_prod G Shn
                   then Some (prod_no G pr) else None) L);
-          path = path_bfs (\<lambda>j. if j < length gm then gm ! j else []) i
-                   (Suc (length sm)) [] [(rstart G Shn, [])];
+          path = path_bfs (\<lambda>j. if j < length gp then gp ! j else []) i
+                   (Suc (length sp)) [] [(p0start G Shn, [])];
           sample = (case path of None \<Rightarrow> None | Some p \<Rightarrow> syms_word mw p)
         in (i, prs, path, sample)) is)\<close>
 
+
+section \<open>The checks of the \<^theory_text>\<open>parser\<close> command\<close>
+
+text \<open>The command evaluates these five values and nothing else: the two conflict
+  reports, the symbol paths of the reported states (the report's cheapest level,
+  \<^const>\<open>explain_paths\<close>, over the automaton the checks have built), whether the
+  grammar has no layout annotations (\<^const>\<open>ii\<close>, the simple driver's condition)
+  and whether every reduce cell with a token is unconstrained in width
+  (\<^const>\<open>wany_ok\<close>). The \<open>let\<close> shares the automaton, its goto table and the
+  saturated cells between them. The tables themselves stay
+  symbolic: the parser's table constants are defined by their terms
+  (\<^text>\<open>lr_build_parse\<close>), so the generated code computes each once when it loads, and
+  no table is rebuilt as a term, which cost more than computing it.\<close>
+
+definition lr_checks :: \<open>('n, 't) is_cfg \<Rightarrow> 'n \<Rightarrow> nat list \<times> nat list \<times> bool \<times> bool \<times>
+    (nat \<times> ('n, 't) sym list option) list\<close> where
+  \<open>lr_checks G Shn =
+     (let sp = pr0_states G Shn; gp = pgtab G sp; L = la_fix_gen G Shn gp sp;
+          ants = anchored_nts G; wrs = map (wreach G) sp; fuel = ifuel wrs;
+          p0 = p0start G Shn; s0 = start_prod G Shn;
+          confs = filter (rlalr_conflict_at_gen Shn wrs gp ants fuel L) [0..<length sp]
+      in (confs,
+          filter (\<lambda>i. (s0, Suc 0) \<in> set (sp ! i) \<and>
+                    list_ex (\<lambda>(i', (pr, m), t, \<tau>). i' = i \<and> m = length (snd pr) \<and>
+                              t = None \<and> pr \<noteq> s0) L)
+            [0..<length sp],
+          ii G, wany_ok (cell_buckets L (length sp)),
+          map (\<lambda>i. (i, path_bfs (\<lambda>j. if j < length gp then gp ! j else []) i
+               (Suc (length sp)) [] [(p0, [])])) confs))\<close>
+
+theorem lr_checks_eq:
+  \<open>lr_checks G Shn =
+     (rlalr_conflicts G Shn, acc_conflicts G Shn, ii G,
+      wany_ok (red_buckets G Shn (length (pr0_states G Shn))),
+      explain_paths G Shn (rlalr_conflicts G Shn))\<close>
+  by (simp add: lr_checks_def explain_paths_def red_buckets_def la_fix_def
+        rlalr_conflicts_code acc_conflicts_code Let_def)
+
+
+text \<open>The simple driver's table construction needs one more value: the numbers of
+  the token constructors (\<^const>\<open>pnum\<close>). They are computed from the tables the
+  parser's constants are defined by, in the same shape, so the backend turns the
+  evaluated equation into one over its constants by rewriting with their definitions.\<close>
+
+definition lr_simple_checks :: \<open>('n, 't) is_cfg \<Rightarrow> 'n \<Rightarrow> 't list \<Rightarrow> nat list\<close> where
+  \<open>lr_simple_checks G Shn ctrs =
+     (let sts = pr0_states G Shn; gt = pgtab G sts; redtab = red_buckets G Shn (length sts);
+          pc = pcomps G sts; pf = pfins Shn sts;
+          K = ktabs_of (jtabs_of (mk_ltabs gt sts redtab pc pf))
+      in map (pnum (ptabs_of K)) ctrs)\<close>
 
 section \<open>The LR backend of the \<^theory_text>\<open>parser\<close> command\<close>
 

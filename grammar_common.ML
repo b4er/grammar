@@ -93,7 +93,11 @@ sig
   val carrier_of: grammar -> string -> typ
   val close_binders: Proof.context -> string list -> thm -> thm
   val timing: bool Config.T
+  val profile: string Config.T
+  val timing_components: bool Config.T
   val timed: Proof.context -> string -> string -> ('a -> 'b) -> 'a -> 'b
+  val when_timing: Proof.context -> (unit -> unit) -> unit
+  val profiled: Proof.context -> ('a -> 'b) -> 'a -> 'b
 
   (** code equations that reach the background theory (also inside a target) **)
   val def_axiom: local_theory -> binding * binding -> thm option
@@ -311,8 +315,15 @@ fun close_binders ctxt names th =
     val th' = Thm.instantiate (TVars.empty, Vars.make insts) th;
   in fold_rev (fn (_, ct) => Thm.forall_intr ct) insts th' end;
 
-(* per-step timings of the grammar and parser commands, \<open>[[grammar_timing = true]]\<close> shows them *)
+(* per-step timings of the grammar and parser commands, \<open>[[grammar_timing = true]]\<close> shows them;
+   \<open>[[grammar_profile = time]]\<close> (or \<open>allocations\<close>) additionally runs the parser's table
+   evaluation under Poly/ML profiling and prints the report; \<open>grammar_timing_components\<close>
+   (default off) lets the timed run of the parser re-evaluate the tables prefix by
+   prefix, which costs several evaluations *)
 val timing = Attrib.setup_config_bool \<^binding>\<open>grammar_timing\<close> (K false);
+val profile = Attrib.setup_config_string \<^binding>\<open>grammar_profile\<close> (K "");
+val timing_components =
+  Attrib.setup_config_bool \<^binding>\<open>grammar_timing_components\<close> (K false);
 
 fun timed ctxt prefix label f x =
   if Config.get ctxt timing then
@@ -320,10 +331,20 @@ fun timed ctxt prefix label f x =
     in writeln ("[" ^ prefix ^ "] " ^ label ^ ": " ^ Timing.message t); y end
   else f x;
 
+(* a measurement that runs only under \<open>[[grammar_timing = true]]\<close> *)
+fun when_timing ctxt f = if Config.get ctxt timing then f () else ();
+
+(* \<open>PolyML.Profiling\<close> is not visible from Isabelle/ML, so the report is ML_Profiling's,
+   with every entry *)
+fun profiled ctxt f x =
+  let val mode = Config.get ctxt profile
+  in (ML_Profiling.check_mode mode; ML_Profiling.profile mode f x) end;
+
 (* code equations of constants defined inside a target are declared on the
-   background theory as well; inside a locale with assumptions the noted
-   facts carry the locale predicate, so use the foundation axiom (def_axiom)
-   or export by expanding local definitions only (export_unconditional) *)
+   background theory as well (a theory target's declaration reaches it
+   already); inside a locale with assumptions the noted facts carry the
+   locale predicate, so use the foundation axiom (def_axiom) or export by
+   expanding local definitions only (export_unconditional) *)
 
 fun def_axiom lthy (b, def_b) =
   let
@@ -363,7 +384,8 @@ fun export_unconditional inner outer th =
   end;
 
 fun declare_code_global {default} ths lthy =
-  Local_Theory.background_theory (fn thy =>
+  if Named_Target.is_theory lthy then lthy
+  else Local_Theory.background_theory (fn thy =>
     let
       val ctxt0 = Proof_Context.init_global thy;
       fun export th =

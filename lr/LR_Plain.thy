@@ -4,15 +4,15 @@ begin
 
 section \<open>A plain action table\<close>
 
-text \<open>The product step (\<^const>\<open>kctl\<close>) tries the shift and then the reduce
-  candidates of the lookahead, which takes a lookup in the shift table, one in
-  the table of candidates, and one in the table of productions per candidate.
-  Here one table gives per pair number and lookahead the actions to try: the
+text \<open>The step on candidate tables (\<^const>\<open>kctl\<close>) tries the shift and then
+  the reduce candidates of the lookahead, which takes a lookup in the shift
+  table, one in the table of candidates, and one in the table of productions
+  per candidate. Here one table gives per state and lookahead the actions to try: the
   shift with its target if there is one (the step takes it before any
   reduce), otherwise the reduces, each with its production and the number of
   its left-hand side. A second table gives the reduces at the end of the
-  input, where there is no shift. The step on these tables equals the product
-  step on every stack, so the run is the same.\<close>
+  input, where there is no shift. The step on these tables equals the step on
+  candidate tables on every stack, so the run is the same.\<close>
 
 datatype ('n, 't) pact = PShift nat | PReduce \<open>'n \<times> ('n, 't) rhs\<close> nat
 
@@ -215,19 +215,16 @@ subsection \<open>The code equation\<close>
 
 lemma dparse_via_plain:
   assumes static: \<open>sstatic G Shn\<close>
-    and st: \<open>lr0_states G Shn = sts\<close> and gt: \<open>la_gtab G sts = gtab\<close>
+    and st: \<open>pr0_states G Shn = sts\<close> and gt: \<open>pgtab G sts = gtab\<close>
     and rt: \<open>red_buckets G Shn (length sts) = redtab\<close>
-    and ps: \<open>pr0_states G Shn = psts\<close> and pg: \<open>pgtab G psts = pgt\<close>
-    and pcs: \<open>pcomps G psts = pc\<close> and pfs: \<open>pfins Shn psts = pf\<close>
+    and pcs: \<open>pcomps G sts = pc\<close> and pfs: \<open>pfins Shn sts = pf\<close>
     and i0: \<open>st_find sts (lr0_start G Shn) = i\<^sub>0\<close>
-    and p0: \<open>st_find psts (lr0_start G Shn) = p\<^sub>0\<close>
-    and lt: \<open>mk_ltabs gtab sts redtab pgt psts pc pf = L\<close>
+    and lt: \<open>mk_ltabs gtab sts redtab pc pf = L\<close>
     and jt: \<open>jtabs_of L = J\<close>
-    and ok: \<open>kok J kps (i\<^sub>0, p\<^sub>0)\<close>
-    and kt: \<open>ktabs_of J kps = K\<close> and k0: \<open>kidx kps (i\<^sub>0, p\<^sub>0) = k\<^sub>0\<close>
+    and kt: \<open>ktabs_of J = K\<close>
     and pt: \<open>ptabs_of K = P\<close> and tn: \<open>pnum P = f\<close>
-  shows \<open>dparse G Shn w = brun (pctl P) (pfinal P) fst (None, 1, 1) ([k\<^sub>0], map (tenc f) w, [])\<close>
+  shows \<open>dparse G Shn w = brun (pctl P) (pfinal P) fst (None, 1, 1) ([i\<^sub>0], map (tenc f) w, [])\<close>
   unfolding tn[symmetric] pt[symmetric] pctl_eq_fun pfinal_eq tenc_eq
-  by (rule dparse_via_prod_loop[OF static st gt rt ps pg pcs pfs i0 p0 lt jt ok kt k0])
+  by (rule dparse_via_prod_loop[OF static st gt rt pcs pfs i0 lt jt kt])
 
 end

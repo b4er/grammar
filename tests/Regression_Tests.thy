@@ -79,8 +79,8 @@ grammar (relation) cyc =
 
 parser cyc_parse for cyc
 
-text \<open>The code equation runs on the action table of the product automaton,
-  and numbers the tokens by a case distinction.\<close>
+text \<open>The code equation runs on the action table over the states, and
+  numbers the tokens by a case distinction.\<close>
 
 term \<open>cyc_parse_ptabs\<close>
 lemma \<open>cyc_parse_tnum DId = pnum cyc_parse_ptabs DId\<close>
@@ -710,7 +710,7 @@ definition tg2 :: \<open>(string, string) is_cfg\<close> where
                      (''S'', [(Tm ''c'', Any)])],
            istart = ''S'', istart_ind = 0 \<rparr>\<close>
 
-lemma \<open>length (lr0_states tg1 ''!'') = 5\<close>
+lemma \<open>length (pr0_states tg1 ''!'') = 5\<close>
   by eval
 
 lemma \<open>nullables tg1 = [''S'']\<close> and \<open>nullables tg2 = []\<close>
@@ -756,7 +756,7 @@ text \<open>\<open>S \<rightarrow> T\<^sup>\<star>;  T \<rightarrow> A\<^sup>= b
   (\<open>T \<rightarrow> U b\<close>).  After reducing \<open>A\<close> the pooled frame carries the anchor set
   \<open>{0, 1}\<close>; the shift is live via anchor 1 and the reduce of \<open>U \<rightarrow> A\<close> via
   anchor 0.  A comparison of the two sides at one shared anchor is blind to
-  this (papers/MAP.md section 7); the rigid-point check is not, and its
+  this (papers/MAP.md section 7); the item-relative check is not, and its
   explanation finds the witness.\<close>
 
 definition xag :: \<open>(string, string) is_cfg\<close> where
@@ -776,6 +776,13 @@ lemma \<open>list_ex (\<lambda>(_, _, _, _, _, w). w \<noteq> None)
   by eval
 
 lemma \<open>explain_rp tg2 ''!'' (rlalr_conflicts tg2 ''!'') = []\<close>
+  by eval
+
+text \<open>The cheaper levels of the explanation reach the same states: every
+  reported pair of \<open>xag\<close> has a symbol path and its action pairs.\<close>
+
+lemma \<open>list_all (\<lambda>(_, _, path, prs). path \<noteq> None \<and> prs \<noteq> [])
+         (explain_rp_brief xag ''!'' (rlalr_conflicts xag ''!''))\<close>
   by eval
 
 subsection \<open>LALR merging\<close>
@@ -809,13 +816,12 @@ text \<open>Every \<^theory_text>\<open>by eval\<close> above is closed by \<ope
   beyond the simplifier.  Proving the checks both ways on one small grammar is
   an oracle-free confirmation, for this development's own code, that the
   generated ML computes what the code equations say --- in particular for
-  \<^const>\<open>la_fix\<close>, \<^const>\<open>acc_conflicts\<close> and \<^const>\<open>mprod_states\<close>, whose
-  equations bind the automaton once for speed and are therefore not the ones a
-  reader would write.
+  \<^const>\<open>la_fix\<close> and \<^const>\<open>acc_conflicts\<close>, whose equations bind the
+  automaton once for speed and are therefore not the ones a reader would write.
 
   It buys that only here.  \<^const>\<open>rlalr_conflicts\<close> did not finish in 200 s on
   these same two productions, and it swallows interrupts, so a runaway cannot
-  even be stopped by a timeout.  The five checks below, by contrast, cost 13 s
+  even be stopped by a timeout.  The four checks below, by contrast, cost 13 s
   by \<^theory_text>\<open>eval\<close> --- most of it the fixed ML-compilation floor --- and
   25 s by \<^theory_text>\<open>code_simp\<close>.  Keep this audit on \<open>tg1\<close>, keep
   \<^const>\<open>rlalr_conflicts\<close> out of it, and keep the whole thing under a
@@ -823,18 +829,16 @@ text \<open>Every \<^theory_text>\<open>by eval\<close> above is closed by \<ope
 
 lemma checks_by_eval:
   \<open>nullables tg1 = [''S'']\<close>
-  \<open>length (lr0_states tg1 ''!'') = 5\<close>
+  \<open>length (pr0_states tg1 ''!'') = 5\<close>
   \<open>length (la_fix tg1 ''!'') = 8\<close>
   \<open>acc_conflicts tg1 ''!'' = []\<close>
-  \<open>mprod_states tg1 ''!'' = [(1, 1), (2, 2), (3, 3), (4, 4)]\<close>
   by eval+
 
 lemma checks_by_code_simp:
   \<open>nullables tg1 = [''S'']\<close>
-  \<open>length (lr0_states tg1 ''!'') = 5\<close>
+  \<open>length (pr0_states tg1 ''!'') = 5\<close>
   \<open>length (la_fix tg1 ''!'') = 8\<close>
   \<open>acc_conflicts tg1 ''!'' = []\<close>
-  \<open>mprod_states tg1 ''!'' = [(1, 1), (2, 2), (3, 3), (4, 4)]\<close>
   by code_simp+
 
 

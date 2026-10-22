@@ -291,18 +291,15 @@ lemma kctl_keep:
 
 lemma dparse_via_prod_loop:
   assumes static: \<open>sstatic G Shn\<close>
-    and st: \<open>lr0_states G Shn = sts\<close> and gt: \<open>la_gtab G sts = gtab\<close>
+    and st: \<open>pr0_states G Shn = sts\<close> and gt: \<open>pgtab G sts = gtab\<close>
     and rt: \<open>red_buckets G Shn (length sts) = redtab\<close>
-    and ps: \<open>pr0_states G Shn = psts\<close> and pg: \<open>pgtab G psts = pgt\<close>
-    and pcs: \<open>pcomps G psts = pc\<close> and pfs: \<open>pfins Shn psts = pf\<close>
+    and pcs: \<open>pcomps G sts = pc\<close> and pfs: \<open>pfins Shn sts = pf\<close>
     and i0: \<open>st_find sts (lr0_start G Shn) = i\<^sub>0\<close>
-    and p0: \<open>st_find psts (lr0_start G Shn) = p\<^sub>0\<close>
-    and lt: \<open>mk_ltabs gtab sts redtab pgt psts pc pf = L\<close>
+    and lt: \<open>mk_ltabs gtab sts redtab pc pf = L\<close>
     and jt: \<open>jtabs_of L = J\<close>
-    and ok: \<open>kok J kps (i\<^sub>0, p\<^sub>0)\<close>
-    and kt: \<open>ktabs_of J kps = K\<close> and k0: \<open>kidx kps (i\<^sub>0, p\<^sub>0) = k\<^sub>0\<close>
-  shows \<open>dparse G Shn w = brun (kctl K) (kfinal K) fst (None, 1, 1) ([k\<^sub>0], map (kenc K) w, [])\<close>
-  unfolding dparse_via_prod_tables[OF static st gt rt ps pg pcs pfs i0 p0 lt jt ok kt k0]
+    and kt: \<open>ktabs_of J = K\<close>
+  shows \<open>dparse G Shn w = brun (kctl K) (kfinal K) fst (None, 1, 1) ([i\<^sub>0], map (kenc K) w, [])\<close>
+  unfolding dparse_via_prod_tables[OF static st gt rt pcs pfs i0 lt jt kt]
   by (rule xrun_hist_brun) (rule kctl_keep)
 
 end

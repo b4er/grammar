@@ -282,13 +282,18 @@ text \<open>
   LALR(1)-style parser over the LR(0) automaton whose lookahead cells carry
   the layout constraints, \<open>Shn\<close> a
   fresh name for the augmented start symbol, and \<open>G__dec_S\<close> the decoder of
-  the start symbol. For code generation the LR tables are computed once at
-  definition time and stored as constants \<open>p_states\<close>, \<open>p_gtab\<close>, \<open>p_redtab\<close>,
-  \<open>p_i0\<close> and, for the driver, \<open>p_xinit\<close> and \<open>p_xclos\<close>. The code equation of
-  \<open>p\<close> refers to those tables, so neither \<^theory_text>\<open>eval\<close> nor exported code
-  needs to rebuild the automaton. If the grammar has no layout annotations,
-  the static determinism check is empty and no lookahead cell of a reduce
-  constrains the width of its token, the code equation instead runs the
+  the start symbol. For code generation the LR tables are constants \<open>p_states\<close>,
+  \<open>p_gtab\<close>, \<open>p_redtab\<close>, \<open>p_i0\<close> and, for the driver, \<open>p_xinit\<close> and
+  \<open>p_xclos\<close>, each defined by its term over the ones before it
+  (\<open>p_gtab = la_gtab G p_states\<close>); generated code computes each once when it
+  loads. The code equation of \<open>p\<close> refers to those constants, so neither
+  \<^theory_text>\<open>eval\<close> nor exported code rebuilds the automaton per call. With
+  \<^theory_text>\<open>declare [[parser_literal_tables]]\<close> the six constants are instead
+  the evaluated tables, for exported code that must not compute them at startup;
+  the command then evaluates the tables as well as its checks. If the grammar
+  has no layout annotations, the static determinism check is empty and no
+  lookahead cell of a reduce constrains the width of its token, the code
+  equation instead runs the
   simple driver of \<^file>\<open>lr/LR_Simple.thy\<close>, using the precise LR(0)
   automaton as well (tables \<open>p_psts\<close>, \<open>p_pgt\<close>, \<open>p_pcomps\<close>, \<open>p_pfins\<close>,
   \<open>p_p0\<close>). It keeps a stack of state indices and computes no closures at run

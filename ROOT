@@ -1,5 +1,5 @@
 session Grammar_Command = Context_Free_Grammar +
-  options  [document = pdf, document_output = "output", document_bibliography]
+  options  [document_output = "output", document_bibliography]
   theories [document = false]
     Token
     Indentation_Sensitive
