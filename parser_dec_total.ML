@@ -27,7 +27,7 @@ fun mk_ex T body_fn =
 fun gram_eqs ctxt (gram: Grammar_Common.grammar) =
   let
     val {gram_t, gram_def, ...} = Grammar_Common.artifacts_of gram;
-    val ctxt' = ctxt addsimps ([gram_def] @ @{thms is_cfg.make_def});
+    val ctxt' = ctxt |> Simplifier.add_simps ([gram_def] @ @{thms is_cfg.make_def});
     fun eq sel =
       Simplifier.rewrite ctxt'
         (Thm.cterm_of ctxt (Syntax.check_term ctxt (Const (sel, dummyT) $ gram_t)));
@@ -119,11 +119,11 @@ fun prove ctxt (gram: Grammar_Common.grammar) =
     (* node case: one subgoal per production *)
     fun node_tac ctxt sel_eqs =
       let
-        val ctxt1 = ctxt addsimps (eqs @ sel_eqs @ @{thms list_all2_Cons1});
+        val ctxt1 = ctxt |> Simplifier.add_simps (eqs @ sel_eqs @ @{thms list_all2_Cons1});
         (* ex_bool_eq: for a bool carrier the residue is `\<exists>x. x`, which
            simp_thms do not cover once `True = x` has been rewritten to `x` *)
         val ctxt2 =
-          ctxt addsimps
+          ctxt |> Simplifier.add_simps
             (dec_nones @ sel_eqs @ @{thms asym_erase case_ast_Nt_None ex_bool_eq});
       in
         Clasimp.clarsimp_tac ctxt1
@@ -141,7 +141,7 @@ fun prove ctxt (gram: Grammar_Common.grammar) =
     fun tac2 ctxt =
       Method.insert_tac ctxt [start_th] 1
       THEN Local_Defs.unfold_tac ctxt @{thms ast_of_def}
-      THEN HEADGOAL (SOLVED' (Clasimp.fast_force_tac (ctxt addsimps eqs)));
+      THEN HEADGOAL (SOLVED' (Clasimp.fast_force_tac (ctxt |> Simplifier.add_simps eqs)));
 
     val tot0 =
       Goal.prove_sorry ctxt [] [] (prop2 ctxt gram) (fn {context, ...} => tac2 context);

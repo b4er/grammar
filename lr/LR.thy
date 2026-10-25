@@ -941,7 +941,7 @@ proof -
     using derives_unann[OF relpowp_imp_rtranclp[OF assms(1)]]
       annotates_unann[OF assms(2)] by simp
   have \<open>nsym (nullables G) (fst Xr)\<close> if \<open>Xr \<in> set rhs\<close> for Xr
-    using derives_NilD[OF d, of \<open>fst Xr\<close>] that
+    using derives_to_NilD[OF d, of \<open>fst Xr\<close>] that
     by (auto intro: nsym_nullables nullable_if)
   then show ?thesis by (auto simp: list_all_iff case_prod_beta)
 qed
@@ -1169,7 +1169,7 @@ proof (induction n arbitrary: rhs arhs j V rule: less_induct)
     unfolding rhs Xr by (cases arhs) (auto simp: annotates_def)
   have \<open>(infG G) \<turnstile> [Y] @ arest \<Rightarrow>(n) Tm (a, c) # V\<close>
     using less.prems(1) unfolding arhs by simp
-  from iffD1[OF deriven_append_decomp this]
+  from iffD1[OF deriven_appendD this]
   obtain n\<^sub>1 n\<^sub>2 w\<^sub>1 w\<^sub>2 where n: \<open>n = n\<^sub>1 + n\<^sub>2\<close> and w: \<open>Tm (a, c) # V = w\<^sub>1 @ w\<^sub>2\<close>
     and d\<^sub>1: \<open>(infG G) \<turnstile> [Y] \<Rightarrow>(n\<^sub>1) w\<^sub>1\<close>
     and d\<^sub>2: \<open>(infG G) \<turnstile> arest \<Rightarrow>(n\<^sub>2) w\<^sub>2\<close>
@@ -1270,7 +1270,7 @@ proof -
   obtain a c where t: \<open>t = (a, c)\<close> by (cases t)
   from der obtain n where dern: \<open>(infG G) \<turnstile> arest @ map Tm u \<Rightarrow>(n) Tm (a, c) # V\<close>
     unfolding veq t by (auto simp: rtranclp_power)
-  from iffD1[OF deriven_append_decomp dern]
+  from iffD1[OF deriven_appendD dern]
   obtain n\<^sub>1 n\<^sub>2 w\<^sub>1 w\<^sub>2 where w: \<open>Tm (a, c) # V = w\<^sub>1 @ w\<^sub>2\<close>
     and d\<^sub>1: \<open>(infG G) \<turnstile> arest \<Rightarrow>(n\<^sub>1) w\<^sub>1\<close>
     and d\<^sub>2: \<open>(infG G) \<turnstile> map Tm u \<Rightarrow>(n\<^sub>2) w\<^sub>2\<close>
@@ -1281,7 +1281,7 @@ proof -
     have nul: \<open>list_all (\<lambda>(X, r). nsym (nullables G) X) rest\<close>
       by (rule annotated_null[OF d\<^sub>1[unfolded Nil] ann])
     have w2eq: \<open>w\<^sub>2 = map Tm u\<close>
-      using relpowp_imp_rtranclp[OF d\<^sub>2] by (simp add: derives_from_Tms_iff)
+      using relpowp_imp_rtranclp[OF d\<^sub>2] by (simp add: derives_map_Tm_iff)
     have \<open>map Tm u = Tm (a, c) # V\<close> using w w2eq unfolding Nil by simp
     then obtain u' where \<open>u = (a, c) # u'\<close> by (cases u) auto
     then show ?thesis using nul veq t by simp

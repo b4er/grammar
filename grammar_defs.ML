@@ -72,7 +72,7 @@ fun define_const code (b, def_b, rhs) lthy =
   end;
 
 fun simp_only ctxt extra =
-  asm_full_simp_tac (put_simpset HOL_basic_ss ctxt addsimps extra);
+  asm_full_simp_tac (put_simpset HOL_basic_ss ctxt |> Simplifier.add_simps extra);
 
 
 (** grammar constant: the isg / cfg record **)
@@ -650,7 +650,7 @@ fun define_decoders (gram: Grammar_Common.grammar) lthy =
        case distinctions on the children list *)
     fun children_ctxt ctxt =
       put_simpset HOL_basic_ss ctxt
-        addsimps @{thms list.set insert_iff simp_thms if_True}
+        |> Simplifier.add_simps @{thms list.set insert_iff simp_thms if_True}
       |> Simplifier.add_cong @{thm list.case_cong};
     fun prove_eqn A goal =
       let
@@ -896,7 +896,7 @@ fun gen_define_relation gram_t gram_th (gram: Grammar_Common.grammar) lthy =
         val defined' = defined @ (map pred_of comp ~~ #preds res);
       in ((comp, idxs, res), (defined', lthy')) end;
     val (comp_results, (_, lthy)) =
-      timed "Inductive.add_inductive" (fold_map define_comp comps) ([], lthy);
+      timed "add_inductive" (fold_map define_comp comps) ([], lthy);
 
     (* the predicates, and the intros and inducts in the order of the grammar *)
     val pred_tab =
@@ -1222,7 +1222,7 @@ fun gen_define_relation gram_t gram_th (gram: Grammar_Common.grammar) lthy =
             set_c $ (iprods_c $ gram_t));
         val ss =
           put_simpset HOL_basic_ss lthy
-            addsimps @{thms list.set insert_iff singleton_iff empty_iff prod.inject};
+            |> Simplifier.add_simps @{thms list.set insert_iff singleton_iff empty_iff prod.inject};
         val eq =
           (Conv.arg_conv (Conv.arg_conv (Conv.rewr_conv (mk_meta_eq iprods_eq)))
             then_conv Simplifier.rewrite ss) (Thm.cterm_of lthy mem_t);
@@ -1270,7 +1270,7 @@ fun gen_define_relation gram_t gram_th (gram: Grammar_Common.grammar) lthy =
       Goal.prove_sorry lthy [] [] istart_eq_prop
         (fn {context, ...} =>
            HEADGOAL (asm_full_simp_tac
-             (context addsimps [gram_simp])));
+             (context |> Simplifier.add_simps [gram_simp])));
 
     val istart_ind_eq_prop =
       HOLogic.mk_Trueprop (HOLogic.mk_eq (istart_ind_c $ gram_t, zero_nat));
@@ -1278,7 +1278,7 @@ fun gen_define_relation gram_t gram_th (gram: Grammar_Common.grammar) lthy =
       Goal.prove_sorry lthy [] [] istart_ind_eq_prop
         (fn {context, ...} =>
            HEADGOAL (asm_full_simp_tac
-             (context addsimps [gram_simp])));
+             (context |> Simplifier.add_simps [gram_simp])));
 
     val start_idx = find_index (curry (op =) start) nnames;
     val sound_start = nth sound_thms start_idx;
@@ -1346,7 +1346,7 @@ fun gen_define_relation gram_t gram_th (gram: Grammar_Common.grammar) lthy =
                  THEN HEADGOAL (eresolve_tac context [@{thm exE}])
                  THEN HEADGOAL (dresolve_tac context [sound_start])
                  THEN HEADGOAL (asm_full_simp_tac
-                   (context addsimps lang_simps))
+                   (context |> Simplifier.add_simps lang_simps))
                  (*Backward: \<open>w \<in> ilang G \<Longrightarrow> \<exists>x. pred w x\<close>.*)
                  THEN HEADGOAL backward_step)) ();
       in singleton (Proof_Context.export lthy_gen lthy) raw_th end;

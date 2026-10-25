@@ -2823,12 +2823,12 @@ section \<open>The licensing recursion\<close>
 subsection \<open>A subtree list derives its yield\<close>
 
 text \<open>\<^const>\<open>anntree\<close> turns a \<^const>\<open>wf_ptree\<close> into a \<^const>\<open>parse_tree\<close> of
-  \<^const>\<open>infG\<close>, so \<^text>\<open>fringe_steps_if_parse_tree\<close> gives the derivation of
+  \<^const>\<open>infG\<close>, so \<^text>\<open>derives_fringe_if_parse_tree\<close> gives the derivation of
   its yield; \<^text>\<open>derives_concat\<close> lifts that to a list of siblings.\<close>
 
 lemma wf_ptree_derives:
   \<open>wf_ptree G pt \<Longrightarrow> infG G \<turnstile> [annsym (proot pt)] \<Rightarrow>* map Tm (tcols (pyield pt))\<close>
-  using fringe_steps_if_parse_tree[of \<open>infG G\<close> \<open>anntree pt\<close>] by simp
+  using derives_fringe_if_parse_tree[of \<open>infG G\<close> \<open>anntree pt\<close>] by simp
 
 lemma wf_ptree_list_derives:
   assumes \<open>\<forall>pt \<in> set pts. wf_ptree G pt\<close>

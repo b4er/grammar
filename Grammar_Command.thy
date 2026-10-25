@@ -101,7 +101,7 @@ termination
   by (relation \<open>measure (\<lambda>(F, d, i, t). size t)\<close>)
     (auto intro: le_imp_less_Suc size_list_estimation')
 
-declare ast_rec.simps [simp del, code del]
+declare ast_rec.simps [simp del, code abort]
 
 ML_file \<open>grammar_common.ML\<close>
 ML_file \<open>grammar_ptree_induct.ML\<close>

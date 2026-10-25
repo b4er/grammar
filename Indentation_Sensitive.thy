@@ -7,7 +7,7 @@ theory Indentation_Sensitive
 begin
 
 (*<*)
-setup \<open>Sign.hide_const true "Real_Vector_Spaces.span"\<close>
+setup \<open>Sign.hide_const true \<^unchecked_name>\<open>Real_Vector_Spaces.span\<close>\<close>
 (*>*)
 
 section \<open>Indentation-sensitive context-free grammars\<close>
@@ -834,16 +834,16 @@ text \<open>
   parser theorems this connects \<^const>\<open>parse\<close> to \<^const>\<open>ilang\<close>.
 
   Both directions are the library's, via \<^const>\<open>infG\<close>: annotating a parse
-  tree turns it into a \<^typ>\<open>('n \<times> nat, 'tok \<times> nat) tree\<close> of that grammar, and
-  \<^text>\<open>fringe_steps_if_parse_tree\<close> and \<^text>\<open>parse_tree_if_derives\<close>
+  tree turns it into a \<^typ>\<open>('n \<times> nat, 'tok \<times> nat) Parse_Tree.ptree\<close> of that grammar, and
+  \<^text>\<open>derives_fringe_if_parse_tree\<close> and \<^text>\<open>parse_tree_if_derives\<close>
   relate those to derivations. Only the spans have to be put back by hand, a
   \<^const>\<open>PLeaf\<close> carrying the full source span where the corresponding
   \<^const>\<open>Tm\<close> carries just the column.
 \<close>
 
-fun anntree :: \<open>('m, 'ch, 'n, 'tok) ptree \<Rightarrow> ('n \<times> nat, 'tok \<times> nat) tree\<close> where
+fun anntree :: \<open>('m, 'ch, 'n, 'tok) ptree \<Rightarrow> ('n \<times> nat, 'tok \<times> nat) Parse_Tree.ptree\<close> where
   \<open>anntree (PLeaf t) = Sym (Tm (tok t, s_col (token.span t)))\<close>
-| \<open>anntree (PNode A i pts) = Rule (A, i) (map anntree pts)\<close>
+| \<open>anntree (PNode A i pts) = Prod (A, i) (map anntree pts)\<close>
 
 lemma root_anntree[simp]: \<open>Parse_Tree.root (anntree pt) = annsym (proot pt)\<close>
   by (cases pt) auto
@@ -882,7 +882,7 @@ text \<open>Every annotated tree over \<^const>\<open>infG\<close> whose fringe 
   to the leaves in that order.\<close>
 
 lemma ex_anntree:
-  fixes t :: \<open>('n \<times> nat, 'tok \<times> nat) tree\<close> and w :: \<open>('m, 'ch, 'tok) tword\<close>
+  fixes t :: \<open>('n \<times> nat, 'tok \<times> nat) Parse_Tree.ptree\<close> and w :: \<open>('m, 'ch, 'tok) tword\<close>
   shows \<open>fringe t = map Tm (tcols w) \<Longrightarrow>
          \<exists>pt::('m, 'ch, 'n, 'tok) ptree. anntree pt = t \<and> pyield pt = w\<close>
 proof (induction t arbitrary: w)
@@ -891,7 +891,7 @@ proof (induction t arbitrary: w)
     by (cases w) (auto simp: tcols_def)
   then show ?case by (intro exI[of _ \<open>PLeaf a\<close>]) simp
 next
-  case (Rule B ts)
+  case (Prod B ts)
   have \<open>\<exists>pts::('m, 'ch, 'n, 'tok) ptree list.
           map anntree pts = ts' \<and> concat (map pyield pts) = w'\<close>
     if \<open>set ts' \<subseteq> set ts\<close> and \<open>fringes ts' = map Tm (tcols w')\<close>
@@ -910,13 +910,13 @@ next
     then have f\<^sub>1: \<open>fringe t = map Tm (tcols ?w\<^sub>1)\<close> and f\<^sub>2: \<open>fringes ts' = map Tm (tcols ?w\<^sub>2)\<close>
       by (simp_all add: tcols_take tcols_drop take_map drop_map)
     from Cons.prems have \<open>t \<in> set ts\<close> and \<open>set ts' \<subseteq> set ts\<close> by simp_all
-    from Rule.IH[OF \<open>t \<in> set ts\<close> f\<^sub>1] obtain pt :: \<open>('m, 'ch, 'n, 'tok) ptree\<close> where
+    from Prod.IH[OF \<open>t \<in> set ts\<close> f\<^sub>1] obtain pt :: \<open>('m, 'ch, 'n, 'tok) ptree\<close> where
       \<open>anntree pt = t\<close> \<open>pyield pt = ?w\<^sub>1\<close> by blast
     moreover from Cons.IH[OF \<open>set ts' \<subseteq> set ts\<close> f\<^sub>2] obtain pts where
       \<open>map anntree pts = ts'\<close> \<open>concat (map pyield pts) = ?w\<^sub>2\<close> by blast
     ultimately show ?case by (intro exI[of _ \<open>pt # pts\<close>]) simp
   qed
-  from this[OF subset_refl] Rule.prems obtain pts where
+  from this[OF subset_refl] Prod.prems obtain pts where
     \<open>map anntree pts = ts\<close> \<open>concat (map pyield pts) = w\<close> by auto
   then show ?case by (intro exI[of _ \<open>PNode (fst B) (snd B) pts\<close>]) simp
 qed
@@ -935,7 +935,7 @@ proof
 next
   assume \<open>\<exists>pt. wf_ptree G pt \<and> proot pt = (Nt A, i) \<and> pyield pt = w\<close>
   then obtain pt where pt: \<open>wf_ptree G pt\<close> \<open>proot pt = (Nt A, i)\<close> \<open>pyield pt = w\<close> by blast
-  from fringe_steps_if_parse_tree[of \<open>infG G\<close> \<open>anntree pt\<close>] pt
+  from derives_fringe_if_parse_tree[of \<open>infG G\<close> \<open>anntree pt\<close>] pt
   show \<open>infG G \<turnstile> [Nt (A, i)] \<Rightarrow>* map Tm (tcols w)\<close> by simp
 qed
 
@@ -956,7 +956,7 @@ text \<open>The converse of \<open>ilang_langS\<close> for insensitive grammars:
   the erased grammar lifts to a well-formed parse tree at any indentation.\<close>
 
 lemma wf_ptree_if_parse_tree:
-  fixes t :: \<open>('n, 'tok) tree\<close> and w :: \<open>('m, 'ch, 'tok) tword\<close>
+  fixes t :: \<open>('n, 'tok) Parse_Tree.ptree\<close> and w :: \<open>('m, 'ch, 'tok) tword\<close>
   assumes \<open>ii G\<close>
   shows \<open>parse_tree (set (derel (iprods G))) t \<Longrightarrow> fringe t = map Tm (map tok w) \<Longrightarrow>
          \<exists>pt::('m, 'ch, 'n, 'tok) ptree. wf_ptree G pt \<and> pyield pt = w \<and> fst (proot pt) = Parse_Tree.root t \<and>
@@ -966,7 +966,7 @@ proof (induction t arbitrary: w i)
   then obtain a where \<open>w = [a]\<close> \<open>s = Tm (tok a)\<close> by (cases w) auto
   then show ?case by (intro exI[of _ \<open>PLeaf a\<close>]) (simp add: wf_leaf)
 next
-  case (Rule B ts)
+  case (Prod B ts)
   have \<open>\<exists>pts::('m, 'ch, 'n, 'tok) ptree list.
           list_all2 (\<lambda>t pt. wf_ptree G pt \<and> fst (proot pt) = Parse_Tree.root t) ts' pts \<and> concat (map pyield pts) = w'\<close>
     if \<open>set ts' \<subseteq> set ts\<close> and \<open>fringes ts' = map Tm (map tok w')\<close>
@@ -985,18 +985,18 @@ next
     then have f\<^sub>1: \<open>fringe t = map Tm (map tok ?w\<^sub>1)\<close> and f\<^sub>2: \<open>fringes ts' = map Tm (map tok ?w\<^sub>2)\<close>
       by (simp_all add: take_map drop_map)
     from Cons.prems have \<open>t \<in> set ts\<close> and \<open>set ts' \<subseteq> set ts\<close> by simp_all
-    with Rule.prems(1) have \<open>parse_tree (set (derel (iprods G))) t\<close> by simp
-    from Rule.IH[OF \<open>t \<in> set ts\<close> this f\<^sub>1] obtain pt :: \<open>('m, 'ch, 'n, 'tok) ptree\<close> where
+    with Prod.prems(1) have \<open>parse_tree (set (derel (iprods G))) t\<close> by simp
+    from Prod.IH[OF \<open>t \<in> set ts\<close> this f\<^sub>1] obtain pt :: \<open>('m, 'ch, 'n, 'tok) ptree\<close> where
       \<open>wf_ptree G pt\<close> \<open>pyield pt = ?w\<^sub>1\<close> \<open>fst (proot pt) = Parse_Tree.root t\<close> by blast
     moreover from Cons.IH[OF \<open>set ts' \<subseteq> set ts\<close> f\<^sub>2] obtain pts :: \<open>('m, 'ch, 'n, 'tok) ptree list\<close> where
       \<open>list_all2 (\<lambda>t pt. wf_ptree G pt \<and> fst (proot pt) = Parse_Tree.root t) ts' pts\<close> \<open>concat (map pyield pts) = ?w\<^sub>2\<close>
       by blast
     ultimately show ?case by (intro exI[of _ \<open>pt # pts\<close>]) simp
   qed
-  from this[OF subset_refl] Rule.prems(2) obtain pts :: \<open>('m, 'ch, 'n, 'tok) ptree list\<close> where
+  from this[OF subset_refl] Prod.prems(2) obtain pts :: \<open>('m, 'ch, 'n, 'tok) ptree list\<close> where
     pts: \<open>list_all2 (\<lambda>t pt. wf_ptree G pt \<and> fst (proot pt) = Parse_Tree.root t) ts pts\<close> \<open>concat (map pyield pts) = w\<close>
     by auto
-  from Rule.prems(1) obtain rhs where rhs: \<open>(B, rhs) \<in> set (iprods G)\<close> \<open>map fst rhs = map Parse_Tree.root ts\<close>
+  from Prod.prems(1) obtain rhs where rhs: \<open>(B, rhs) \<in> set (iprods G)\<close> \<open>map fst rhs = map Parse_Tree.root ts\<close>
     by (auto simp: derel_def)
   then have len: \<open>length rhs = length ts\<close> by (auto dest: map_eq_imp_length_eq)
   have \<open>fst (rhs ! k) = Parse_Tree.root (ts ! k)\<close> if \<open>k < length ts\<close> for k
@@ -3266,7 +3266,7 @@ proof (induction n arbitrary: \<beta> ys \<gamma> A rhs m u zs rule: less_induct
     have \<open>P \<turnstile> [Z] @ \<beta>\<^sub>2 \<Rightarrow>(n') map Tm ys'\<close> using Cons.prems(2) by simp
     then obtain n\<^sub>1 n\<^sub>2 ys\<^sub>1 ys\<^sub>2 where n: \<open>n' = n\<^sub>1 + n\<^sub>2\<close> and ys: \<open>ys' = ys\<^sub>1 @ ys\<^sub>2\<close>
       and d\<^sub>1: \<open>P \<turnstile> [Z] \<Rightarrow>(n\<^sub>1) map Tm ys\<^sub>1\<close> and d\<^sub>2: \<open>P \<turnstile> \<beta>\<^sub>2 \<Rightarrow>(n\<^sub>2) map Tm ys\<^sub>2\<close>
-      unfolding deriven_append_decomp by (auto simp: map_eq_append_conv)
+      unfolding deriven_appendD by (auto simp: map_eq_append_conv)
     note dZ = drop_eq_ConsD[OF Cons.prems(4)]
     have d2r: \<open>P \<turnstile> \<beta>\<^sub>2 \<Rightarrow>* map Tm ys\<^sub>2\<close> using d\<^sub>2 by (rule relpowp_imp_rtranclp)
     have n\<^sub>2: \<open>n\<^sub>2 \<le> n\<close> using n Cons.prems(1) by simp

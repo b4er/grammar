@@ -18,8 +18,8 @@ fun timed lthy label = Grammar_Common.timed lthy "parser" label;
    on fresh_name_def itself it takes minutes for a large grammar *)
 fun fresh_name_tac ctxt gram_def =
   SOLVED' (resolve_tac ctxt @{thms fresh_name_list_all[THEN iffD2]} THEN'
-    simp_tac (ctxt addsimps [@{thm is_cfg.make_def}, gram_def])) ORELSE'
-  SOLVED' (asm_full_simp_tac (ctxt addsimps (@{thms fresh_name_def is_cfg.make_def} @ [gram_def])));
+    simp_tac (ctxt |> Simplifier.add_simps [@{thm is_cfg.make_def}, gram_def])) ORELSE'
+  SOLVED' (asm_full_simp_tac (ctxt |> Simplifier.add_simps (@{thms fresh_name_def is_cfg.make_def} @ [gram_def])));
 
 fun dest_tuple 1 t = [t]
   | dest_tuple n t =
@@ -95,7 +95,7 @@ fun tnum_case lthy parse_b (sugar: Ctr_Sugar.ctr_sugar) (ptabs_eq, nums_e, nums_
     val conjs =
       HOLogic.conj_elims
         (Simplifier.full_simplify
-          (put_simpset HOL_basic_ss lthy' addsimps @{thms list.map list.inject simp_thms}) nums_eq);
+          (put_simpset HOL_basic_ss lthy' |> Simplifier.add_simps @{thms list.map list.inject simp_thms}) nums_eq);
     val pnum_t = Syntax.check_term lthy' (Const (\<^const_name>\<open>pnum\<close>, dummyT) $ ptabs_c);
     val tokT = domain_type (fastype_of tnum_c);
     val y = Free ("y", tokT);
@@ -119,7 +119,7 @@ fun tnum_case lthy parse_b (sugar: Ctr_Sugar.ctr_sugar) (ptabs_eq, nums_e, nums_
         THEN ALLGOALS (fn i =>
           hyp_subst_tac ctxt i
           THEN simp_tac (put_simpset HOL_basic_ss ctxt
-            addsimps (def_eq :: conjs @ #case_thms sugar @ @{thms simp_thms})) i));
+            |> Simplifier.add_simps (def_eq :: conjs @ #case_thms sugar @ @{thms simp_thms})) i));
   in (@{thm ext} OF [th], lthy') end;
 
 val parser_int_tables = Attrib.setup_config_bool \<^binding>\<open>parser_int_tables\<close> (K false);

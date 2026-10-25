@@ -29,7 +29,7 @@ type inv =
 (* literal string comparisons and the if-chain over the names, nothing else *)
 fun literal_ss ctxt =
   put_simpset HOL_basic_ss ctxt
-    addsimps @{thms if_True if_False list.inject list.distinct char.inject simp_thms};
+    |> Simplifier.add_simps @{thms if_True if_False list.inject list.distinct char.inject simp_thms};
 
 fun mk_If c a b =
   Const (\<^const_name>\<open>If\<close>,
