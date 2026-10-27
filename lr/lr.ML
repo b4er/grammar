@@ -14,6 +14,13 @@ struct
 
 fun timed lthy label = Grammar_Common.timed lthy "parser" label;
 
+(* `fresh_name G Shn` by the simplifier on its list form (fresh_name_list_all);
+   on fresh_name_def itself it takes minutes for a large grammar *)
+fun fresh_name_tac ctxt gram_def =
+  SOLVED' (resolve_tac ctxt @{thms fresh_name_list_all[THEN iffD2]} THEN'
+    simp_tac (ctxt addsimps [@{thm is_cfg.make_def}, gram_def])) ORELSE'
+  SOLVED' (asm_full_simp_tac (ctxt addsimps (@{thms fresh_name_def is_cfg.make_def} @ [gram_def])));
+
 fun dest_tuple 1 t = [t]
   | dest_tuple n t =
       let val (a, b) = HOLogic.dest_prod t in a :: dest_tuple (n - 1) b end;
@@ -371,11 +378,10 @@ fun lr_build_parse
     fun simple_tables (nums_l, nums_th) lthy =
       let
         val arts = Grammar_Common.artifacts_of gram;
-        val fresh_simps = @{thms fresh_name_def is_cfg.make_def} @ [#gram_def arts];
         val fresh_th =
           Goal.prove_sorry lthy [] []
             (HOLogic.mk_Trueprop (app \<^const_name>\<open>fresh_name\<close> [gram_t, shn_t]))
-            (fn {context, ...} => HEADGOAL (asm_full_simp_tac (context addsimps fresh_simps)));
+            (fn {context, ...} => HEADGOAL (fresh_name_tac context (#gram_def arts)));
         val static_th =
           @{thm sstaticI} OF
             [ii_eq RS @{thm eqTrueE}, rlalr_eq, fresh_th, wany_eq RS @{thm eqTrueE}];
@@ -784,9 +790,7 @@ fun lr_discharge
     fun paths_term () =
       Syntax.check_term ctxt (Term.list_comb (Const (\<^const_name>\<open>explain_paths\<close>, dummyT),
         [gram_t, HOLogic.mk_string shn, conflicts_term \<^const_name>\<open>rlalr_conflicts\<close>]));
-    val fresh_simps = @{thms fresh_name_def is_cfg.make_def} @ [gram_def_th];
-    val fresh_tac =
-      SOLVED' (asm_full_simp_tac (ctxt addsimps fresh_simps));
+    val fresh_tac = fresh_name_tac ctxt gram_def_th;
 
     (* the check's value: the equation cached by build_parse, else evaluated here;
        an evaluation failure is reported and leaves the premise in place *)

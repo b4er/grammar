@@ -655,6 +655,15 @@ definition lr_simple_checks :: \<open>('n, 't) is_cfg \<Rightarrow> 'n \<Rightar
 
 section \<open>The LR backend of the \<^theory_text>\<open>parser\<close> command\<close>
 
+text \<open>The freshness of the start symbol as a list check: the simplifier proves this form for a
+  concrete grammar quickly, whereas \<^const>\<open>fresh_name\<close>'s image and bounded quantifiers over
+  the grammar's productions take it minutes on a large grammar.\<close>
+
+lemma fresh_name_list_all:
+  \<open>fresh_name G Shn \<longleftrightarrow> Shn \<noteq> istart G \<and>
+     list_all (\<lambda>(A, rhs). A \<noteq> Shn \<and> list_all (\<lambda>(X, r). X \<noteq> Nt Shn) rhs) (iprods G)\<close>
+  unfolding fresh_name_def list_all_iff by (auto simp: image_iff split: prod.splits) blast+
+
 ML_file \<open>lr.ML\<close>
 
 end
