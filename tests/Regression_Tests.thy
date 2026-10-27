@@ -121,6 +121,23 @@ term cyc_parse_int_ztabs
 lemma \<open>cyc_parse_int [tu 1 DId ''x''] = Some 0\<close> \<open>cyc_parse_int [tu 1 DDo ''do''] = None\<close>
   by eval+
 
+text \<open>The simple driver on evaluated tables (\<open>parser_literal_tables\<close>): the start
+  state and the action table the code equation names are literals, so that exported
+  code computes no table when it loads.\<close>
+
+declare [[parser_literal_tables]]
+parser cyc_parse_lit for cyc
+declare [[parser_literal_tables = false]]
+
+ML \<open>
+  \<^assert> (forall (fn th => not (exists_Const (fn (c, _) =>
+      member (op =) [\<^const_name>\<open>ptabs_of\<close>, \<^const_name>\<open>st_find\<close>] c) (Thm.prop_of th)))
+    @{thms cyc_parse_lit_ptabs_def cyc_parse_lit_i0_def})
+\<close>
+
+lemma \<open>cyc_parse_lit [tu 1 DId ''x''] = Some 0\<close> \<open>cyc_parse_lit [tu 1 DDo ''do''] = None\<close>
+  by eval+
+
 subsection \<open>The rejection path: an ambiguous grammar keeps \<open>mdet\<close>\<close>
 
 datatype iswim_tok = IWhere | IPlus | IMinus | IEq | ILP | IRP | IId

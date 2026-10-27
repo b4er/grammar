@@ -290,7 +290,8 @@ text \<open>
   \<^theory_text>\<open>eval\<close> nor exported code rebuilds the automaton per call. With
   \<^theory_text>\<open>declare [[parser_literal_tables]]\<close> the six constants are instead
   the evaluated tables, for exported code that must not compute them at startup;
-  the command then evaluates the tables as well as its checks. If the grammar
+  the command then evaluates the tables as well as its checks (for the simple
+  driver below, the two its code equation names: \<open>p_i0\<close> and \<open>p_ptabs\<close>). If the grammar
   has no layout annotations, the static determinism check is empty and no
   lookahead cell of a reduce constrains the width of its token, the code
   equation instead runs the

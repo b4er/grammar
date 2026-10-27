@@ -291,11 +291,13 @@ fun lr_build_parse
        cells and the precise automaton between its five values (the paths of the
        reported states are the report's cheapest level, free here), and
        \<^text>\<open>lr_checks_eq\<close> transports them to the terms the theorems name.
-       \<^const>\<open>lr_checks_simple\<close> adds the value the simple driver needs (below), from
+       \<^const>\<open>lr_checks_simple\<close> adds the values the simple driver needs (below), from
        the same tables. *)
+    val literal = Config.get lthy parser_literal_tables;
     val (all_l, all_th) =
       eval_lit lthy true "(checks)"
-        (app \<^const_name>\<open>lr_checks_simple\<close> [gram_t, shn_t, ctrs_t]);
+        (app \<^const_name>\<open>lr_checks_simple\<close>
+          [gram_t, shn_t, ctrs_t, if literal then \<^term>\<open>True\<close> else \<^term>\<open>False\<close>]);
     val (checks_l, simple_l) = HOLogic.dest_prod all_l;
     val checks_th = @{thm lr_checks_simple_checks} OF [all_th];
     val checks_eq = @{thm trans} OF [@{thm lr_checks_eq} RS @{thm sym}, checks_th];
@@ -315,17 +317,33 @@ fun lr_build_parse
       is_const \<^const_name>\<open>True\<close> ii_l andalso
       is_const \<^const_name>\<open>List.list.Nil\<close> rlalr_l andalso
       is_const \<^const_name>\<open>True\<close> wany_l;
-    val simple_checks =
+    val (simple_checks, simple_tabs_l) =
       (case simple_l of
-        Const (\<^const_name>\<open>Some\<close>, _) $ nums_l =>
-          if simple then SOME (nums_l, @{thm lr_checks_simple_nums} OF [all_th])
+        Const (\<^const_name>\<open>Some\<close>, _) $ v =>
+          if simple then
+            let val (nums_l, tabs_l) = HOLogic.dest_prod v
+            in (SOME (nums_l, @{thm lr_checks_simple_nums} OF [all_th]), tabs_l) end
           else raise Fail "lr_build_parse: simple checks literal"
-      | _ => if simple then raise Fail "lr_build_parse: simple checks literal" else NONE);
+      | _ => if simple then raise Fail "lr_build_parse: simple checks literal" else (NONE, all_l));
 
-    (* under parser_literal_tables the six tables are evaluated literals, from one
-       evaluation of \<^const>\<open>lr_tables\<close> *)
+    (* under parser_literal_tables the tables the code equation names are evaluated
+       literals: for the simple driver its start state and action table, which came
+       with the checks; otherwise the six tables, from one evaluation of
+       \<^const>\<open>lr_tables\<close> *)
+    val simple_lits =
+      if literal andalso simple then
+        (case simple_tabs_l of
+          Const (\<^const_name>\<open>Some\<close>, _) $ lits_l =>
+            let
+              val lits_eq =
+                @{thm trans} OF [@{thm lr_simple_tables_eq} RS @{thm sym},
+                  @{thm lr_checks_simple_tables} OF [all_th]];
+            in split_tuple_eq 2 lits_eq ~~ dest_tuple 2 lits_l end
+        | _ => raise Fail "lr_build_parse: simple tables literal")
+      else [];
     val literal_tabs =
-      if Config.get lthy parser_literal_tables then
+      if literal andalso simple then SOME [("i0", hd simple_lits)]
+      else if literal then
         let
           val (bundle_l, bundle_th) =
             eval_lit lthy false "(tables)" (app \<^const_name>\<open>lr_tables\<close> [gram_t, shn_t]);
@@ -367,7 +385,9 @@ fun lr_build_parse
       (case literal_tabs of
         NONE => define_term parse_bind nm rhs lthy
       | SOME tab =>
-          define_literal parse_bind nm (the (AList.lookup (op =) tab nm)) prior lthy);
+          (case AList.lookup (op =) tab nm of
+            SOME lit => define_literal parse_bind nm lit prior lthy
+          | NONE => define_term parse_bind nm rhs lthy));
     val define = define_term parse_bind;
 
     val (states_eq, lthy) = table "states" states_t [] lthy;
@@ -418,7 +438,12 @@ fun lr_build_parse
               val (ktabs_eq, lthy) =
                 define "ktabs" (app' lthy \<^const_name>\<open>ktabs_of\<close> [rhs_of_eq jtabs_eq]) lthy;
               val (ptabs_eq, lthy) =
-                define "ptabs" (app' lthy \<^const_name>\<open>ptabs_of\<close> [rhs_of_eq ktabs_eq]) lthy;
+                (case simple_lits of
+                  [_, lit] =>
+                    define_literal parse_bind "ptabs" lit
+                      [states_eq, gtab_eq, redtab_eq, pc_eq, pf_eq, ltabs_eq, jtabs_eq, ktabs_eq]
+                      lthy
+                | _ => define "ptabs" (app' lthy \<^const_name>\<open>ptabs_of\<close> [rhs_of_eq ktabs_eq]) lthy);
               (* the evaluated \<^const>\<open>lr_simple_checks\<close> over the constants: its let
                  chain unfolded, then every table term rewritten to its constant *)
               val nums_e =
