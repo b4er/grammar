@@ -653,6 +653,46 @@ definition lr_simple_checks :: \<open>('n, 't) is_cfg \<Rightarrow> 'n \<Rightar
           K = ktabs_of (jtabs_of (mk_ltabs gt sts redtab pc pf))
       in map (pnum (ptabs_of K)) ctrs)\<close>
 
+text \<open>Both in one evaluation: the token numbers, if the simple driver applies, from the
+  automaton, goto table and cells the checks have built.\<close>
+
+definition lr_checks_simple :: \<open>('n, 't) is_cfg \<Rightarrow> 'n \<Rightarrow> 't list \<Rightarrow>
+    (nat list \<times> nat list \<times> bool \<times> bool \<times> (nat \<times> ('n, 't) sym list option) list) \<times>
+    nat list option\<close> where
+  \<open>lr_checks_simple G Shn ctrs =
+     (let sp = pr0_states G Shn; gp = pgtab G sp; L = la_fix_gen G Shn gp sp;
+          ants = anchored_nts G; wrs = map (wreach G) sp; fuel = ifuel wrs;
+          p0 = p0start G Shn; s0 = start_prod G Shn;
+          confs = filter (rlalr_conflict_at_gen Shn wrs gp ants fuel L) [0..<length sp];
+          redtab = cell_buckets L (length sp); iok = ii G; wok = wany_ok redtab
+      in ((confs,
+           filter (\<lambda>i. (s0, Suc 0) \<in> set (sp ! i) \<and>
+                     list_ex (\<lambda>(i', (pr, m), t, \<tau>). i' = i \<and> m = length (snd pr) \<and>
+                               t = None \<and> pr \<noteq> s0) L)
+             [0..<length sp],
+           iok, wok,
+           map (\<lambda>i. (i, path_bfs (\<lambda>j. if j < length gp then gp ! j else []) i
+                (Suc (length sp)) [] [(p0, [])])) confs),
+          if iok \<and> confs = [] \<and> wok
+          then Some (map (pnum (ptabs_of (ktabs_of (jtabs_of
+                 (mk_ltabs gp sp redtab (pcomps G sp) (pfins Shn sp)))))) ctrs)
+          else None))\<close>
+
+lemma lr_checks_simple_eq:
+  \<open>lr_checks_simple G Shn ctrs =
+     (lr_checks G Shn,
+      if ii G \<and> fst (lr_checks G Shn) = [] \<and> wany_ok (red_buckets G Shn (length (pr0_states G Shn)))
+      then Some (lr_simple_checks G Shn ctrs) else None)\<close>
+  by (simp add: lr_checks_simple_def lr_checks_def lr_simple_checks_def red_buckets_def
+        la_fix_def Let_def)
+
+lemma lr_checks_simple_checks: \<open>lr_checks_simple G Shn ctrs = (c, s) \<Longrightarrow> lr_checks G Shn = c\<close>
+  by (simp add: lr_checks_simple_eq)
+
+lemma lr_checks_simple_nums:
+  \<open>lr_checks_simple G Shn ctrs = (c, Some ns) \<Longrightarrow> lr_simple_checks G Shn ctrs = ns\<close>
+  by (simp add: lr_checks_simple_eq split: if_splits)
+
 section \<open>The LR backend of the \<^theory_text>\<open>parser\<close> command\<close>
 
 text \<open>The freshness of the start symbol as a list check: the simplifier proves this form for a

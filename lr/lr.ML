@@ -290,9 +290,14 @@ fun lr_build_parse
        it starts cold. \<^const>\<open>lr_checks\<close> shares the automaton, its goto table, the
        cells and the precise automaton between its five values (the paths of the
        reported states are the report's cheapest level, free here), and
-       \<^text>\<open>lr_checks_eq\<close> transports them to the terms the theorems name. *)
-    val (checks_l, checks_th) =
-      eval_lit lthy true "(checks)" (app \<^const_name>\<open>lr_checks\<close> [gram_t, shn_t]);
+       \<^text>\<open>lr_checks_eq\<close> transports them to the terms the theorems name.
+       \<^const>\<open>lr_checks_simple\<close> adds the value the simple driver needs (below), from
+       the same tables. *)
+    val (all_l, all_th) =
+      eval_lit lthy true "(checks)"
+        (app \<^const_name>\<open>lr_checks_simple\<close> [gram_t, shn_t, ctrs_t]);
+    val (checks_l, simple_l) = HOLogic.dest_prod all_l;
+    val checks_th = @{thm lr_checks_simple_checks} OF [all_th];
     val checks_eq = @{thm trans} OF [@{thm lr_checks_eq} RS @{thm sym}, checks_th];
     val (rlalr_l, acc_l, ii_l, wany_l) =
       (case dest_tuple 5 checks_l of
@@ -305,17 +310,17 @@ fun lr_build_parse
 
     (* the simple driver of LR_Simple applies when the grammar has no layout
        annotations, the determinism check is empty, and no reduce cell that
-       names a token constrains its width; its further value is evaluated now
-       as well *)
+       names a token constrains its width; its further value came with the checks *)
     val simple =
       is_const \<^const_name>\<open>True\<close> ii_l andalso
       is_const \<^const_name>\<open>List.list.Nil\<close> rlalr_l andalso
       is_const \<^const_name>\<open>True\<close> wany_l;
     val simple_checks =
-      if simple then
-        SOME (eval_lit lthy false "(simple checks)"
-          (app \<^const_name>\<open>lr_simple_checks\<close> [gram_t, shn_t, ctrs_t]))
-      else NONE;
+      (case simple_l of
+        Const (\<^const_name>\<open>Some\<close>, _) $ nums_l =>
+          if simple then SOME (nums_l, @{thm lr_checks_simple_nums} OF [all_th])
+          else raise Fail "lr_build_parse: simple checks literal"
+      | _ => if simple then raise Fail "lr_build_parse: simple checks literal" else NONE);
 
     (* under parser_literal_tables the six tables are evaluated literals, from one
        evaluation of \<^const>\<open>lr_tables\<close> *)
