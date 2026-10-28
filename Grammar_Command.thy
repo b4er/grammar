@@ -301,8 +301,10 @@ text \<open>
   the layout constraints, \<open>Shn\<close> a
   fresh name for the augmented start symbol, and \<open>G__dec_S\<close> the decoder of
   the start symbol. For code generation the LR tables are constants \<open>p_states\<close>,
-  \<open>p_gtab\<close>, \<open>p_redtab\<close>, \<open>p_i0\<close> and, for the driver, \<open>p_xinit\<close> and
-  \<open>p_xclos\<close>, each defined by its term over the ones before it
+  \<open>p_gtab\<close>, \<open>p_redtab\<close>, \<open>p_i0\<close> and, for the driver, \<open>p_stab\<close>,
+  \<open>p_sinit\<close> and \<open>p_sclos\<close> (the sparse closures of
+  \<^file>\<open>lr/LR_Sparse.thy\<close>; \<open>p_xinit\<close> and \<open>p_xclos\<close> for a grammar with an
+  \<open>\<epsilon>\<close>-cycle), each defined by its term over the ones before it
   (\<open>p_gtab = la_gtab G p_states\<close>); generated code computes each once when it
   loads. The code equation of \<open>p\<close> refers to those constants, so neither
   \<^theory_text>\<open>eval\<close> nor exported code rebuilds the automaton per call. With

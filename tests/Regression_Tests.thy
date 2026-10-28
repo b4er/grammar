@@ -810,7 +810,7 @@ ML_val \<open>
   val consts = map #1 (#constants (Consts.dest (Sign.consts_of \<^theory>)));
   fun own p = filter (fn c => Long_Name.base_name c = p orelse
     String.isPrefix (p ^ "_") (Long_Name.base_name c)) consts |> map Long_Name.base_name;
-  val tables = ["states", "gtab", "redtab", "i0", "xinit", "xclos"];
+  val tables = ["states", "gtab", "redtab", "i0", "stab", "sinit", "sclos"];
   val _ =
     forall (fn p => eq_set (op =) (own p, p :: map (fn t => p ^ "_" ^ t) tables))
       ["toy_parse_ty", "toy_parse_file"]

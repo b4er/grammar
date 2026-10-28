@@ -224,6 +224,44 @@ fun profile_bundle lthy gram_t shn_t ii_t =
     ignore (timed lthy "profile ii (mdet)" (Value_Command.value lthy) ii_t)
   end;
 
+(* a derivation A \<Rightarrow>\<^sup>+ A that consumes nothing, as the cycle A, \<dots>, A of the graph
+   with an edge A \<rightarrow> B for each production A = \<alpha> B \<beta> whose \<alpha> and \<beta> are nullable.
+   Only such a derivation lets the set-anchored driver revisit a configuration
+   without shifting (LR_Driver, drun_nh).  Relations are ignored, so a cycle may
+   be spurious but is never missed; the answer picks a proved code equation and
+   is trusted only for the termination of the generated code. *)
+fun nullable_cycle (gram: Grammar_Common.grammar) =
+  let
+    val prods = map (fn p => (#lhs p, map fst (#rhs p))) (#prods gram);
+    fun nt (Grammar_Common.RN n) = SOME n
+      | nt _ = NONE;
+    fun nullable nul s = (case nt s of SOME n => member (op =) nul n | NONE => false);
+    fun grow nul =
+      let
+        val nul' =
+          fold (fn (a, rhs) => fn acc =>
+            if not (member (op =) acc a) andalso forall (nullable acc) rhs then a :: acc
+            else acc) prods nul;
+      in if length nul' = length nul then nul else grow nul' end;
+    val nul = grow [];
+    fun edges (a, rhs) =
+      map_filter I (map_index (fn (i, s) =>
+        (case nt s of
+          SOME b => if forall (nullable nul) (nth_drop i rhs) then SOME (a, b) else NONE
+        | NONE => NONE)) rhs);
+    val graph = maps edges prods;
+    fun succs a = map snd (filter (fn (x, _) => x = a) graph);
+    (* depth-first, the path most recent first *)
+    fun visit path a (done, found) =
+      if is_some found then (done, found)
+      else if member (op =) path a then
+        (done, SOME (a :: rev (take_prefix (fn x => x <> a) path) @ [a]))
+      else if member (op =) done a then (done, found)
+      else
+        let val (done', found') = fold (visit (a :: path)) (succs a) (done, found)
+        in (a :: done', found') end;
+  in snd (fold (visit []) (distinct (op =) (map fst prods)) ([], NONE)) end;
+
 fun lr_build_parse
   ({gram, parse_bind, shn}: Parser_Generators.build_input) lthy =
   let
@@ -441,13 +479,80 @@ fun lr_build_parse
 
     fun set_tables lthy =
       let
-        val (xinit_eq, lthy) = table "xinit" xinit_t [] lthy;
-        val (xclos_eq, lthy) =
-          table "xclos" (app' lthy \<^const_name>\<open>xclosure_auto\<close> [gram_t, rhs_of_eq xinit_eq])
-            [xinit_eq] lthy;
+        fun xinit lthy = table "xinit" xinit_t [] lthy;
+        (* fresh_name G Shn, decided on the grammar itself: Shn is neither the start
+           nor a nonterminal of a production.  Its proof is forked: it unfolds the
+           whole grammar, and lr_discharge reuses it through the checks *)
+        fun fresh lthy =
+          let
+            fun nts (p: Grammar_Common.prod) =
+              #lhs p :: map_filter (fn (Grammar_Common.RN n, _) => SOME n | _ => NONE) (#rhs p);
+            val fresh_simps =
+              @{thms fresh_name_def is_cfg.make_def} @ [#gram_def (Grammar_Common.artifacts_of gram)];
+          in
+            if shn = start_nt orelse member (op =) (maps nts (#prods gram)) shn
+            then NONE
+            else
+              SOME (Goal.prove_sorry lthy [] []
+                (HOLogic.mk_Trueprop (app \<^const_name>\<open>fresh_name\<close> [gram_t, shn_t]))
+                (fn {context, ...} => HEADGOAL (asm_full_simp_tac (context addsimps fresh_simps))))
+          end;
       in
-        (@{thm dparse_via_tables} OF [states_eq, gtab_eq, redtab_eq, xinit_eq, xclos_eq, i0_eq],
-         lthy)
+        (* without a cycle the driver keeps no history: linear on reduce chains.  With
+           a fresh start name it runs on sparse closures (sdrun, LR_Sparse) over the
+           bundle stab, the initial kernel and its closure, each defined by its term;
+           otherwise on the dense ones (drun_nh_c, LR_Fast).  With a cycle it stops on
+           a repeated configuration (drun_hist) *)
+        (case timed lthy "cycle check" nullable_cycle gram of
+          NONE =>
+            (case timed lthy "fresh_name" fresh lthy of
+              SOME fresh_th =>
+                let
+                  val (stab_eq, lthy) =
+                    define "stab"
+                      (app' lthy \<^const_name>\<open>mk_stab\<close>
+                        (gram_t :: shn_t :: map rhs_of_eq [gtab_eq, states_eq, redtab_eq]))
+                      lthy;
+                  val (sinit_eq, lthy) =
+                    define "sinit" (app' lthy \<^const_name>\<open>sinit\<close> [rhs_of_eq stab_eq]) lthy;
+                  val (sclos_eq, lthy) =
+                    define "sclos"
+                      (app' lthy \<^const_name>\<open>sclosure\<close> (map rhs_of_eq [stab_eq, sinit_eq]))
+                      lthy;
+                in
+                  ((@{thm dparse_via_tables_s} OF
+                    [states_eq, gtab_eq, redtab_eq, i0_eq, fresh_th, stab_eq, sinit_eq, sclos_eq],
+                    [fresh_th RS @{thm eqTrueI}]), lthy)
+                end
+            | NONE =>
+                let
+                  val (xinit_eq, lthy) = xinit lthy;
+                  val (xclos_eq, lthy) =
+                    define "xclos" (app' lthy \<^const_name>\<open>dclosure\<close> [gram_t, rhs_of_eq xinit_eq])
+                      lthy;
+                  val (dtab_eq, lthy) =
+                    define "dtab" (app' lthy \<^const_name>\<open>dtab\<close> [gram_t]) lthy;
+                in
+                  ((@{thm dparse_via_tables_nh_c} OF
+                    [states_eq, gtab_eq, redtab_eq, xinit_eq, xclos_eq, i0_eq, dtab_eq], []), lthy)
+                end)
+        | SOME cyc =>
+            let
+              val _ =
+                warning ("parser: the grammar has a derivation \<open>" ^ hd cyc ^ " \<Rightarrow>\<^sup>+ " ^
+                  hd cyc ^ "\<close> that consumes nothing (" ^ space_implode " \<rightarrow> " cyc ^
+                  "), so the code of \<open>" ^ Binding.name_of parse_bind ^
+                  "\<close> records the configurations since the last shift to stop on a \
+                  \repeat (drun_hist), which is slow on long chains of reduces");
+              val (xinit_eq, lthy) = xinit lthy;
+              val (xclos_eq, lthy) =
+                table "xclos"
+                  (app' lthy \<^const_name>\<open>xclosure_auto\<close> [gram_t, rhs_of_eq xinit_eq])
+                  [xinit_eq] lthy;
+            in
+              ((@{thm dparse_via_tables} OF
+                [states_eq, gtab_eq, redtab_eq, xinit_eq, xclos_eq, i0_eq], []), lthy)
+            end)
       end;
 
     val _ =
@@ -455,9 +560,9 @@ fun lr_build_parse
       else
         writeln ("parser: the code equation of \<open>" ^ Binding.name_of parse_bind ^
           "\<close> runs the set-anchored driver (LR_Driver)");
-    val (dlr_specialized, lthy) =
+    val ((dlr_specialized, fresh_checks), lthy) =
       (case simple_checks of
-        SOME sc => timed lthy "simple tables" (simple_tables sc) lthy
+        SOME sc => timed lthy "simple tables" (simple_tables sc) lthy |>> rpair []
       | NONE => set_tables lthy);
 
     fun post ({parse_def_th, ...}: Parser_Generators.post_input) lthy =
@@ -483,7 +588,7 @@ fun lr_build_parse
           |> Grammar_Common.declare_code_global {default = false} [parse_alt_global]) ()
       end;
   in
-    ({parse_body = parse_body, post = post, checks = [rlalr_eq, acc_eq, paths_eq]}, lthy)
+    ({parse_body = parse_body, post = post, checks = [rlalr_eq, acc_eq, paths_eq] @ fresh_checks}, lthy)
   end;
 
 (** explaining a non-empty check (LR_Parser: explain_rp / explain_acc) **)
@@ -953,7 +1058,10 @@ fun lr_discharge
       | _ => ("", ""))
       handle TERM _ => ("", "");
   in
-    if head_name = \<^const_name>\<open>fresh_name\<close> then SOME fresh_tac
+    if head_name = \<^const_name>\<open>fresh_name\<close> then
+      (case get_check (HOLogic.dest_Trueprop prem) of
+        SOME eq => SOME (resolve_tac ctxt [eq RS @{thm eqTrueE}])
+      | NONE => SOME fresh_tac)
     else if head_name = \<^const_name>\<open>mdet\<close> then
       (if report_check () then SOME mdet_tac else NONE)
     else if head_name = \<^const_name>\<open>HOL.eq\<close> andalso

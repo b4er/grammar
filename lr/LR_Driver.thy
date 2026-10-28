@@ -276,7 +276,25 @@ definition mstep_cached :: \<open>('n, 't) is_cfg \<Rightarrow> ('n, 't) xitem l
                       # drop (length (snd pr)) Xs, w)
            else None)))\<close>
 
-definition mstep :: \<open>('n, 't) is_cfg \<Rightarrow> ('n, 't) gconfig \<Rightarrow> ('n, 't) dact \<Rightarrow>
+text \<open>For the code, the depth test of a reduce without \<^const>\<open>length\<close>, which
+  walks the whole stack: a chain of \<open>n\<close> reduces at depth \<open>n\<close> would cost
+  \<open>O(n\<^sup>2)\<close>.\<close>
+
+lemma mstep_cached_code [code]:
+  \<open>mstep_cached G cstk gc act = (case gc of (Xs, w) \<Rightarrow> (case act of
+      DShift \<Rightarrow> (case w of [] \<Rightarrow> None | (a, c) # w' \<Rightarrow>
+        (if Xs = [] then None
+         else Some (lgoto (hd cstk) (Tm a) (FinRep [c]) # Xs, w')))
+    | DReduce pr \<Rightarrow>
+        (if drop (length (snd pr)) Xs = [] then None
+         else let R = red_set (hd cstk) pr in
+           if irep_nonempty R
+           then Some (lgoto (cstk ! length (snd pr)) (Nt (fst pr)) R
+                      # drop (length (snd pr)) Xs, w)
+           else None)))\<close>
+  unfolding mstep_cached_def by (auto split: prod.splits dact.splits)
+
+definition mstep ::\<open>('n, 't) is_cfg \<Rightarrow> ('n, 't) gconfig \<Rightarrow> ('n, 't) dact \<Rightarrow>
     ('n, 't) gconfig option\<close> where
   \<open>mstep G gc act = mstep_cached G (map (xclosure_auto G) (fst gc)) gc act\<close>
 
@@ -1420,6 +1438,81 @@ qed
 theorem drun\<^sub>w\<^sub>f_code [code]:
   \<open>drun\<^sub>w\<^sub>f G Shn gt sts redtab st = drun_hist G Shn gt sts redtab [] st\<close>
   by (rule drun\<^sub>w\<^sub>f_eq_drun_hist) simp
+
+subsection \<open>The driver without a history\<close>
+
+text \<open>The history costs a whole-stack comparison against every configuration
+  since the last shift, which makes a reduce cascade of length \<open>n\<close> cost
+  \<open>O(n\<^sup>3)\<close> (a right-recursive list closing).  A run can only revisit a
+  configuration without shifting when the grammar has a derivation
+  \<open>A \<Rightarrow>\<^sup>+ A\<close> that consumes nothing: the reduces of such a cycle never pop
+  below some depth, and between two reduces that reach it they turn the
+  nonterminal on top of that depth into another one over symbols built from
+  nothing.  For a grammar without such a derivation the \<^text>\<open>parser\<close>
+  command uses \<^text>\<open>drun_nh\<close>, the unfolding of \<^const>\<open>drun\<^sub>w\<^sub>f\<close> under
+  its own name, so that it can carry the unfolding as its code equation.
+  It equals \<^const>\<open>drun\<^sub>w\<^sub>f\<close> for every grammar; only the termination of
+  the generated code depends on the grammar check, and that check is not
+  proved.\<close>
+
+partial_function (option) drun_nh ::
+  \<open>('n, 't) is_cfg \<Rightarrow> 'n \<Rightarrow> (('n, 't) sym \<times> nat) list list \<Rightarrow>
+    ('n, 't) citem list list \<Rightarrow> ('n, 't) lacell list list \<Rightarrow>
+    ('m, 'ch, 'n, 't) dst \<Rightarrow> ('m, 'ch, 'n, 't) ast option\<close>
+  where
+  \<open>drun_nh G Shn gt sts redtab st =
+     (case st of (gc, cstk, istk, v, tstk) \<Rightarrow>
+        if gfinal G Shn gc then (case tstk of t # _ \<Rightarrow> Some t | [] \<Rightarrow> None)
+        else Option.bind (dstep G gt sts redtab st) (drun_nh G Shn gt sts redtab))\<close>
+
+lemmas drun_nh_simps [code] = drun_nh.simps
+
+lemma drun_nh_imp_drun\<^sub>w\<^sub>f:
+  assumes \<open>drun_nh G Shn gt sts redtab st = Some t\<close>
+  shows \<open>drun\<^sub>w\<^sub>f G Shn gt sts redtab st = Some t\<close>
+proof (rule drun_nh.raw_induct[OF _ assms], goal_cases)
+  case (1 f G Shn gt sts redtab st t)
+  obtain gc cstk istk v tstk where st: \<open>st = (gc, cstk, istk, v, tstk)\<close> by (cases st)
+  show ?case
+  proof (cases \<open>gfinal G Shn gc\<close>)
+    case True
+    with "1"(2) show ?thesis unfolding st by (simp split: list.splits)
+  next
+    case False
+    with "1"(2) obtain st\<^sub>1 where sp: \<open>dstep G gt sts redtab st = Some st\<^sub>1\<close>
+      and rec: \<open>f G Shn gt sts redtab st\<^sub>1 = Some t\<close>
+      unfolding st by (auto simp: bind_eq_Some_conv)
+    \<comment> \<open>one unfolding: with \<^text>\<open>drun\<^sub>w\<^sub>f_simps\<close> the simplifier keeps going\<close>
+    have \<open>drun\<^sub>w\<^sub>f G Shn gt sts redtab st = drun\<^sub>w\<^sub>f G Shn gt sts redtab st\<^sub>1\<close>
+      using False sp unfolding st by (subst drun\<^sub>w\<^sub>f.simps) (simp del: drun\<^sub>w\<^sub>f_simps)
+    from this "1"(1)[OF rec] show ?thesis by (rule trans)
+  qed
+qed
+
+lemma drun\<^sub>w\<^sub>f_imp_drun_nh:
+  assumes \<open>drun\<^sub>w\<^sub>f G Shn gt sts redtab st = Some t\<close>
+  shows \<open>drun_nh G Shn gt sts redtab st = Some t\<close>
+proof (rule drun\<^sub>w\<^sub>f.raw_induct[OF _ assms], goal_cases)
+  case (1 f G Shn gt sts redtab st t)
+  then show ?case by (subst drun_nh.simps, cases st) (auto simp: bind_eq_Some_conv split: if_splits)
+qed
+
+theorem drun\<^sub>w\<^sub>f_eq_drun_nh:
+  \<open>drun\<^sub>w\<^sub>f G Shn gt sts redtab st = drun_nh G Shn gt sts redtab st\<close>
+  by (metis drun_nh_imp_drun\<^sub>w\<^sub>f drun\<^sub>w\<^sub>f_imp_drun_nh not_Some_eq)
+
+text \<open>\<^text>\<open>dparse_via_tables\<close> over \<^text>\<open>drun_nh\<close>.\<close>
+
+lemma dparse_via_tables_nh:
+  assumes st:  \<open>pr0_states G Shn = sts\<close>
+    and   gt:  \<open>pgtab G sts = gtab\<close>
+    and   rt:  \<open>red_buckets G Shn (length sts) = redtab\<close>
+    and   xi:  \<open>xinit G Shn = xin\<close>
+    and   xc:  \<open>xclosure_auto G xin = xclos\<close>
+    and   i0:  \<open>st_find sts (lr0_start G Shn) = i\<^sub>0\<close>
+  shows \<open>dparse G Shn w =
+     drun_nh G Shn gtab sts redtab (([xin], tcols w), [xclos], [i\<^sub>0], w, [])\<close>
+  by (subst dparse_via_tables[OF st gt rt xi xc i0]) (rule drun\<^sub>w\<^sub>f_eq_drun_nh)
 
 lemma dparse_imp_dparse\<^sub>n_ex:
   assumes \<open>dparse G Shn w = Some t\<close>

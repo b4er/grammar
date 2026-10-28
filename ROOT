@@ -13,6 +13,8 @@ session LR_Parser in "lr" = Grammar_Command +
   theories
     LR
     LR_Driver
+    LR_Fast
+    LR_Sparse
     LR_Det
     LR_Simple
     LR_Int
