@@ -1412,6 +1412,45 @@ definition wreach_step :: \<open>('n, 't) is_cfg \<Rightarrow> ('n, 't) witem li
 definition wreach :: \<open>('n, 't) is_cfg \<Rightarrow> ('n, 't) citem list \<Rightarrow> ('n, 't) witem list\<close> where
   \<open>wreach G s = (wreach_step G ^^ Suc (length (iprods G) * 6)) (wkernel s)\<close>
 
+text \<open>Evaluated as defined, \<^const>\<open>wreach\<close> takes all the steps its fuel allows; the code
+  equation stops at the first step that changes nothing.\<close>
+
+fun fuel_fix :: \<open>('a \<Rightarrow> 'a) \<Rightarrow> nat \<Rightarrow> 'a \<Rightarrow> 'a\<close> where
+  \<open>fuel_fix f n x = (if n = 0 then x else let y = f x in if y = x then x else fuel_fix f (n - 1) y)\<close>
+
+declare fuel_fix.simps [simp del]
+
+lemma fuel_fix_funpow: \<open>fuel_fix f n x = (f ^^ n) x\<close>
+proof (induction f n x rule: fuel_fix.induct)
+  case (1 f n x)
+  show ?case
+  proof (cases n)
+    case 0
+    then show ?thesis by (simp add: fuel_fix.simps)
+  next
+    case (Suc m)
+    show ?thesis
+    proof (cases \<open>f x = x\<close>)
+      case True
+      then have \<open>(f ^^ k) x = x\<close> for k by (induction k) simp_all
+      with True Suc show ?thesis by (simp add: fuel_fix.simps)
+    next
+      case False
+      have \<open>fuel_fix f n x = fuel_fix f m (f x)\<close>
+        using Suc False by (subst fuel_fix.simps) simp
+      also have \<open>\<dots> = (f ^^ m) (f x)\<close>
+        using 1 Suc False by simp
+      also have \<open>\<dots> = (f ^^ n) x\<close>
+        using Suc by (simp add: funpow_swap1)
+      finally show ?thesis .
+    qed
+  qed
+qed
+
+lemma wreach_code [code]:
+  \<open>wreach G s = fuel_fix (wreach_step G) (Suc (length (iprods G) * 6)) (wkernel s)\<close>
+  unfolding wreach_def fuel_fix_funpow ..
+
 subsection \<open>Anchored shift cells\<close>
 
 text \<open>A shift cell relates the token's column to the state's common anchor
