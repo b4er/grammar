@@ -771,10 +771,14 @@ fun pretty_report header groups =
       else (case heading of NONE => entries | SOME h => Pretty.str h :: entries)) groups));
 
 fun lr_discharge
-  ({gram, shn, checks}: Parser_Generators.discharge_input) ctxt prem =
+  ({gram, parse_bind, shn, checks}: Parser_Generators.discharge_input) ctxt prem =
   let
     fun get_check t = find_first (fn th => lhs_of_eq th aconv t) checks;
     val gram_short = Binding.name_of (#name gram);
+    (* the reports name the entry: two entries of one grammar have their own tables *)
+    val entry =
+      "\<open>" ^ Binding.name_of parse_bind ^ "\<close> (grammar \<open>" ^ gram_short ^
+      "\<close>, start \<open>" ^ #start gram ^ "\<close>)";
     val arts = Grammar_Common.artifacts_of gram;
     val gram_t = #gram_t arts;
     val gram_def_th = #gram_def arts;
@@ -894,8 +898,8 @@ fun lr_discharge
       let val t = conflicts_term \<^const_name>\<open>rlalr_conflicts\<close> in
         case check_value t of
           SOME (Const (\<^const_name>\<open>List.list.Nil\<close>, _)) =>
-            (writeln ("parser: static determinism check empty for \<open>" ^
-              gram_short ^ "\<close>; \<open>mdet\<close> discharged - \<open>" ^
+            (writeln ("parser: static determinism check empty for " ^
+              entry ^ "; \<open>mdet\<close> discharged - \<open>" ^
               ".complete\<close> is unconditional"); true)
         | SOME v =>
             let
@@ -906,7 +910,7 @@ fun lr_discharge
                 | Exn.Exn exn => ([], [failed v exn]));
             in
               (warning (pretty_report
-                ("parser: \<open>" ^ gram_short ^ "\<close> has LR conflicts in " ^
+                ("parser: " ^ entry ^ " has LR conflicts in " ^
                   count (length pairs) "state" ^
                   (if null summary then "" else " (" ^ commas summary ^ ")") ^
                   "; \<open>mdet\<close> kept as an assumption on .complete") groups); false)
@@ -921,8 +925,8 @@ fun lr_discharge
       let val t = conflicts_term \<^const_name>\<open>acc_conflicts\<close> in
         case check_value t of
           SOME (Const (\<^const_name>\<open>List.list.Nil\<close>, _)) =>
-            (writeln ("parser: accept/reduce check empty for \<open>" ^
-              gram_short ^ "\<close>; the relational \<open>.complete\<close> is unconditional"); true)
+            (writeln ("parser: accept/reduce check empty for " ^
+              entry ^ "; the relational \<open>.complete\<close> is unconditional"); true)
         | SOME v =>
             let
               val groups =
@@ -933,7 +937,7 @@ fun lr_discharge
                 | Exn.Exn exn => [failed v exn]);
             in
               (warning (pretty_report
-                ("parser: \<open>" ^ gram_short ^ "\<close> has accept/reduce conflicts in " ^
+                ("parser: " ^ entry ^ " has accept/reduce conflicts in " ^
                   count (length (HOLogic.dest_list v)) "state" ^
                   "; \<open>acc_conflicts\<close> kept as an assumption on the relational .complete")
                 groups); false)

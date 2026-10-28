@@ -1,13 +1,16 @@
 (* the bridge from a parser's language-level theorems to the relation
    family of the grammar: decoder soundness by wf_ptree induction and the
    relation-to-decoder direction by the family's induction, component by
-   component *)
+   component; `prover` shares both inductions between the start symbols of a
+   multi-entry parser *)
 
 signature PARSER_REL_BRIDGE =
 sig
   type bridge = {pred_P: term, dec_sound: thm, rel_dec: thm}
   val prove: Proof.context -> Grammar_Common.grammar ->
     Grammar_Common.rel_info -> bridge
+  val prover: Proof.context -> Grammar_Common.grammar ->
+    Grammar_Common.rel_info -> string -> bridge
 end;
 
 structure Parser_Rel_Bridge: PARSER_REL_BRIDGE =
@@ -51,17 +54,20 @@ fun setup ctxt (gram: Grammar_Common.grammar) preds : setup =
      Tm_c = Const (\<^const_name>\<open>Tm\<close>, tokT --> symT)}
   end;
 
-fun start_root (s: setup) =
+(* the root of a tree of the start symbol A: by the selectors when A is the
+   grammar's start, else (Nt ''A'', 0) as Parser_Generators.entry_grammar leaves it *)
+fun start_root (s: setup) start =
   let val isgT = fastype_of (#gram_t s) in
-    HOLogic.mk_prod
-      (#Nt_c s $ (Const (\<^const_name>\<open>istart\<close>, isgT --> HOLogic.stringT) $ #gram_t s),
-       Const (\<^const_name>\<open>istart_ind\<close>, isgT --> HOLogic.natT) $ #gram_t s)
+    if start = #start (#gram s) then
+      HOLogic.mk_prod
+        (#Nt_c s $ (Const (\<^const_name>\<open>istart\<close>, isgT --> HOLogic.stringT) $ #gram_t s),
+         Const (\<^const_name>\<open>istart_ind\<close>, isgT --> HOLogic.natT) $ #gram_t s)
+    else HOLogic.mk_prod (#Nt_c s $ HOLogic.mk_string start, zero_nat)
   end;
 
 (* P: the relation of the start symbol at the start indentation *)
-fun pred_P (s: setup) =
+fun pred_P (s: setup) start =
   let
-    val start = #start (#gram s);
     val pred = the (AList.lookup (op =) (#preds s) start);
   in
     if #insensitive s then pred
@@ -127,18 +133,16 @@ fun b1_node_tac ctxt (s: setup) (intros, loops) dec_nones sel_eqs =
     THEN_ALL_NEW SOLVED' (close ORELSE' (resolve_tac ctxt loops THEN_ALL_NEW close))
   end;
 
-(* the lemma of the start nonterminal:
-   wf_ptree G pt \<Longrightarrow> fst (proot pt) = Nt start \<Longrightarrow> body_start pt *)
+(* the lemma of a nonterminal A, by projection:
+   wf_ptree G pt \<Longrightarrow> fst (proot pt) = Nt A \<Longrightarrow> body_A pt *)
 fun prove_b1_all ctxt (s: setup) intros dec_nones =
   Grammar_Ptree_Induct.prove ctxt
     {gram_t = #gram_t s, ptreeT = #ptreeT s, tokT = #tokT (#gram s),
      bodies = map (fn Ap => (fst Ap, b1_body s Ap)) (#preds s)}
-    (fn ctxt' => fn sel_eqs => b1_node_tac ctxt' s intros dec_nones sel_eqs)
-    (#start (#gram s));
+    (fn ctxt' => fn sel_eqs => b1_node_tac ctxt' s intros dec_nones sel_eqs);
 
-fun prove_dec_sound ctxt (s: setup) b1_all =
+fun prove_dec_sound ctxt (s: setup) b1_all start =
   let
-    val start = #start (#gram s);
     val cT = #carrier_of s start;
     val (pt_nm, x_nm) =
       (case Variable.variant_fixes ["pt", "x"] ctxt of
@@ -149,12 +153,13 @@ fun prove_dec_sound ctxt (s: setup) b1_all =
     val prop =
       Logic.list_implies
         ([HOLogic.mk_Trueprop (#wf_c s $ #gram_t s $ pt),
-          HOLogic.mk_Trueprop (HOLogic.mk_eq (#proot_c s $ pt, start_root s)),
+          HOLogic.mk_Trueprop (HOLogic.mk_eq (#proot_c s $ pt, start_root s start)),
           HOLogic.mk_Trueprop
             (HOLogic.mk_eq (#dec_of s start $ (#erase_c s $ pt), Grammar_Common.mk_Some cT $ x))],
-         HOLogic.mk_Trueprop (Term.betapplys (pred_P s, [#pyield_c s $ pt, x])));
+         HOLogic.mk_Trueprop (Term.betapplys (pred_P s start, [#pyield_c s $ pt, x])));
+    val start_th = b1_all start;
     fun tac {context, ...} =
-      Method.insert_tac context [b1_all] 1
+      Method.insert_tac context [start_th] 1
       THEN HEADGOAL (SOLVED' (Clasimp.fast_force_tac (context addsimps #gram_eqs s)));
   in
     Goal.prove_sorry ctxt [pt_nm, x_nm] [] prop tac
@@ -270,9 +275,8 @@ fun prove_b2_all ctxt (s: setup) dec_nones =
 
 (* the start lemma of b2_all, resolved against the statement once its selector
    applications are rewritten *)
-fun prove_rel_dec ctxt (s: setup) b2_all =
+fun prove_rel_dec ctxt (s: setup) b2_all start =
   let
-    val start = #start (#gram s);
     val cT = #carrier_of s start;
     val (w_nm, x_nm) =
       (case Variable.variant_fixes ["w", "x"] ctxt of
@@ -282,8 +286,8 @@ fun prove_rel_dec ctxt (s: setup) b2_all =
     val x = Free (x_nm, cT);
     val prop =
       Logic.mk_implies
-        (HOLogic.mk_Trueprop (Term.betapplys (pred_P s, [w, x])),
-         HOLogic.mk_Trueprop (b2_body s start (start_root s) w x));
+        (HOLogic.mk_Trueprop (Term.betapplys (pred_P s start, [w, x])),
+         HOLogic.mk_Trueprop (b2_body s start (start_root s start) w x));
     val start_th = nth b2_all (find_index (fn (A, _) => A = start) (#preds s));
     fun tac {context, ...} =
       HEADGOAL (TRY o simp_tac (put_simpset HOL_basic_ss context addsimps #gram_eqs s))
@@ -316,7 +320,7 @@ fun concise what f =
     error ("bridge \<open>" ^ what ^ "\<close>: " ^
       (case split_lines msg of l :: _ => l | [] => msg));
 
-fun prove ctxt (gram: Grammar_Common.grammar) (ri: Grammar_Common.rel_info) : bridge =
+fun prover ctxt (gram: Grammar_Common.grammar) (ri: Grammar_Common.rel_info) =
   let
     val _ = validate gram ri;
     fun timed label f = Grammar_Common.timed ctxt "parser" ("bridge " ^ label) f ();
@@ -352,12 +356,14 @@ fun prove ctxt (gram: Grammar_Common.grammar) (ri: Grammar_Common.rel_info) : br
       (fn () => timed "dec_sound" (fn () => prove_b1_all ctxt s intros dec_nones));
     val b2_all = concise "rel_dec (relation decoded by the decoder)"
       (fn () => timed "rel_dec" (fn () => prove_b2_all ctxt s dec_nones));
-  in
-    {pred_P = pred_P s,
-     dec_sound = concise "dec_sound"
-       (fn () => timed "dec_sound final" (fn () => prove_dec_sound ctxt s b1_all)),
-     rel_dec = concise "rel_dec"
-       (fn () => timed "rel_dec final" (fn () => prove_rel_dec ctxt s b2_all))}
-  end;
+    fun bridge start : bridge =
+      {pred_P = pred_P s start,
+       dec_sound = concise "dec_sound"
+         (fn () => timed "dec_sound final" (fn () => prove_dec_sound ctxt s b1_all start)),
+       rel_dec = concise "rel_dec"
+         (fn () => timed "rel_dec final" (fn () => prove_rel_dec ctxt s b2_all start))};
+  in bridge end;
+
+fun prove ctxt (gram: Grammar_Common.grammar) ri = prover ctxt gram ri (#start gram);
 
 end;

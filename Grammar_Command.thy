@@ -262,12 +262,29 @@ text \<open>
   \end{matharray}
 
   \<^rail>\<open>
-    @@{command parser} ('(' name ')')? name @'for'? name
+    @@{command parser} ('(' name ')')? (entry + @'and')
+    ;
+    entry: name @'for'? name ('(' name ')')?
   \<close>
 
   \<^descr> \<^theory_text>\<open>parser p for G\<close> defines \<open>p :: word \<Rightarrow> \<tau>\<^sub>S option\<close> for the start
   symbol \<open>S\<close> of \<open>G\<close>, together with soundness and completeness theorems.
-  The optional first name selects the parser generator (by default \<open>LR\<close>).
+  The optional first name selects the parser generator (by default \<open>LR\<close>) for
+  all entries of the command.
+
+  \<^descr> \<^theory_text>\<open>parser p for G (A)\<close> parses from the nonterminal \<open>A\<close> of \<open>G\<close>
+  instead: \<open>p :: word \<Rightarrow> \<tau>\<^sub>A option\<close>, built from \<open>G\<lparr>istart := ''A''\<rparr>\<close>, the
+  grammar with the same productions and start \<open>A\<close>. Its theorems are those
+  of the start symbol with \<open>A\<close> for \<open>S\<close>: the relational forms are about
+  \<open>G_A 0 w x\<close> and the language forms about \<open>ilang (G\<lparr>istart := ''A''\<rparr>)\<close>, the
+  language of \<open>A\<close>. \<^theory_text>\<open>(S)\<close> with \<open>S\<close> the start symbol is the plain
+  form.
+
+  \<^descr> \<^theory_text>\<open>parser p for G and q for G (A)\<close> declares several parsers
+  for one grammar, one after the other (parsers for another grammar need a
+  command of their own). The entries share the grammar's decoders, its relation
+  and the decoder and relation lemmas the theorems are discharged with, proved
+  once for the command; each entry has its own tables, from its own start.
 \<close>
 
 text \<open>
@@ -277,7 +294,8 @@ text \<open>
 section \<open>LR parser\<close>
 
 text \<open>
-  \<^descr> The definition is \<open>p w = Option.bind (dparse G Shn w) G__dec_S\<close>:
+  \<^descr> The definition is \<open>p w = Option.bind (dparse G Shn w) G__dec_S\<close>
+  (for an entry \<open>(A)\<close>, \<open>dparse (G\<lparr>istart := ''A''\<rparr>) Shn w\<close> and \<open>G__dec_A\<close>):
   \<^text>\<open>dparse\<close> is the verified driver of \<^file>\<open>lr/LR_Driver.thy\<close>, an
   LALR(1)-style parser over the LR(0) automaton whose lookahead cells carry
   the layout constraints, \<open>Shn\<close> a

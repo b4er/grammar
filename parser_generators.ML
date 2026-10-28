@@ -6,10 +6,17 @@
 
    emitted: `<parse>.sound_lang` / `.complete_lang` (against \<open>ilang G\<close>) and
    `<parse>.sound` / `.complete` (against the start relation, when the
-   grammar has one and the backend relational forms; else the same) *)
+   grammar has one and the backend relational forms; else the same).
+
+   `parser p for G (A)` with A not the start of G: an entry.  The backend
+   builds from `G\<lparr>istart := ''A''\<rparr>` (the record it is handed says so, see
+   entry_grammar); everything else is G's: the decoders, the relation family,
+   and the decoder and bridge lemmas, shared by the entries of one command *)
 
 signature PARSER_GENERATORS =
 sig
+  (* gram: the grammar the parser starts from; for an entry its start is the
+     entry's and its gram_t \<open>G\<lparr>istart := ''A''\<rparr>\<close> (see entry_grammar) *)
   type build_input =
    {gram: Grammar_Common.grammar,
     parse_bind: binding,
@@ -26,8 +33,10 @@ sig
     post: post_input -> local_theory -> local_theory,
     checks: thm list}
 
+  (* gram: as in build_input, the entry's record *)
   type discharge_input =
    {gram: Grammar_Common.grammar,
+    parse_bind: binding,
     shn: string,
     checks: thm list}
 
@@ -54,10 +63,14 @@ sig
   val set_default: string -> theory -> theory
   val default: theory -> string option
 
+  (* `NAME for G (A)`; NONE: the start of G *)
+  type entry = binding * (xstring * Position.T) * (string * Position.T) option
+
   val define: string option -> binding -> xstring * Position.T -> local_theory
     -> result * local_theory
-  val define_cmd: string option -> binding -> xstring * Position.T -> local_theory
-    -> local_theory
+  val define_entries: string option -> entry list -> local_theory
+    -> result list * local_theory
+  val define_cmd: string option -> entry list -> local_theory -> local_theory
 
   (** helpers reusable by backends **)
   val pick_fresh_shn: Grammar_Common.grammar -> string
@@ -86,6 +99,7 @@ type build_output =
 
 type discharge_input =
  {gram: Grammar_Common.grammar,
+  parse_bind: binding,
   shn: string,
   checks: thm list};
 
@@ -258,6 +272,8 @@ fun discharge_bridges ctxt dec_names ({dec_sound, rel_dec, ...}: Parser_Rel_Brid
 
 (** the `parser` command **)
 
+type entry = binding * (xstring * Position.T) * (string * Position.T) option;
+
 (* the parser's own name is checked before anything is defined *)
 fun check_parse_binding lthy parse_b =
   let
@@ -273,14 +289,126 @@ fun check_parse_binding lthy parse_b =
     else ()
   end;
 
-fun define parser_name_opt parse_b gram_ref lthy =
+(* the entries of a command, before anything is defined: names, starts, and one
+   grammar for all *)
+fun check_entries lthy (entries: entry list) =
   let
-    val _ = check_parse_binding lthy parse_b;
-    val (_, gr) = Grammar_Common.check_grammar lthy gram_ref;
-    val (gen_name, gen) =
-      resolve_generator (Proof_Context.theory_of lthy) parser_name_opt;
-    val shn_name = pick_fresh_shn gr;
-    val binp = {gram = gr, parse_bind = parse_b, shn = shn_name};
+    fun check (parse_b, gram_ref, start_opt) =
+      let
+        val _ = check_parse_binding lthy parse_b;
+        val (_, gr) = Grammar_Common.check_grammar lthy gram_ref;
+        val start =
+          (case start_opt of
+            NONE => #start gr
+          | SOME (A, pos) =>
+              if Symtab.defined (#nonterms gr) A then A
+              else
+                error ("parser " ^ quote (Binding.name_of parse_b) ^ ": " ^ quote A ^
+                  " is not a nonterminal of grammar " ^ quote (Binding.name_of (#name gr)) ^
+                  " (nonterminals: " ^
+                  commas_quote (map fst (Grammar_Common.nonterms_list gr)) ^ ")" ^
+                  Position.here pos));
+      in (parse_b, gr, start) end;
+    val checked = map check entries;
+    val _ =
+      fold (fn (b, _, _) => fn seen =>
+          let val nm = Binding.name_of b in
+            if member (op =) seen nm then
+              error ("parser " ^ quote nm ^ ": declared twice in one command" ^
+                Position.here (Binding.pos_of b))
+            else nm :: seen
+          end) checked [];
+    (* one grammar per command: the entries share its lemmas *)
+    val key = #gram_t o Grammar_Common.artifacts_of;
+    val _ =
+      (case checked of
+        (_, gr0, _) :: _ =>
+          ListPair.app (fn ((b, gr, _), (_, (g, pos), _)) =>
+              if key gr aconv key gr0 then ()
+              else
+                error ("parser " ^ quote (Binding.name_of b) ^ ": grammar " ^ quote g ^
+                  " is not the grammar " ^ quote (Binding.name_of (#name gr0)) ^
+                  " of the first entry; the entries of one command are for one grammar" ^
+                  " (use a second parser command)" ^ Position.here pos))
+            (checked, entries)
+      | [] => ());
+  in checked end;
+
+(* an entry from a nonterminal A that is not the start of G: the backend builds
+   from G's record with start A and gram_t the term
+
+     G\<lparr>istart := ''A''\<rparr>
+
+   (not a constant: within the command a new constant is a fixed variable, which
+   the evaluation of the tables cannot read), with gram_def
+   `G\<lparr>istart := ''A''\<rparr> \<equiv> is_cfg.make ps ''A'' 0` over G's productions ps.
+   `transport` rewrites the premises of a theorem about that term which only read
+   its productions and its start (wf_ptree_iprods_cong, ast_of_iprods_cong) to
+   premises about G, where G's decoder and bridge lemmas discharge them *)
+fun entry_grammar (gr: Grammar_Common.grammar) A ctxt =
+  let
+    val {gram_t, gram_def, decs, rel} = Grammar_Common.artifacts_of gr;
+    val {isgT, ...} = Grammar_Common.get_desc gr;
+    val upd_c =
+      Const (\<^const_name>\<open>is_cfg.istart_update\<close>,
+        (HOLogic.stringT --> HOLogic.stringT) --> isgT --> isgT);
+    val eg_t = upd_c $ Term.absdummy HOLogic.stringT (HOLogic.mk_string A) $ gram_t;
+
+    fun prove ctxt' prop =
+      Goal.prove_sorry ctxt [] [] (HOLogic.mk_Trueprop prop)
+        (fn {context, ...} => HEADGOAL (simp_tac (put_simpset (simpset_of ctxt') context)));
+    val basic = put_simpset HOL_basic_ss ctxt;
+    val (make_c, ps) =
+      (case Term.strip_comb (snd (Logic.dest_equals (Thm.prop_of gram_def))) of
+        (make, [ps, _, _]) => (make, ps)
+      | _ => raise Fail "entry_grammar: grammar definition");
+    val zero = \<^term>\<open>0 :: nat\<close>;
+    val make_eq =
+      prove (basic addsimps (gram_def :: @{thms is_cfg.make_def is_cfg.update_convs refl}))
+        (HOLogic.mk_eq (eg_t, make_c $ ps $ HOLogic.mk_string A $ zero));
+    fun sel c T t = Const (c, isgT --> T) $ t;
+    val sel_ctxt = basic addsimps (make_eq :: @{thms is_cfg.make_def is_cfg.select_convs});
+    val iprodsT = fastype_of ps;
+    val iprods_eq =
+      prove ctxt
+        (HOLogic.mk_eq
+          (sel \<^const_name>\<open>iprods\<close> iprodsT eg_t, sel \<^const_name>\<open>iprods\<close> iprodsT gram_t));
+    val istart_eq =
+      prove sel_ctxt
+        (HOLogic.mk_eq (sel \<^const_name>\<open>istart\<close> HOLogic.stringT eg_t, HOLogic.mk_string A));
+    val istart_ind_eq =
+      prove sel_ctxt (HOLogic.mk_eq (sel \<^const_name>\<open>istart_ind\<close> HOLogic.natT eg_t, zero));
+    val transport_ss =
+      simpset_of (basic addsimps
+        [@{thm wf_ptree_iprods_cong} OF [iprods_eq], @{thm ast_of_iprods_cong} OF [iprods_eq],
+         istart_eq, istart_ind_eq]);
+    fun transport ctxt' =
+      Conv.fconv_rule
+        (Conv.prems_conv ~1 (Simplifier.full_rewrite (put_simpset transport_ss ctxt')));
+
+    val {name, tokT, tokenT, terminals, lit_names, nonterms, prods, ...} = gr;
+    val egr: Grammar_Common.grammar =
+      {name = name, tokT = tokT, tokenT = tokenT, start = A, terminals = terminals,
+       lit_names = lit_names, nonterms = nonterms, prods = prods,
+       artifacts =
+        SOME {gram_t = eg_t, gram_def = mk_meta_eq make_eq, decs = decs, rel = rel}};
+  in (egr, transport) end;
+
+(* the decoder and bridge lemmas of the grammar, for any start, proved on first
+   demand and shared by the entries of the command *)
+type shared =
+ {dec_total: (string -> thm) lazy,
+  bridge: (Grammar_Common.rel_info * (string -> Parser_Rel_Bridge.bridge) lazy) option};
+
+fun shared_lemmas lthy gr : shared =
+  {dec_total = Lazy.lazy (fn () => Parser_Dec_Total.prover lthy gr),
+   bridge =
+    Option.map (fn ri => (ri, Lazy.lazy (fn () => Parser_Rel_Bridge.prover lthy gr ri)))
+      (Grammar_Defs.lookup_rel lthy gr)};
+
+(* one entry: as a command of its own, but for the shared lemmas *)
+fun define_entry (gen_name, gen) (shared: shared) (parse_b, gr, start) lthy =
+  let
     val gram_name = Binding.name_of (#name gr);
     val dec_names =
       Grammar_Common.nonterms_list gr
@@ -289,6 +417,13 @@ fun define parser_name_opt parse_b gram_ref lthy =
             Const (c, _) => SOME c
           | _ => NONE));
     fun timed label f x = Grammar_Common.timed lthy "parser" label f x;
+
+    (* 0. the entry's grammar; the start of G is G itself *)
+    val (egr, transport) =
+      if start = #start gr then (gr, K I)
+      else timed "0 entry grammar" (entry_grammar gr start) lthy;
+    val shn_name = pick_fresh_shn gr;
+    val binp = {gram = egr, parse_bind = parse_b, shn = shn_name};
 
     (* 1. the backend builds the parse body (may define auxiliary constants) *)
     val ({parse_body, post, checks}, lthy) = timed "1 build_parse" (#build_parse gen binp) lthy;
@@ -303,13 +438,14 @@ fun define parser_name_opt parse_b gram_ref lthy =
     (* 4. sound/complete: the body equation from parse_def_th, then decoder
           totality, then the backend's tactics *)
     val hol_parse_eq = @{thm HOL.meta_eq_to_obj_eq} OF [parse_def_th];
-    val dec_total = Lazy.lazy (fn () => Parser_Dec_Total.prove lthy gr);
+    val dec_total = Lazy.lazy (fn () => Lazy.force (#dec_total shared) start);
 
-    val dinp = {gram = gr, shn = shn_name, checks = checks};
+    val dinp = {gram = egr, parse_bind = parse_b, shn = shn_name, checks = checks};
     val proof_for = discharge_prover lthy (#discharge_tac gen dinp lthy);
 
     fun discharge th =
       (hol_parse_eq RS th)
+      |> transport lthy
       |> discharge_dec_total lthy gram_name dec_names dec_total
       |> discharge_via_tac proof_for;
 
@@ -320,14 +456,16 @@ fun define parser_name_opt parse_b gram_ref lthy =
           symbol, the bridge premises by Parser_Rel_Bridge; when the bridges
           fail the language forms are kept under the plain names *)
     val rel_forms =
-      (case (Grammar_Defs.lookup_rel lthy gr, #rel_sound_thm gen, #rel_complete_thm gen) of
-        (SOME ri, SOME rel_sound, SOME rel_complete) =>
+      (case (#bridge shared, #rel_sound_thm gen, #rel_complete_thm gen) of
+        (SOME (_, bridges), SOME rel_sound, SOME rel_complete) =>
           (case Exn.result (fn () =>
               let
-                val bridge = timed "5 Parser_Rel_Bridge.prove" (Parser_Rel_Bridge.prove lthy gr) ri;
+                val bridge =
+                  timed "5 Parser_Rel_Bridge.prove" (fn () => Lazy.force bridges start) ();
                 fun discharge_rel th =
                   (hol_parse_eq RS th)
                   |> instantiate_P lthy (#pred_P bridge)
+                  |> transport lthy
                   |> discharge_bridges lthy dec_names bridge
                   |> discharge_via_tac proof_for;
               in (discharge_rel rel_sound, discharge_rel rel_complete) end) () of
@@ -366,8 +504,20 @@ fun define parser_name_opt parse_b gram_ref lthy =
       | _ => raise Fail "parser: unexpected notes result");
   in (result, lthy) end;
 
-fun define_cmd parser_name_opt parse_b gram_ref lthy =
-  #2 (define parser_name_opt parse_b gram_ref lthy);
+(* phase 1: the entries one after the other, sharing the lemmas of the grammar *)
+fun define_entries parser_name_opt entries lthy =
+  let
+    val checked = check_entries lthy entries;
+    val gen = resolve_generator (Proof_Context.theory_of lthy) parser_name_opt;
+    val shared = shared_lemmas lthy (#2 (hd checked));
+  in fold_map (define_entry gen shared) checked lthy end;
+
+fun define parser_name_opt parse_b gram_ref lthy =
+  define_entries parser_name_opt [(parse_b, gram_ref, NONE)] lthy
+  |>> the_single;
+
+fun define_cmd parser_name_opt entries lthy =
+  #2 (define_entries parser_name_opt entries lthy);
 
 
 (** outer syntax **)
@@ -376,8 +526,11 @@ val _ =
   Outer_Syntax.local_theory \<^command_keyword>\<open>parser\<close>
     "emit an executable, verified parser from a grammar spec"
     (Scan.option (\<^keyword>\<open>(\<close> |-- Parse.name --| \<^keyword>\<open>)\<close>)
-     -- Parse.binding
-     -- (Scan.option \<^keyword>\<open>for\<close> |-- Parse.name_position)
-     >> (fn ((gen_opt, parse_b), gram_ref) => define_cmd gen_opt parse_b gram_ref));
+     -- Parse.and_list1
+          (Parse.binding
+           -- (Scan.option \<^keyword>\<open>for\<close> |-- Parse.name_position)
+           -- Scan.option (\<^keyword>\<open>(\<close> |-- Parse.name_position --| \<^keyword>\<open>)\<close>)
+           >> (fn ((b, g), a) => (b, g, a)))
+     >> (fn (gen_opt, entries) => define_cmd gen_opt entries));
 
 end;

@@ -3,13 +3,16 @@
 
      \<And>t. ast_of G (Nt (istart G)) (istart_ind G) t ?w \<Longrightarrow> \<exists>x. dec t = Some x
 
-   and `prove` establishes it in that shape *)
+   and `prove` establishes it in that shape; `prover` states it for any
+   nonterminal A, at the root \<open>(Nt ''A'', 0)\<close> unless A is the start, with one
+   wf_ptree induction for all of them *)
 
 signature PARSER_DEC_TOTAL =
 sig
   val gram_eqs: Proof.context -> Grammar_Common.grammar -> thm list
   val dec_none: Proof.context -> Grammar_Common.grammar -> string -> thm
   val prove: Proof.context -> Grammar_Common.grammar -> thm
+  val prover: Proof.context -> Grammar_Common.grammar -> string -> thm
 end;
 
 structure Parser_Dec_Total: PARSER_DEC_TOTAL =
@@ -68,8 +71,12 @@ fun dec_none ctxt (gram: Grammar_Common.grammar) A =
    start nonterminal, the shape of the dec_total premise:
 
      \<And>w t. ast_of gram (Nt (istart gram)) (istart_ind gram) t w \<Longrightarrow>
-            \<exists>x. dec_start t = Some x *)
-fun prop2 ctxt (gram: Grammar_Common.grammar) =
+            \<exists>x. dec_start t = Some x
+
+   another nonterminal A, the premise as Parser_Generators.entry_grammar leaves it:
+
+     \<And>w t. ast_of gram (Nt ''A'') 0 t w \<Longrightarrow> \<exists>x. dec_A t = Some x *)
+fun prop2 ctxt (gram: Grammar_Common.grammar) start_nt =
   let
     val {isgT, wordT, astT, ...} = Grammar_Common.get_desc gram;
     val gram_t = #gram_t (Grammar_Common.artifacts_of gram);
@@ -79,11 +86,12 @@ fun prop2 ctxt (gram: Grammar_Common.grammar) =
     val Nt_c = Const (\<^const_name>\<open>Nt\<close>, stringT --> symT);
     val dec_of = Grammar_Defs.decoder_of ctxt gram;
 
-    val start_nt = #start gram;
     val start_cT = Grammar_Common.carrier_of gram start_nt;
-    val istart_t = Const (\<^const_name>\<open>istart\<close>, isgT --> stringT) $ gram_t;
-    val istart_ind_t =
-      Const (\<^const_name>\<open>istart_ind\<close>, isgT --> \<^typ>\<open>nat\<close>) $ gram_t;
+    val (istart_t, istart_ind_t) =
+      if start_nt = #start gram then
+        (Const (\<^const_name>\<open>istart\<close>, isgT --> stringT) $ gram_t,
+         Const (\<^const_name>\<open>istart_ind\<close>, isgT --> \<^typ>\<open>nat\<close>) $ gram_t)
+      else (HOLogic.mk_string start_nt, \<^term>\<open>0 :: nat\<close>);
     val ast_of_c = Const (\<^const_name>\<open>ast_of\<close>,
       isgT --> symT --> \<^typ>\<open>nat\<close> --> astT --> wordT --> HOLogic.boolT);
     val t = Free ("t", astT);
@@ -96,7 +104,7 @@ fun prop2 ctxt (gram: Grammar_Common.grammar) =
       (HOLogic.mk_Trueprop prem2, HOLogic.mk_Trueprop concl2)))
   end;
 
-fun prove ctxt (gram: Grammar_Common.grammar) =
+fun prover ctxt (gram: Grammar_Common.grammar) =
   let
     val {astT, ...} = Grammar_Common.get_desc gram;
     val gram_t = #gram_t (Grammar_Common.artifacts_of gram);
@@ -133,18 +141,23 @@ fun prove ctxt (gram: Grammar_Common.grammar) =
         THEN_ALL_NEW (REPEAT_DETERM o eresolve_tac ctxt @{thms proot_Tm_E})
         THEN_ALL_NEW SOLVED' (asm_full_simp_tac ctxt2)
       end;
-    val start_th =
+    val project =
       Grammar_Ptree_Induct.prove ctxt
         {gram_t = gram_t, ptreeT = ptreeT, tokT = #tokT gram, bodies = map body nts}
-        node_tac (#start gram);
+        node_tac;
 
-    fun tac2 ctxt =
+    fun tac2 start_th ctxt =
       Method.insert_tac ctxt [start_th] 1
       THEN Local_Defs.unfold_tac ctxt @{thms ast_of_def}
       THEN HEADGOAL (SOLVED' (Clasimp.fast_force_tac (ctxt addsimps eqs)));
 
-    val tot0 =
-      Goal.prove_sorry ctxt [] [] (prop2 ctxt gram) (fn {context, ...} => tac2 context);
-  in Grammar_Common.close_binders ctxt ["t"] tot0 end;
+    fun tot A =
+      let val start_th = project A in
+        Goal.prove_sorry ctxt [] [] (prop2 ctxt gram A) (fn {context, ...} => tac2 start_th context)
+        |> Grammar_Common.close_binders ctxt ["t"]
+      end;
+  in tot end;
+
+fun prove ctxt (gram: Grammar_Common.grammar) = prover ctxt gram (#start gram);
 
 end;

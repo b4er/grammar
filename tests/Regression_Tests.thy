@@ -692,6 +692,213 @@ lemma \<open>nt_chain_N1 w x \<Longrightarrow> nt_chain_parse w = Some x\<close>
 lemma \<open>nt_chain_parse [tu 0 PA ''F'', tu 1 PA ''F'', tu 2 PB ''F''] = Some 2\<close>
   by eval
 
+subsection \<open>Several start symbols for one grammar\<close>
+
+text \<open>Terms and types contain each other (\<open>lam x : Ty . Tm\<close>, \<open>{ Tm }\<close>);
+  \<open>TyFile\<close>, an aligned block of declarations, is unreachable from the start
+  \<open>Tm\<close> (the expected warning of \<open>grammar\<close>).  One \<open>parser\<close> command emits a
+  parser per start.\<close>
+
+datatype toy_tok = TLam | TColon | TDot | TArr | TLP | TRP | TLB | TRB | TId
+
+datatype tm = Var nat | App tm tm | Lam nat ty tm
+     and ty = TV nat | Arr ty ty | Sing tm
+
+grammar (relation) toy =
+  tokens \<open>toy_tok\<close>
+  terminals
+    "lam" = \<open>TLam\<close> and ":" = \<open>TColon\<close> and "." = \<open>TDot\<close> and "->" = \<open>TArr\<close> and
+    "(" = \<open>TLP\<close>  and ")" = \<open>TRP\<close>    and "{" = \<open>TLB\<close>  and "}" = \<open>TRB\<close>
+  productions
+      Tm :: \<open>tm\<close>
+        = Apps
+        | "lam" TId ":" Ty "." Tm \<Rightarrow> \<open>\<lambda>x t b. Lam (s_col (span x)) t b\<close>
+    and
+      Apps :: \<open>tm\<close> = Atom | Apps Atom \<Rightarrow> \<open>App\<close>
+    and
+      Atom :: \<open>tm\<close> = TId \<Rightarrow> \<open>\<lambda>x. Var (s_col (span x))\<close> | "(" Tm ")" \<Rightarrow> \<open>\<lambda>t. t\<close>
+    and
+      Ty :: \<open>ty\<close> = TAtom | TAtom "->" Ty \<Rightarrow> \<open>Arr\<close>
+    and
+      TAtom :: \<open>ty\<close>
+        = TId \<Rightarrow> \<open>\<lambda>x. TV (s_col (span x))\<close>
+        | "{" Tm "}" \<Rightarrow> \<open>Sing\<close>
+        | "(" Ty ")" \<Rightarrow> \<open>\<lambda>t. t\<close>
+    and
+      TyFile :: \<open>(nat \<times> ty) list\<close> = Decls
+    and
+      Decls :: \<open>(nat \<times> ty) list\<close>
+        = Decl\<^sup>=         \<Rightarrow> \<open>\<lambda>d. [d]\<close>
+        | Decls\<^sup>= Decl\<^sup>= \<Rightarrow> \<open>\<lambda>ds d. ds @ [d]\<close>
+    and
+      Decl :: \<open>nat \<times> ty\<close> = TId\<^sup>= ":"\<^sup>> Ty\<^sup>> \<Rightarrow> \<open>\<lambda>x t. (s_col (span x), t)\<close>
+
+parser toy_parse for toy
+  and toy_parse_ty for toy (Ty)
+  and toy_parse_file for toy (TyFile)
+
+text \<open>Each entry parses from its own start: \<open>x y\<close> is a term, not a type, \<open>a -> b\<close>
+  a type, not a term, and the two nest through \<open>{ \<dots> }\<close> and \<open>lam\<close>.\<close>
+
+lemma \<open>toy_parse [tu 1 TId ''x'', tu 3 TId ''y''] = Some (App (Var 1) (Var 3))\<close>
+  by eval
+
+lemma \<open>toy_parse_ty [tu 1 TId ''x'', tu 3 TId ''y''] = None\<close>
+  by eval
+
+lemma \<open>toy_parse_ty [tu 1 TId ''a'', tu 3 TArr ''->'', tu 6 TId ''b''] =
+    Some (Arr (TV 1) (TV 6))\<close>
+  by eval
+
+lemma \<open>toy_parse [tu 1 TId ''a'', tu 3 TArr ''->'', tu 6 TId ''b''] = None\<close>
+  by eval
+
+lemma \<open>toy_parse_ty [tu 1 TLB ''{'', tu 2 TId ''f'', tu 4 TId ''x'', tu 5 TRB ''}'',
+    tu 7 TArr ''->'', tu 10 TId ''a''] = Some (Arr (Sing (App (Var 2) (Var 4))) (TV 10))\<close>
+  by eval
+
+lemma \<open>toy_parse [tu 1 TLam ''lam'', tu 5 TId ''x'', tu 7 TColon '':'', tu 9 TLB ''{'',
+    tu 10 TId ''y'', tu 11 TRB ''}'', tu 13 TDot ''.'', tu 15 TId ''x''] =
+    Some (Lam 5 (Sing (Var 10)) (Var 15))\<close>
+  by eval
+
+text \<open>A \<open>TyFile\<close> is a block of aligned declarations; a misaligned line is rejected.\<close>
+
+lemma \<open>toy_parse_file [tu 1 TId ''x'', tu 3 TColon '':'', tu 5 TId ''a'',
+    tu 1 TId ''y'', tu 3 TColon '':'', tu 5 TId ''b'', tu 7 TArr ''->'', tu 10 TId ''c''] =
+    Some [(1, TV 5), (1, Arr (TV 5) (TV 10))]\<close>
+  by eval
+
+lemma \<open>toy_parse_file [tu 1 TId ''x'', tu 3 TColon '':'', tu 5 TId ''a'',
+    tu 2 TId ''y'', tu 4 TColon '':'', tu 6 TId ''b'', tu 8 TArr ''->'', tu 11 TId ''c''] =
+    None\<close>
+  by eval
+
+lemma \<open>toy_parse_file [tu 1 TId ''x'', tu 3 TId ''y''] = None\<close>
+  by eval
+
+text \<open>The relational forms are stated against the relation of each start,
+  without hypotheses.\<close>
+
+lemma \<open>toy_parse_ty w = Some x \<Longrightarrow> toy_Ty 0 w x\<close>
+  by (fact toy_parse_ty.sound)
+
+lemma \<open>toy_Ty 0 w x \<Longrightarrow> toy_parse_ty w = Some x\<close>
+  by (fact toy_parse_ty.complete)
+
+lemma \<open>toy_parse_file w = Some x \<Longrightarrow> toy_TyFile 0 w x\<close>
+  by (fact toy_parse_file.sound)
+
+lemma \<open>toy_TyFile 0 w x \<Longrightarrow> toy_parse_file w = Some x\<close>
+  by (fact toy_parse_file.complete)
+
+lemma \<open>w \<in> ilang (toy\<lparr>istart := ''Ty''\<rparr>) \<Longrightarrow> \<exists>x. toy_parse_ty w = Some x\<close>
+  by (fact toy_parse_ty.complete_lang)
+
+text \<open>The entries share the grammar, its decoders and its relation family: an entry
+  runs \<open>dparse\<close> on the grammar with another start and decodes with the grammar's
+  decoder of that start, and defines nothing but its parse constant and its tables.\<close>
+
+lemma \<open>toy_parse_ty \<equiv> \<lambda>w. Option.bind (dparse (toy\<lparr>istart := ''Ty''\<rparr>) ''!'' w) toy__dec_Ty\<close>
+  by (fact toy_parse_ty_def)
+
+lemma \<open>toy_parse_file \<equiv>
+    \<lambda>w. Option.bind (dparse (toy\<lparr>istart := ''TyFile''\<rparr>) ''!'' w) toy__dec_TyFile\<close>
+  by (fact toy_parse_file_def)
+
+ML_val \<open>
+  val consts = map #1 (#constants (Consts.dest (Sign.consts_of \<^theory>)));
+  fun own p = filter (fn c => Long_Name.base_name c = p orelse
+    String.isPrefix (p ^ "_") (Long_Name.base_name c)) consts |> map Long_Name.base_name;
+  val tables = ["states", "gtab", "redtab", "i0", "xinit", "xclos"];
+  val _ =
+    forall (fn p => eq_set (op =) (own p, p :: map (fn t => p ^ "_" ^ t) tables))
+      ["toy_parse_ty", "toy_parse_file"]
+    orelse error "an entry defines more than its parse constant and its tables";
+\<close>
+
+text \<open>A start that is not a nonterminal, a name declared twice, and a second
+  grammar in one command are rejected before anything is defined.\<close>
+ML \<open>
+local
+  fun run entries =
+    Named_Target.theory_map (Parser_Generators.define_cmd NONE entries) \<^theory>;
+  val toy = ("toy", Position.none);
+in
+val _ =
+  (run [(\<^binding>\<open>toy_nope\<close>, toy, SOME ("Nope", Position.none))];
+   error "unknown start accepted")
+  handle ERROR msg =>
+    if String.isPrefix "parser \"toy_nope\": \"Nope\" is not a nonterminal of grammar \"toy\"" msg
+    then () else error ("unexpected: " ^ msg)
+val _ =
+  (run [(\<^binding>\<open>toy_twice\<close>, toy, NONE),
+        (\<^binding>\<open>toy_twice\<close>, toy, SOME ("Ty", Position.none))];
+   error "a name declared twice accepted")
+  handle ERROR msg =>
+    if String.isPrefix "parser \"toy_twice\": declared twice in one command" msg
+    then () else error ("unexpected: " ^ msg)
+val _ =
+  (run [(\<^binding>\<open>toy_one\<close>, toy, NONE), (\<^binding>\<open>do_two\<close>, ("do", Position.none), NONE)];
+   error "two grammars in one command accepted")
+  handle ERROR msg =>
+    if String.isPrefix "parser \"do_two\": grammar \"do\" is not the grammar \"toy\"" msg
+    then () else error ("unexpected: " ^ msg)
+end
+\<close>
+
+text \<open>Naming the grammar's own start is the default entry: the same definition,
+  theorems and tables as \<open>toy_parse\<close>.\<close>
+
+parser toy_parse_tm for toy (Tm)
+
+lemma \<open>toy_parse_tm \<equiv> \<lambda>w. Option.bind (dparse toy ''!'' w) toy__dec_Tm\<close>
+  by (fact toy_parse_tm_def)
+
+lemma \<open>toy_parse w = Some x \<Longrightarrow> toy_Tm 0 w x\<close>
+  by (fact toy_parse.sound)
+
+lemma \<open>toy_parse_tm w = Some x \<Longrightarrow> toy_Tm 0 w x\<close>
+  by (fact toy_parse_tm.sound)
+
+lemma \<open>toy_Tm 0 w x \<Longrightarrow> toy_parse w = Some x\<close>
+  by (fact toy_parse.complete)
+
+lemma \<open>toy_Tm 0 w x \<Longrightarrow> toy_parse_tm w = Some x\<close>
+  by (fact toy_parse_tm.complete)
+
+lemma \<open>toy_parse_tm w = Some x \<Longrightarrow> w \<in> ilang toy\<close>
+  by (fact toy_parse_tm.sound_lang)
+
+lemma \<open>w \<in> ilang toy \<Longrightarrow> \<exists>x. toy_parse_tm w = Some x\<close>
+  by (fact toy_parse_tm.complete_lang)
+
+lemma \<open>toy_parse_tm_states = toy_parse_states\<close>
+  by eval
+
+text \<open>The generator option applies to all entries.\<close>
+
+parser (LR) toy_parse_ty2 for toy (Ty) and toy_parse_tm2 for toy
+
+lemma \<open>toy_Ty 0 w x \<Longrightarrow> toy_parse_ty2 w = Some x\<close>
+  by (fact toy_parse_ty2.complete)
+
+lemma \<open>toy_Tm 0 w x \<Longrightarrow> toy_parse_tm2 w = Some x\<close>
+  by (fact toy_parse_tm2.complete)
+
+text \<open>An entry inside a locale with parameters (\<open>box\<close> above).\<close>
+
+grammar (in box) (relation) idk2 =
+  tokens do_tok productions X = Y DDo \<Rightarrow> \<open>\<lambda>y _. y\<close> and Y = DId \<Rightarrow> \<open>\<lambda>_. alive\<close>
+
+parser (in box) idk2_parse for idk2 and idk2_parse_y for idk2 (Y)
+
+lemma \<open>idk2_parse_y [tu 0 DId ''F''] = Some False\<close> by eval
+
+lemma \<open>idk2_Y w x \<Longrightarrow> idk2_parse_y w = Some x\<close>
+  by (fact idk2_parse_y.complete)
+
+
 section \<open>Check-level grammars\<close>
 
 text \<open>Grammar records written out by hand, to pin the static check itself:

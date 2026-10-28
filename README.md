@@ -7,7 +7,8 @@ Languages* (POPL 2013):
 - `grammar` elaborates a grammar specification with semantic actions into
   a grammar constant, per-nonterminal decoders and an inductive relation
 - `parser` emits an executable LALR(1)-style parser for it, proving soundness
-  and completeness
+  and completeness; `parser p for G and q for G (A)` emits several
+  for one grammar, each from its own start symbol, sharing the grammar's decoders and relation
 
 The documentation is the generated PDF, `output/document.pdf`:
 

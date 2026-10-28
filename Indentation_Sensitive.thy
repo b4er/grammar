@@ -387,6 +387,25 @@ definition ast_of ::
   \<open>ast_of G X i a w \<longleftrightarrow>
     (\<exists>pt. wf_ptree G pt \<and> proot pt = (X, i) \<and> erase pt = a \<and> pyield pt = w)\<close>
 
+text \<open>
+  Trees and ASTs only read the productions, not the start symbol: a grammar
+  with another start (the entries of a multi-entry \<^theory_text>\<open>parser\<close>)
+  has the trees of the original.
+\<close>
+
+lemma wf_ptree_mono_iprods:
+  \<open>wf_ptree G pt \<Longrightarrow> set (iprods G) \<subseteq> set (iprods H) \<Longrightarrow> wf_ptree H pt\<close>
+  by (induction rule: wf_ptree.induct)
+    (auto intro: wf_ptree.intros elim!: list_all2_mono)
+
+lemma wf_ptree_iprods_cong: \<open>iprods G = iprods H \<Longrightarrow> wf_ptree G = wf_ptree H\<close>
+  by (rule ext) (auto intro: wf_ptree_mono_iprods)
+
+lemma ast_of_iprods_cong:
+  assumes \<open>iprods G = iprods H\<close>
+  shows \<open>ast_of G = ast_of H\<close>
+  unfolding ast_of_def[abs_def] wf_ptree_iprods_cong[OF assms] ..
+
 subsection \<open>Feasible-indentation intervals\<close>
 
 text \<open>
