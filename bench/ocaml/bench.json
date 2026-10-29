@@ -1,2 +1,2 @@
-{"title": "OCaml subset parser bench (Menhir)", "primary": "instructions",
- "apt": ["valgrind"], "ocaml": true, "opam": ["ocamlfind", "zarith", "menhir"]}
+{"title": "Menhir (OCaml subset)", "primary": "instructions",
+ "apt": ["valgrind"], "opam": ["ocamlfind", "zarith", "menhir"]}
