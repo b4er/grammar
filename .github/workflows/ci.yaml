@@ -1,0 +1,205 @@
+name: CI
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ${{github.workflow}}-${{github.ref}}
+  cancel-in-progress: ${{github.event_name == 'pull_request'}}
+
+permissions:
+  contents: read
+
+env:
+  AFP: afp-2026-07-21
+
+defaults:
+  run:
+    shell: bash
+
+# every bench/<name>/ with a bench.json is measured
+jobs:
+  isabelle:
+    name: Isabelle
+    runs-on: ubuntu-24.04
+    timeout-minutes: 240
+    container:
+      image: makarius/isabelle:Isabelle2025-2
+      options: --user root
+    env:
+      LANG: C.UTF-8
+      LC_ALL: C.UTF-8
+    steps:
+      - name: Setup toolchain
+        run: |
+          apt-get update -qq
+          apt-get install -y -qq --no-install-recommends ca-certificates curl git > /dev/null
+          echo /home/isabelle/Isabelle/bin >> "$GITHUB_PATH"
+
+      - uses: actions/checkout@v7
+
+      - id: afp
+        uses: actions/cache@v6
+        with:
+          path: afp
+          key: ${{env.AFP}}
+
+      - name: Download AFP
+        if: steps.afp.outputs.cache-hit != 'true'
+        run: |
+          mkdir afp
+          curl -sSfL "https://www.isa-afp.org/release/$AFP.tar.gz" \
+            | tar -xz -C afp --strip-components=1 "$AFP/thys"
+
+      - name: Get Isabelle user
+        id: user
+        run: echo "home=$(isabelle getenv -b ISABELLE_HOME_USER)" >> "$GITHUB_OUTPUT"
+
+      - id: heaps
+        uses: actions/cache/restore@v6
+        with:
+          path: ${{steps.user.outputs.home}}/heaps
+          key: heaps-${{env.AFP}}-${{hashFiles('**/ROOT', '**/ROOTS', '**/*.thy', '**/*.ML', '!afp/**')}}
+          restore-keys: heaps-${{env.AFP}}-
+
+      # every session of every bench/*/thys, each exporting to bench/*/isabelle
+      - name: Build sessions
+        run: |
+          dirs=(); for d in bench/*/thys; do dirs+=(-D "$d"); done
+          isabelle build -b -e -v -j 2 -d . -d afp/thys "${dirs[@]}"
+
+      - if: ${{!cancelled() && steps.heaps.outputs.cache-hit != 'true'}}
+        uses: actions/cache/save@v6
+        with:
+          path: ${{steps.user.outputs.home}}/heaps
+          key: ${{steps.heaps.outputs.cache-primary-key}}
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: exports
+          path: bench/*/isabelle
+          if-no-files-found: error
+
+  list:
+    name: List benchmarks
+    runs-on: ubuntu-24.04
+    outputs:
+      benches: ${{steps.list.outputs.benches}}
+    steps:
+      - uses: actions/checkout@v7
+      - id: list
+        run: |
+          for f in bench/*/bench.json; do
+            jq -c --arg name "$(basename "$(dirname "$f")")" \
+              '{name: $name, apt: (.apt // [] | join(" ")), ocaml: (.ocaml // false),
+                opam: (.opam // [] | join(" "))}' "$f"
+          done | jq -sc . | sed 's/^/benches=/' >> "$GITHUB_OUTPUT"
+
+  bench:
+    name: Benchmark ${{matrix.name}}
+    needs: [isabelle, list]
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        include: ${{fromJson(needs.list.outputs.benches)}}
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/download-artifact@v8
+        with:
+          name: exports
+          path: bench
+
+      - if: matrix.apt != ''
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq --no-install-recommends ${{matrix.apt}} > /dev/null
+
+      - if: matrix.ocaml
+        uses: ocaml/setup-ocaml@v3
+        with:
+          ocaml-compiler: "5.5"
+
+      - if: matrix.ocaml && matrix.opam != ''
+        run: opam install -y ${{matrix.opam}}
+
+      - name: Measure
+        env:
+          SHA: ${{github.event.pull_request.head.sha || github.sha}}
+          REF: ${{github.head_ref || github.ref_name}}
+          RUN: ${{matrix.ocaml && 'opam exec --' || ''}}
+        run: |
+          $RUN make -C bench/${{matrix.name}} ci
+          printf '{"sha": "%s", "ref": "%s"}\n' "$SHA" "$REF" > bench/${{matrix.name}}/out/meta.json
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: bench-${{matrix.name}}
+          path: |
+            bench/${{matrix.name}}/out/results.tsv
+            bench/${{matrix.name}}/out/meta.json
+          if-no-files-found: error
+
+  report:
+    name: Report
+    needs: bench
+    if: ${{!cancelled()}}
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      actions: read
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/download-artifact@v8
+        with:
+          pattern: bench-*
+          path: results
+
+      - name: Get baseline
+        if: github.event_name == 'pull_request'
+        env:
+          GH_TOKEN: ${{github.token}}
+          BASE_REF: ${{github.base_ref}}
+          BASE_SHA: ${{github.event.pull_request.base.sha}}
+        run: |
+          runs=$(gh run list -R "$GITHUB_REPOSITORY" -w ci.yaml -b "$BASE_REF" -e push -s success \
+                   -L 50 --json databaseId,headSha)
+          id=$(jq -r --arg sha "$BASE_SHA" \
+                 '(map(select(.headSha == $sha)) + .)[0].databaseId // empty' <<< "$runs")
+          if [[ -n "$id" ]]; then
+            gh run download "$id" -R "$GITHUB_REPOSITORY" -p 'bench-*' -D base || true
+          else
+            echo "no baseline on $BASE_REF"
+          fi
+
+      - name: Report
+        run: |
+          echo '<!-- benchmark -->' > report.md
+          for f in bench/*/bench.json; do
+            b=$(basename "$(dirname "$f")")
+            if [[ -f results/bench-$b/results.tsv ]]; then
+              base=(); [[ -f base/bench-$b/results.tsv ]] && base=(base/bench-$b/results.tsv)
+              python3 bench/common/report.py "bench/$b" "results/bench-$b/results.tsv" "${base[@]}" >> report.md
+            else
+              printf '### %s\n\nNo results: the benchmark failed.\n' "$b" >> report.md
+            fi
+            echo >> report.md
+          done
+          cat report.md >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Comment on the PR
+        if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
+        env:
+          GH_TOKEN: ${{github.token}}
+          PR: ${{github.event.pull_request.number}}
+        run: |
+          gh api "repos/$GITHUB_REPOSITORY/issues/$PR/comments" --paginate \
+            -q '.[] | select(.body | startswith("<!-- benchmark -->")) | .id' |
+            while read -r id; do
+              gh api -X DELETE "repos/$GITHUB_REPOSITORY/issues/comments/$id"
+            done
+          gh api "repos/$GITHUB_REPOSITORY/issues/$PR/comments" -F body=@report.md > /dev/null
