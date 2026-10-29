@@ -5,9 +5,11 @@
 BENCH_DIR/bench.json gives the title, the primary metric and optionally the
 subject, the parser under test (default isabelle); the TSVs are `make bench`
 results (CASE PARSER METRIC VALUE), each with the run's meta.json (sha, ref)
-beside it (if there is one)."""
+beside it (if there is one). In CI, GITHUB_SERVER_URL and GITHUB_REPOSITORY
+turn the refs into links to their commits."""
 
 import json
+import os
 import sys
 from pathlib import Path
 from statistics import geometric_mean
@@ -32,6 +34,16 @@ def load(path):
     m = Path(path).with_name("meta.json")
     meta = json.loads(m.read_text()) if m.exists() else {}
     return rows, order, metrics, meta
+
+
+def commit(meta, ref):
+    """The run's ref, linked to its commit when the repository is known."""
+    ref, sha = meta.get("ref", ref), meta.get("sha", "")
+    repo = os.environ.get("GITHUB_REPOSITORY")
+    if sha and repo:
+        server = os.environ.get("GITHUB_SERVER_URL", "https://github.com")
+        return f"[{ref}]({server}/{repo}/commit/{sha})"
+    return f"{ref} `{sha[:10]}`" if sha else ref
 
 
 def fmt(x):
@@ -92,16 +104,14 @@ def main():
 
     # header
     out = [f"### {spec['title']}", ""]
-    sha = meta.get("sha", "")[:10]
-    head = f"`{sha}`" if sha else "This run"
+    head = commit(meta, "This run")
     if base is not None:
-        bsha = bmeta.get("sha", "")[:10]
-        head += f" against `{bmeta.get('ref', 'base')}`" + (f" `{bsha}`" if bsha else "")
+        head += " against " + commit(bmeta, "base")
     else:
         head += ", no baseline on the base branch"
     tokens = total(cur, parsers[0], "tokens") if "tokens" in metrics else None
     head += f". {len(cases)} cases" + (f", {fmt(tokens)} tokens" if tokens else "")
-    out += [head + f"; the measure is **{primary}**.", ""]
+    out += [head + ".", ""]
 
     # per parser
     hd = ["parser", f"**{primary}**"]
@@ -110,7 +120,7 @@ def main():
     if tokens:
         hd += ["per token", "per token, range"]
     for m in others:
-        hd += [m] + (["Δ"] if base is not None else [])
+        hd += [f"*{m}*"] + (["*Δ*"] if base is not None else [])
     rows = []
     for p in parsers:
         t = total(cur, p, primary)
@@ -190,7 +200,8 @@ def main():
     # every case
     hd = ["case", "parser"]
     for m in metrics:
-        hd += [f"**{m}**" if m == primary else m] + (["Δ"] if base is not None and m != "tokens" else [])
+        name = f"**{m}**" if m == primary else m if m == "tokens" else f"*{m}*"
+        hd += [name] + (["*Δ*" if m in others else "Δ"] if base is not None and m != "tokens" else [])
     rows = []
     for key in order:
         r = list(key)
@@ -202,10 +213,7 @@ def main():
         rows.append(r)
     out += ["", "<details><summary>Every case</summary>", ""]
     out += table(hd, rows, set(range(2, len(hd))))
-    out += ["", "</details>", "",
-            f"{primary.capitalize()} are the measure; "
-            + (", ".join(others) + " " if others else "")
-            + "vary between runners and are only informational."]
+    out += ["", "</details>"]
     print("\n".join(out))
 
 
