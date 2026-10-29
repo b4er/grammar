@@ -1,0 +1,9 @@
+chapter PureCake
+
+session PureCake_Bench = LR_Parser +
+  options [document = false]
+  theories
+    Pure_AST
+    Pure_Grammar
+    Pure_Bench
+  export_files (in "../isabelle") [2] "*:code/**"

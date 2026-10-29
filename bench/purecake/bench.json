@@ -1,0 +1,6 @@
+{
+  "title": "PureCake parser bench",
+  "primary": "instructions",
+  "apt": ["gcc", "polyml", "libpolyml-dev", "valgrind"],
+  "ocaml": false
+}
