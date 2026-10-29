@@ -1,0 +1,9 @@
+MonPoly's formula lexer and parser, as VeriMon (2020) uses them:
+
+  formula_parser.mly, formula_lexer.mll   https://bitbucket.org/jshs/monpoly
+                                          src/, at the parent of 9bce98f
+  LGPLv2.1                                their licence
+
+Unchanged.  ocamlyacc reports 201 shift/reduce conflicts, resolved by the
+precedence declarations and by shifting; thys/VeriMon_Parser.thy states the
+resulting levels as a conflict-free grammar.

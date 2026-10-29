@@ -1,0 +1,7 @@
+chapter VeriMon
+
+session VeriMon_Bench = LR_Parser +
+  options [document = false]
+  theories
+    VeriMon_Parser
+  export_files (in "../isabelle") [2] "*:code/**"

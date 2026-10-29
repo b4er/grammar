@@ -1,0 +1,6 @@
+ds_delete(data, dataid, dsid)
+AND 
+(
+(ONCE share(p, dataid)) IMPLIES
+     EVENTUALLY[0,30d] notify_p(p, dataid)
+)

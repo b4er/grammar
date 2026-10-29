@@ -1,0 +1,2 @@
+{"title": "VeriMon (MonPoly) formula parser bench", "primary": "instructions",
+ "apt": ["valgrind"], "ocaml": true, "opam": ["ocamlfind", "zarith"]}
