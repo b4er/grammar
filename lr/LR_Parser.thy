@@ -1,5 +1,5 @@
 theory LR_Parser
-  imports LR_Plain LR_Sparse Grammar_Command.Grammar_Command
+  imports LR_Plain LR_Sparse LR_Vec LR_Diag Grammar_Command.Grammar_Command
 begin
 
 section \<open>Parser-facing theorems: \<open>dparse\<close> composed with a decoder\<close>
@@ -616,9 +616,9 @@ text \<open>The command evaluates these five values and nothing else: the two co
   (\<^text>\<open>lr_build_parse\<close>), so the generated code computes each once when it loads, and
   no table is rebuilt as a term, which cost more than computing it.\<close>
 
-definition lr_checks :: \<open>('n, 't) is_cfg \<Rightarrow> 'n \<Rightarrow> nat list \<times> nat list \<times> bool \<times> bool \<times>
-    (nat \<times> ('n, 't) sym list option) list\<close> where
-  \<open>lr_checks G Shn =
+definition lr_checks :: \<open>('n, 't) is_cfg \<Rightarrow> 'n \<Rightarrow> 't list \<Rightarrow> nat list \<times> nat list \<times>
+    bool \<times> bool \<times> (nat \<times> ('n, 't) sym list option) list \<times> nat list\<close> where
+  \<open>lr_checks G Shn ctrs =
      (let sp = pr0_states G Shn; gp = pgtab G sp; L = la_fix_gen G Shn gp sp;
           ants = anchored_nts G; wrs = map (wreach G) sp; fuel = ifuel wrs;
           p0 = p0start G Shn; s0 = start_prod G Shn;
@@ -630,14 +630,15 @@ definition lr_checks :: \<open>('n, 't) is_cfg \<Rightarrow> 'n \<Rightarrow> na
             [0..<length sp],
           ii G, wany_ok (cell_buckets L (length sp)),
           map (\<lambda>i. (i, path_bfs (\<lambda>j. if j < length gp then gp ! j else []) i
-               (Suc (length sp)) [] [(p0, [])])) confs))\<close>
+               (Suc (length sp)) [] [(p0, [])])) confs,
+          map (ntidx (vtoks G (cell_buckets L (length sp)))) ctrs))\<close>
 
 theorem lr_checks_eq:
-  \<open>lr_checks G Shn =
+  \<open>lr_checks G Shn ctrs =
      (rlalr_conflicts G Shn, acc_conflicts G Shn, ii G,
       wany_ok (red_buckets G Shn (length (pr0_states G Shn))),
-      explain_paths G Shn (rlalr_conflicts G Shn))\<close>
-  by (simp add: lr_checks_def explain_paths_def red_buckets_def la_fix_def
+      explain_paths G Shn (rlalr_conflicts G Shn), vnums G Shn ctrs)\<close>
+  by (simp add: lr_checks_def vnums_def explain_paths_def red_buckets_def la_fix_def
         rlalr_conflicts_code acc_conflicts_code Let_def)
 
 
@@ -652,6 +653,38 @@ definition lr_simple_checks :: \<open>('n, 't) is_cfg \<Rightarrow> 'n \<Rightar
           pc = pcomps G sts; pf = pfins Shn sts;
           K = ktabs_of (jtabs_of (mk_ltabs gt sts redtab pc pf))
       in map (pnum (ptabs_of K)) ctrs)\<close>
+
+text \<open>Under \<^text>\<open>parser_literal_tables\<close>, the tables of the state-indexed driver
+  are evaluated as well, in one evaluation.\<close>
+
+definition lr_vec_tables :: \<open>('n, 't) is_cfg \<Rightarrow> 'n \<Rightarrow>
+    ('n, 't) stab \<times> ('n, 't) vtab \<times> ('n, 't) vktab \<times> ('n, 't) sitem list \<times> ('n, 't) sitem list\<close> where
+  \<open>lr_vec_tables G Shn =
+     (let sts = pr0_states G Shn; gt = pgtab G sts; rt = red_buckets G Shn (length sts);
+          T = mk_stab G Shn gt sts rt; V = mk_vtab G Shn T sts gt rt; kin = sinit T
+      in (T, V, mk_vktab V, kin, sclosure T kin))\<close>
+
+lemma lr_vec_tables_eq:
+  \<open>lr_vec_tables G Shn =
+     (mk_stab G Shn (pgtab G (pr0_states G Shn)) (pr0_states G Shn)
+        (red_buckets G Shn (length (pr0_states G Shn))),
+      mk_vtab G Shn
+        (mk_stab G Shn (pgtab G (pr0_states G Shn)) (pr0_states G Shn)
+           (red_buckets G Shn (length (pr0_states G Shn))))
+        (pr0_states G Shn) (pgtab G (pr0_states G Shn))
+        (red_buckets G Shn (length (pr0_states G Shn))),
+      mk_vktab (mk_vtab G Shn
+        (mk_stab G Shn (pgtab G (pr0_states G Shn)) (pr0_states G Shn)
+           (red_buckets G Shn (length (pr0_states G Shn))))
+        (pr0_states G Shn) (pgtab G (pr0_states G Shn))
+        (red_buckets G Shn (length (pr0_states G Shn)))),
+      sinit (mk_stab G Shn (pgtab G (pr0_states G Shn)) (pr0_states G Shn)
+        (red_buckets G Shn (length (pr0_states G Shn)))),
+      sclosure (mk_stab G Shn (pgtab G (pr0_states G Shn)) (pr0_states G Shn)
+          (red_buckets G Shn (length (pr0_states G Shn))))
+        (sinit (mk_stab G Shn (pgtab G (pr0_states G Shn)) (pr0_states G Shn)
+          (red_buckets G Shn (length (pr0_states G Shn))))))\<close>
+  by (simp add: lr_vec_tables_def Let_def)
 
 section \<open>The LR backend of the \<^theory_text>\<open>parser\<close> command\<close>
 
