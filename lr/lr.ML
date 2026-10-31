@@ -70,9 +70,9 @@ fun define_literal parse_b nm (expr_eq, literal) prior_eqs lthy =
 
 (* the numbering of the tokens by a case distinction over the constructors of
    the token type: `p_tnum = case_tok n1 ... nk` with `ni` the number of the
-   i-th constructor, computed with the tables (`map (pnum P) ctrs = ns`), and
-   `pnum p_ptabs = p_tnum` proved constructor by constructor *)
-fun tnum_case lthy parse_b (sugar: Ctr_Sugar.ctr_sugar) (ptabs_eq, nums_e, nums_l) prior_eqs =
+   i-th constructor, computed with the tables (`map (num P) ctrs = ns`), and
+   `num p_tab = p_tnum` proved constructor by constructor, for `num` pnum or vnum *)
+fun tnum_case lthy parse_b (sugar: Ctr_Sugar.ctr_sugar) (num_c, tab_eq, nums_e, nums_l) prior_eqs =
   let
     val nums_eq = Local_Defs.unfold lthy prior_eqs nums_e;
     val nums = HOLogic.dest_list nums_l;
@@ -84,12 +84,12 @@ fun tnum_case lthy parse_b (sugar: Ctr_Sugar.ctr_sugar) (ptabs_eq, nums_e, nums_
     val def_eq = Local_Defs.meta_rewrite_rule lthy' def_ax;
     (* the constant as the other tables' equations name it *)
     val tnum_c = fst (Logic.dest_equals (Thm.prop_of def_eq));
-    val ptabs_c = snd (HOLogic.dest_eq (HOLogic.dest_Trueprop (Thm.prop_of ptabs_eq)));
+    val tab_c = snd (HOLogic.dest_eq (HOLogic.dest_Trueprop (Thm.prop_of tab_eq)));
     val conjs =
       HOLogic.conj_elims
         (Simplifier.full_simplify
           (put_simpset HOL_basic_ss lthy' addsimps @{thms list.map list.inject simp_thms}) nums_eq);
-    val pnum_t = Syntax.check_term lthy' (Const (\<^const_name>\<open>pnum\<close>, dummyT) $ ptabs_c);
+    val num_t = Syntax.check_term lthy' (Const (num_c, dummyT) $ tab_c);
     val tokT = domain_type (fastype_of tnum_c);
     val y = Free ("y", tokT);
     val exhaust = #exhaust sugar;
@@ -104,7 +104,7 @@ fun tnum_case lthy parse_b (sugar: Ctr_Sugar.ctr_sugar) (ptabs_eq, nums_e, nums_
               | _ => raise Fail "tnum_case: exhaust")
           | _ => raise Fail "tnum_case: exhaust")
       | _ => raise Fail "tnum_case: exhaust");
-    val goal = HOLogic.mk_Trueprop (HOLogic.mk_eq (pnum_t $ y, tnum_c $ y));
+    val goal = HOLogic.mk_Trueprop (HOLogic.mk_eq (num_t $ y, tnum_c $ y));
     val th =
       Goal.prove_sorry lthy' ["y"] [] goal (fn {context = ctxt, ...} =>
         HEADGOAL (resolve_tac ctxt
@@ -113,7 +113,7 @@ fun tnum_case lthy parse_b (sugar: Ctr_Sugar.ctr_sugar) (ptabs_eq, nums_e, nums_
           hyp_subst_tac ctxt i
           THEN simp_tac (put_simpset HOL_basic_ss ctxt
             addsimps (def_eq :: conjs @ #case_thms sugar @ @{thms simp_thms})) i));
-  in (@{thm ext} OF [th], lthy') end;
+  in (@{thm ext} OF [th], tnum_c, lthy') end;
 
 val parser_int_tables = Attrib.setup_config_bool \<^binding>\<open>parser_int_tables\<close> (K false);
 
@@ -262,8 +262,312 @@ fun nullable_cycle (gram: Grammar_Common.grammar) =
         in (a :: done', found') end;
   in snd (fold (visit []) (distinct (op =) (map fst prods)) ([], NONE)) end;
 
+fun dest_nat (Const (\<^const_name>\<open>Suc\<close>, _) $ t) = dest_nat t + 1
+  | dest_nat t = snd (HOLogic.dest_number t);
+
+fun dest_option (Const (\<^const_name>\<open>None\<close>, _)) = NONE
+  | dest_option (Const (\<^const_name>\<open>Some\<close>, _) $ x) = SOME x
+  | dest_option t = raise TERM ("dest_option", [t]);
+
+(** diagnostics: \<open>parser (diagnostics) p for G\<close> (LR_Diag) **)
+
+(* the driver of p's code equation and its arguments, as lr_build_parse chose them:
+   `p = (\<lambda>w. Option.bind (drv \<dots>) dec)` with drv
+   - `brun (pctl P) (pfinal P) fst d ([i0], map (tenc f) w, [])`,
+   - `case vrun_k K [v_av0 V] (vtnum f w) w [] of Some r \<Rightarrow> r | None \<Rightarrow> sdrun T \<dots>`,
+     with sdrun started on kin, kcl and i0,
+   - `drun_nh_c G Shn gt sts rt dt (([xin], tcols w), [xclos], [i0], w, [])`, or
+   - `drun\<^sub>w\<^sub>f G Shn gt sts rt (\<dots>)`, which keeps a history *)
+datatype diag_driver =
+  Plain of term * term * term
+| Vec of term * term * term * term * term * term * term
+| Dense of term * term * term * term * term * term * term * term * term
+| Hist of term * term * term * term * term * term * term * term;
+
+(* the terminals of the grammar in the order of their first occurrence in the
+   productions, each with its spelling: the declared one for a fixed terminal,
+   otherwise the name of the token value *)
+fun spellings ctxt (gram: Grammar_Common.grammar) =
+  let
+    fun spelling t =
+      (case AList.lookup (op aconv) (#lit_names gram) t of
+        SOME s => s
+      | NONE =>
+          (case t of
+            Const (c, _) => Long_Name.base_name c
+          | _ => XML.content_of (YXML.parse_body (Syntax.string_of_term ctxt t))));
+  in map (fn t => (t, spelling t)) (Vector.foldr (op ::) [] (#terminals gram)) end;
+
+fun terminals_term ctxt (gram: Grammar_Common.grammar) =
+  HOLogic.mk_list (HOLogic.mk_prodT (#tokT gram, HOLogic.stringT))
+    (map (fn (t, s) => HOLogic.mk_prod (t, HOLogic.mk_string s)) (spellings ctxt gram));
+
+(* the word of a sentence, NONE with a warning if it cannot be built: its tokens are on
+   line 0, at the given column or one past the token before, with their spelling as
+   their text if the text is over char; a token record with further fields needs a
+   word given as a term *)
+fun sentence_word ctxt (gram: Grammar_Common.grammar) label sentence =
+  let
+    val {chT, moreT, wordT, ...} = Grammar_Common.get_desc gram;
+    val spelled = map swap (spellings ctxt gram);
+    fun c n = Const (n, dummyT);
+    fun num n = HOLogic.mk_number \<^typ>\<open>nat\<close> n;
+    fun token (t, s) col =
+      let
+        val txt = if chT = \<^typ>\<open>char\<close> then HOLogic.mk_string s else HOLogic.mk_list chT [];
+        val sp = c \<^const_name>\<open>span.make\<close> $ num 0 $ num col $ num col $ num (size s) $ txt;
+      in c \<^const_name>\<open>token.make\<close> $ t $ sp end;
+    fun tokens _ [] = []
+      | tokens next ((ts, col) :: rest) =
+          let val at = the_default next col
+          in token ts at :: tokens (at + size (snd ts) + 1) rest end;
+    fun skip msg = (warning ("parser: errors, " ^ label ^ ": " ^ msg ^ "; it is ignored"); NONE);
+  in
+    (case sentence of
+      Parser_Generators.Word s =>
+        (case Exn.result (Syntax.check_term ctxt o Type.constraint wordT o Syntax.parse_term ctxt) s of
+          Exn.Res w =>
+            (case Term.add_frees w [] of
+              [] => SOME (w, NONE)
+            | (x, _) :: _ => skip ("the variable " ^ quote x ^ " is free"))
+        | Exn.Exn exn =>
+            if Exn.is_interrupt exn then Exn.reraise exn else skip (Runtime.exn_message exn))
+    | Parser_Generators.Symbols syms =>
+        (case filter_out (AList.defined (op =) spelled o fst) syms of
+          (s, _) :: _ => skip (quote s ^ " is not a terminal of the grammar")
+        | [] =>
+            if moreT <> HOLogic.unitT then skip "tokens with further fields need a word as a term"
+            else
+              let
+                val toks =
+                  map (fn (s, col) => ((the (AList.lookup (op =) spelled s), s), col)) syms;
+              in
+                SOME
+                  (Syntax.check_term ctxt
+                    (Type.constraint wordT (HOLogic.mk_list dummyT (tokens 0 toks))),
+                   SOME (length syms))
+              end))
+  end;
+
+(* the hole digits of a template *)
+fun template_holes text =
+  let
+    fun go ("$" :: d :: rest) =
+          if Symbol.is_ascii_digit d then (ord d - ord "0") :: go rest else go (d :: rest)
+      | go (_ :: rest) = go rest
+      | go [] = [];
+  in go (raw_explode text) end;
+
+(* `p_messages`, from the sentences of an \<open>errors\<close> block: one evaluation of `p_probe` on
+   all of them gives each its error state, with no theorem.  The key is the state where
+   the error is detected, with the terminal for \<open>(token)\<close>, or the state after the
+   last shift for \<open>(shift)\<close>.  Everything wrong with a sentence is a warning and the
+   sentence is dropped, so that a block can never fail the parser: a word that cannot
+   be evaluated, is accepted (not correct), or has a key taken by an earlier sentence
+   (not irredundant).  Should the evaluation fail, the sentences are evaluated one by
+   one, so that the others stay.  A word rejected before its last token, or a hole
+   below the stack, only warns. *)
+fun error_messages lthy (gram: Grammar_Common.grammar) probe_b errors =
+  let
+    fun c n = Const (n, dummyT);
+    fun label i = "sentence " ^ string_of_int (i + 1);
+    val words =
+      map_filter I (map_index (fn (i, m as {sentence, ...}) =>
+        Option.map (fn (w, n) => (i, m, w, n)) (sentence_word lthy gram (label i) sentence)) errors);
+    val probe_c =
+      (case Grammar_Common.def_axiom lthy (probe_b, Thm.def_binding probe_b) of
+        SOME ax => fst (Logic.dest_equals (Thm.prop_of (Local_Defs.meta_rewrite_rule lthy ax)))
+      | NONE => raise Fail "error_messages: no foundation for the _probe constant");
+    fun dest_probe r =
+      dest_option r |> Option.map (fn tup =>
+        (case dest_tuple 5 tup of
+          [a, b, c', d, e] => (dest_nat a, b, dest_nat c', dest_nat d, dest_nat e)
+        | _ => raise Fail "error_messages: probe literal"));
+    fun probes [] = []
+      | probes ws =
+          Syntax.check_term lthy
+            (HOLogic.mk_list dummyT
+              (map (fn (_, _, w, _) => c \<^const_name>\<open>diag_probe\<close> $ (probe_c $ w)) ws))
+          |> Value_Command.value lthy |> HOLogic.dest_list |> map dest_probe;
+    fun guarded ws =
+      (case Exn.result probes ws of
+        Exn.Res rs => Exn.Res rs
+      | Exn.Exn exn => if Exn.is_interrupt exn then Exn.reraise exn else Exn.Exn exn);
+    fun one (word as (i, _, _, _)) =
+      (case guarded [word] of
+        Exn.Res rs => map (pair word) rs
+      | Exn.Exn exn =>
+          (warning ("parser: errors, " ^ label i ^ ": it cannot be evaluated: " ^
+             Runtime.exn_message exn ^ "; it is ignored"); []));
+    val keyT = Type (\<^type_name>\<open>pkey\<close>, [#tokT gram]);
+    val num = HOLogic.mk_number \<^typ>\<open>nat\<close>;
+    fun key {key, ...} (st, tk, sh) =
+      (case key of
+        Parser_Generators.By_State => Const (\<^const_name>\<open>PState\<close>, \<^typ>\<open>nat\<close> --> keyT) $ num st
+      | Parser_Generators.By_Token =>
+          Const (\<^const_name>\<open>PToken\<close>, \<^typ>\<open>nat\<close> --> fastype_of tk --> keyT) $ num st $ tk
+      | Parser_Generators.By_Shift => Const (\<^const_name>\<open>PShift\<close>, \<^typ>\<open>nat\<close> --> keyT) $ num sh);
+    fun step ((i, m as {text, ...}, _, len), r) kept =
+      (case r of
+        NONE =>
+          (warning ("parser: errors, " ^ label i ^ ": the word is accepted, so the message \
+             \cannot be reached (not correct); it is ignored"); kept)
+      | SOME (st, tk, sh, idx, depth) =>
+          let
+            val _ =
+              (case len of
+                SOME n =>
+                  if idx + 1 < n then
+                    warning ("parser: errors, " ^ label i ^ ": the word is rejected at its token " ^
+                      string_of_int idx ^ ", before its last one")
+                  else ()
+              | NONE => ());
+            val _ =
+              (case filter (fn h => h >= depth) (template_holes text) of
+                h :: _ =>
+                  warning ("parser: errors, " ^ label i ^ ": $" ^ string_of_int h ^
+                    " is below the stack, which has " ^ string_of_int depth ^ " entries here")
+              | [] => ());
+            val k = key m (st, tk, sh);
+          in
+            (case find_first (fn (k', _, _) => k' aconv k) kept of
+              SOME (_, j, _) =>
+                (warning ("parser: errors, " ^ label i ^ ": same key as " ^ label j ^
+                   " (not irredundant), state " ^ string_of_int st ^ "; it is ignored"); kept)
+            | NONE => (k, i, text) :: kept)
+          end);
+    fun messages kept =
+      HOLogic.mk_list (HOLogic.mk_prodT (keyT, HOLogic.stringT))
+        (map (fn (k, _, s) => HOLogic.mk_prod (k, HOLogic.mk_string s)) (rev kept));
+  in
+    Syntax.check_term lthy
+      (messages (fold step
+        (case guarded words of Exn.Res rs => words ~~ rs | Exn.Exn _ => maps one words) []))
+  end;
+
+(* `p_terminals`, the candidates of the expected set with their spellings, and
+   `p_diag`, which runs the word once over the tables of p's code equation `p = (\<lambda>w.
+   Option.bind (drv \<dots>) dec)`: `p_diag w = pdiag P i0 f ts dec w` for the simple
+   driver, `ldiag_c G Shn gt sts rt dt xin xclos i0 ts dec w` for drun_nh_c,
+   `vkdiag V K T kin kcl i0 f ts dec w` for the vector one, with `ts = map fst p_terminals`; for
+   a driver with a history (drun\<^sub>w\<^sub>f) it runs p and on a rejection the
+   diagnosis, `p_diag w = (case p w of Some x \<Rightarrow> Inr x | None \<Rightarrow> Inl (ldiagnose G Shn gt
+   sts rt xin xclos i0 ts w))`.  `p_diag.Inr_iff` from LR_Diag's `*_Inr_iff`.  For the
+   messages `p_info`, over the grammar, the states `states_c` and `p_terminals`, and for
+   tokens over char `p_render = perr_render p_info (\<lambda>c. [c])` (over unit, whose tokens
+   have no text, `\<lambda>_. []`; over any other type the client supplies its own).  Only definitions,
+   nothing is evaluated, but for an \<open>errors\<close> block, which also defines `p_messages` *)
+fun define_diagnostics gram states_c errors parse_bind parse_c parse_alt_th dec driver lthy =
+  let
+    fun c n = Const (n, dummyT);
+    fun rerun e w =
+      c \<^const_name>\<open>case_option\<close> $ (c \<^const_name>\<open>Inl\<close> $ e) $ c \<^const_name>\<open>Inr\<close> $ (parse_c $ w);
+    (* the one pass with the fact that rewrites its Inr case to p's code equation,
+       or the rerun *)
+    fun diag_with drv d ts w =
+      (case drv of
+        Plain (P, i0, f) =>
+          (SOME @{thm pdiag_Inr_iff}, c \<^const_name>\<open>pdiag\<close> $ P $ i0 $ f $ ts $ d $ w)
+      | Vec (V, K, T, kin, kcl, i0, f) =>
+          (SOME @{thm vkdiag_Inr_iff},
+            c \<^const_name>\<open>vkdiag\<close> $ V $ K $ T $ kin $ kcl $ i0 $ f $ ts $ d $ w)
+      | Dense (G, Shn, gt, sts, rt, dt, xin, xclos, i0) =>
+          (SOME @{thm ldiag_c_Inr_iff},
+            c \<^const_name>\<open>ldiag_c\<close> $ G $ Shn $ gt $ sts $ rt $ dt $ xin $ xclos $ i0 $ ts $ d $ w)
+      | Hist (G, Shn, gt, sts, rt, xin, xclos, i0) =>
+          (NONE, rerun
+            (c \<^const_name>\<open>ldiagnose\<close> $ G $ Shn $ gt $ sts $ rt $ xin $ xclos $ i0 $ ts $ w) w));
+    (* the error of a sentence, with no decoder and no trial, as only its state and
+       stack are read; on the vector driver by `vdiag`, whose error is the one a message
+       is looked up for at run time *)
+    fun probe_body drv w =
+      let
+        val keep = Abs ("t", dummyT, c \<^const_name>\<open>Some\<close> $ HOLogic.unit);
+        val none = c \<^const_name>\<open>Nil\<close>;
+      in
+        (case drv of
+          Vec (V, _, T, kin, kcl, i0, _) =>
+            c \<^const_name>\<open>vdiag\<close> $ V $ T $ kin $ kcl $ i0 $ none $ keep $ w
+        | _ => snd (diag_with drv keep none w))
+      end;
+  in
+    (case driver of
+      NONE =>
+        (warning ("parser (diagnostics): not supported for the driver of \<open>" ^
+           Binding.name_of parse_bind ^ "\<close>; \<open>" ^
+           Binding.name_of parse_bind ^ "_diag\<close> is not defined");
+         lthy)
+    | SOME drv =>
+        let
+          val wordT = domain_type (fastype_of parse_c);
+          val w = Free ("w", wordT);
+          val (terminals_eq, lthy) =
+            define_term parse_bind "terminals" (terminals_term lthy gram) lthy;
+          val ts = c \<^const_name>\<open>map\<close> $ c \<^const_name>\<open>fst\<close> $ rhs_of_eq terminals_eq;
+          val (iff_rule, body) = diag_with drv dec ts w;
+          val diag_b = Binding.map_name (fn n => n ^ "_diag") parse_bind;
+          val ((diag_c, diag_def), lthy) =
+            Grammar_Defs.define_const true (diag_b, Thm.def_binding diag_b,
+              Syntax.check_term lthy (lambda w body)) lthy;
+          val x = Free ("x", (case range_type (fastype_of parse_c) of Type (_, [T]) => T | T => T));
+          val iff_t =
+            Syntax.check_prop lthy
+              (HOLogic.mk_Trueprop (HOLogic.mk_eq
+                (HOLogic.mk_eq (diag_c $ w, c \<^const_name>\<open>Inr\<close> $ x),
+                 HOLogic.mk_eq (parse_c $ w, c \<^const_name>\<open>Some\<close> $ x))));
+          fun tac ctxt =
+            (case iff_rule of
+              SOME r =>
+                Local_Defs.unfold_tac ctxt [diag_def, r, parse_alt_th]
+                THEN resolve_tac ctxt @{thms refl} 1
+            | NONE =>
+                HEADGOAL (asm_full_simp_tac
+                  (ctxt addsimps [diag_def] |> Splitter.add_split @{thm option.split})));
+          val iff_th = Goal.prove lthy ["w", "x"] [] iff_t (fn {context, ...} => tac context);
+          val lthy =
+            lthy
+            |> Local_Theory.notes [((Grammar_Common.qualify_bind diag_b "Inr_iff", []), [([iff_th], [])])]
+            |> #2;
+          (* the messages: p_info (grammar, states, spellings, nonterminal names, up to
+             5 terminals listed before the summary, hand-written messages) and, for tokens
+             over char, p_render = perr_render p_info (\<lambda>c. [c]) *)
+          val (msgs, lthy) =
+            if null errors then (c \<^const_name>\<open>Nil\<close>, lthy)
+            else
+              let
+                val probe_b = Binding.map_name (fn n => n ^ "_probe") parse_bind;
+                val (_, lthy) =
+                  Grammar_Defs.define_const true (probe_b, Thm.def_binding probe_b,
+                    Syntax.check_term lthy (lambda w (probe_body drv w))) lthy;
+                val t = timed lthy "post: errors" (error_messages lthy gram probe_b) errors;
+                val (eq, lthy) = define_term parse_bind "messages" t lthy;
+              in (rhs_of_eq eq, lthy) end;
+          val {nameT, chT, moreT, ...} = Grammar_Common.get_desc gram;
+          val gram_t = #gram_t (Grammar_Common.artifacts_of gram);
+          val (info_eq, lthy) =
+            define_term parse_bind "info"
+              (Syntax.check_term lthy
+                (c \<^const_name>\<open>pinfo.make\<close> $ gram_t $ states_c $ rhs_of_eq terminals_eq $
+                   Abs ("n", nameT, Bound 0) $ HOLogic.mk_number \<^typ>\<open>nat\<close> 5 $ msgs))
+              lthy;
+          val errT = Type (\<^type_name>\<open>perr_ext\<close>, [nameT, #tokT gram, chT, moreT, HOLogic.unitT]);
+          val chs =
+            if chT = \<^typ>\<open>char\<close> then SOME (Abs ("c", chT, HOLogic.mk_list chT [Bound 0]))
+            else if chT = HOLogic.unitT then SOME (Abs ("c", chT, HOLogic.mk_string ""))
+            else NONE;
+          val lthy =
+            (case chs of
+              SOME f =>
+                define_term parse_bind "render"
+                  (Syntax.check_term lthy
+                    (Abs ("e", errT, c \<^const_name>\<open>perr_render\<close> $ rhs_of_eq info_eq $ f $ Bound 0)))
+                  lthy |> #2
+            | NONE => lthy);
+        in lthy end)
+  end;
+
 fun lr_build_parse
-  ({gram, parse_bind, shn}: Parser_Generators.build_input) lthy =
+  ({gram, parse_bind, shn, options, errors}: Parser_Generators.build_input) lthy =
   let
     val {isgT, wordT, astT, ...} = Grammar_Common.get_desc gram;
     val start_nt = #start gram;
@@ -319,19 +623,20 @@ fun lr_build_parse
     (* 1. The checks, in one evaluation before any definition: a definition empties
        the code generator's cache of the preprocessed program, so an evaluation after
        it starts cold. \<^const>\<open>lr_checks\<close> shares the automaton, its goto table, the
-       cells and the precise automaton between its five values (the paths of the
-       reported states are the report's cheapest level, free here), and
+       cells and the precise automaton between its values (the paths of the reported
+       states are the report's cheapest level, free here, and the numbers of the
+       token constructors are for the state-indexed driver), and
        \<^text>\<open>lr_checks_eq\<close> transports them to the terms the theorems name. *)
     val (checks_l, checks_th) =
-      eval_lit lthy true "(checks)" (app \<^const_name>\<open>lr_checks\<close> [gram_t, shn_t]);
+      eval_lit lthy true "(checks)" (app \<^const_name>\<open>lr_checks\<close> [gram_t, shn_t, ctrs_t]);
     val checks_eq = @{thm trans} OF [@{thm lr_checks_eq} RS @{thm sym}, checks_th];
-    val (rlalr_l, acc_l, ii_l, wany_l) =
-      (case dest_tuple 5 checks_l of
-        [a, b, c, d, _] => (a, b, c, d)
+    val (rlalr_l, acc_l, ii_l, wany_l, vnums_l) =
+      (case dest_tuple 6 checks_l of
+        [a, b, c, d, _, f] => (a, b, c, d, f)
       | _ => raise Fail "lr_build_parse: checks literal");
-    val (rlalr_eq, acc_eq, ii_eq, wany_eq, paths_eq) =
-      (case split_tuple_eq 5 checks_eq of
-        [a, b, c, d, e] => (a, b, c, d, e)
+    val (rlalr_eq, acc_eq, ii_eq, wany_eq, paths_eq, vnums_eq) =
+      (case split_tuple_eq 6 checks_eq of
+        [a, b, c, d, e, f] => (a, b, c, d, e, f)
       | _ => raise Fail "lr_build_parse: checks equations");
 
     (* the simple driver of LR_Simple applies when the grammar has no layout
@@ -433,11 +738,12 @@ fun lr_build_parse
         (* the tables of the code: by default binary tries (jtabs_of), which are
            static data and need no arithmetic with binary naturals; with
            parser_int_tables, arrays with integer indices (ztabs_of) *)
-        val (tabs_eqs, via, tabs_msg, lthy) =
+        val (tabs_eqs, via, tabs_msg, driver, lthy) =
           if Config.get lthy parser_int_tables then
             let val (ztabs_eq, lthy) = define "ztabs" (app' lthy \<^const_name>\<open>ztabs_of\<close> [ltabs]) lthy
             in
-              ([ztabs_eq], @{thm dparse_via_int_tables}, "integer tables (LR_Simple, LR_Int)", lthy)
+              ([ztabs_eq], @{thm dparse_via_int_tables}, "integer tables (LR_Simple, LR_Int)",
+               NONE, lthy)
             end
           else
             let
@@ -454,27 +760,31 @@ fun lr_build_parse
                 |> Local_Defs.unfold lthy
                      [states_eq, gtab_eq, redtab_eq, pc_eq, pf_eq, ltabs_eq, jtabs_eq, ktabs_eq,
                       ptabs_eq];
-              val (tnum_th, tnum_msg, lthy) =
+              val (tnum_th, tnum_msg, f, lthy) =
                 (case tok_sugar of
-                  NONE => (@{thm refl}, "a search", lthy)
+                  NONE =>
+                    (@{thm refl}, "a search",
+                     app' lthy \<^const_name>\<open>pnum\<close> [rhs_of_eq ptabs_eq], lthy)
                 | SOME sugar =>
                     let
-                      val (th, lthy) =
+                      val (th, tnum_c, lthy) =
                         timed lthy "tnum" (fn () =>
-                          tnum_case lthy parse_bind sugar (ptabs_eq, nums_e, nums_l) []) ();
-                    in (th, "a case distinction", lthy) end);
+                          tnum_case lthy parse_bind sugar
+                            (\<^const_name>\<open>pnum\<close>, ptabs_eq, nums_e, nums_l) []) ();
+                    in (th, "a case distinction", tnum_c, lthy) end);
             in
               ([jtabs_eq, ktabs_eq, ptabs_eq, tnum_th], @{thm dparse_via_plain},
                "an action table over the states, numbering tokens by " ^ tnum_msg ^
-               " (LR_Simple, LR_Trie, LR_Tok, LR_Prod, LR_Loop, LR_Plain)", lthy)
+               " (LR_Simple, LR_Trie, LR_Tok, LR_Prod, LR_Loop, LR_Plain)",
+               SOME (Plain (rhs_of_eq ptabs_eq, rhs_of_eq i0_eq, f)), lthy)
             end;
         val _ =
           writeln ("parser: the code equation of \<open>" ^ Binding.name_of parse_bind ^
             "\<close> runs the simple driver on " ^ tabs_msg);
       in
-        (via OF
-          ([static_th, states_eq, gtab_eq, redtab_eq, pc_eq, pf_eq, i0_eq, ltabs_eq] @ tabs_eqs),
-         lthy)
+        ((via OF
+           ([static_th, states_eq, gtab_eq, redtab_eq, pc_eq, pf_eq, i0_eq, ltabs_eq] @ tabs_eqs),
+          driver), lthy)
       end;
 
     fun set_tables lthy =
@@ -499,8 +809,11 @@ fun lr_build_parse
           end;
       in
         (* without a cycle the driver keeps no history: linear on reduce chains.  With
-           a fresh start name it runs on sparse closures (sdrun, LR_Sparse) over the
-           bundle stab, the initial kernel and its closure, each defined by its term;
+           a fresh start name it runs the state-indexed driver (vrun_k, LR_Vec: vrun_u on
+           the lookahead numbered once, kernel-only frames) over the bundles vtab and
+           vktab, restarting on sparse closures (sdrun, LR_Sparse) over the bundle
+           stab, the initial kernel and its closure should two reductions be live at
+           once; each a constant defined by its term;
            otherwise on the dense ones (drun_nh_c, LR_Fast).  With a cycle it stops on
            a repeated configuration (drun_hist) *)
         (case timed lthy "cycle check" nullable_cycle gram of
@@ -508,21 +821,74 @@ fun lr_build_parse
             (case timed lthy "fresh_name" fresh lthy of
               SOME fresh_th =>
                 let
+                  (* under parser_literal_tables the five tables below are evaluated
+                     literals as well, from one evaluation of \<^const>\<open>lr_vec_tables\<close>, which
+                     makes the sparse tables literal too *)
+                  val vec_tabs =
+                    if Config.get lthy parser_literal_tables then
+                      let
+                        val (bundle_l, bundle_th) =
+                          eval_lit lthy false "(vector tables)"
+                            (app \<^const_name>\<open>lr_vec_tables\<close> [gram_t, shn_t]);
+                        val tabs_eq =
+                          @{thm trans} OF [@{thm lr_vec_tables_eq} RS @{thm sym}, bundle_th];
+                      in
+                        SOME (["stab", "vtab", "vktab", "sinit", "sclos"] ~~
+                          (split_tuple_eq 5 tabs_eq ~~ dest_tuple 5 bundle_l))
+                      end
+                    else NONE;
+                  fun vtable nm rhs prior lthy =
+                    (case vec_tabs of
+                      NONE => define nm rhs lthy
+                    | SOME tab =>
+                        define_literal parse_bind nm (the (AList.lookup (op =) tab nm)) prior lthy);
+                  val base = [states_eq, gtab_eq, redtab_eq];
                   val (stab_eq, lthy) =
-                    define "stab"
+                    vtable "stab"
                       (app' lthy \<^const_name>\<open>mk_stab\<close>
                         (gram_t :: shn_t :: map rhs_of_eq [gtab_eq, states_eq, redtab_eq]))
-                      lthy;
+                      base lthy;
+                  val (vtab_eq, lthy) =
+                    vtable "vtab"
+                      (app' lthy \<^const_name>\<open>mk_vtab\<close>
+                        (gram_t :: shn_t ::
+                          map rhs_of_eq [stab_eq, states_eq, gtab_eq, redtab_eq]))
+                      (base @ [stab_eq]) lthy;
+                  val (vktab_eq, lthy) =
+                    vtable "vktab" (app' lthy \<^const_name>\<open>mk_vktab\<close> [rhs_of_eq vtab_eq])
+                      (base @ [stab_eq, vtab_eq]) lthy;
                   val (sinit_eq, lthy) =
-                    define "sinit" (app' lthy \<^const_name>\<open>sinit\<close> [rhs_of_eq stab_eq]) lthy;
+                    vtable "sinit" (app' lthy \<^const_name>\<open>sinit\<close> [rhs_of_eq stab_eq])
+                      (base @ [stab_eq]) lthy;
                   val (sclos_eq, lthy) =
-                    define "sclos"
+                    vtable "sclos"
                       (app' lthy \<^const_name>\<open>sclosure\<close> (map rhs_of_eq [stab_eq, sinit_eq]))
-                      lthy;
+                      (base @ [stab_eq, sinit_eq]) lthy;
+                  (* tokens numbered by a case distinction if the token type allows it *)
+                  val (tnum_th, f, lthy) =
+                    (case tok_sugar of
+                      NONE =>
+                        (@{thm refl}, app' lthy \<^const_name>\<open>vnum\<close> [rhs_of_eq vtab_eq], lthy)
+                    | SOME sugar =>
+                        let
+                          val nums_e =
+                            @{thm vnums_map} OF [states_eq, redtab_eq, vtab_eq, vnums_eq];
+                        in
+                          timed lthy "tnum" (fn () =>
+                            tnum_case lthy parse_bind sugar
+                              (\<^const_name>\<open>vnum\<close>, vtab_eq, nums_e, vnums_l) []) ()
+                        end);
+                  val _ =
+                    writeln ("parser: the code equation of \<open>" ^ Binding.name_of parse_bind ^
+                      "\<close> runs the state-indexed driver (LR_Vec), and the sparse one \
+                      \(LR_Sparse) should two reductions be live at once");
                 in
-                  ((@{thm dparse_via_tables_s} OF
-                    [states_eq, gtab_eq, redtab_eq, i0_eq, fresh_th, stab_eq, sinit_eq, sclos_eq],
-                    [fresh_th RS @{thm eqTrueI}]), lthy)
+                  ((@{thm dparse_via_tables_vkn} OF
+                    [states_eq, gtab_eq, redtab_eq, i0_eq, fresh_th, stab_eq, vtab_eq, vktab_eq,
+                     sinit_eq, sclos_eq, tnum_th],
+                    [fresh_th RS @{thm eqTrueI}],
+                    SOME (Vec (rhs_of_eq vtab_eq, rhs_of_eq vktab_eq, rhs_of_eq stab_eq,
+                      rhs_of_eq sinit_eq, rhs_of_eq sclos_eq, rhs_of_eq i0_eq, f))), lthy)
                 end
             | NONE =>
                 let
@@ -534,7 +900,10 @@ fun lr_build_parse
                     define "dtab" (app' lthy \<^const_name>\<open>dtab\<close> [gram_t]) lthy;
                 in
                   ((@{thm dparse_via_tables_nh_c} OF
-                    [states_eq, gtab_eq, redtab_eq, xinit_eq, xclos_eq, i0_eq, dtab_eq], []), lthy)
+                    [states_eq, gtab_eq, redtab_eq, xinit_eq, xclos_eq, i0_eq, dtab_eq], [],
+                    SOME (Dense (gram_t, shn_t, rhs_of_eq gtab_eq, rhs_of_eq states_eq,
+                      rhs_of_eq redtab_eq, rhs_of_eq dtab_eq, rhs_of_eq xinit_eq,
+                      rhs_of_eq xclos_eq, rhs_of_eq i0_eq))), lthy)
                 end)
         | SOME cyc =>
             let
@@ -551,7 +920,10 @@ fun lr_build_parse
                   [xinit_eq] lthy;
             in
               ((@{thm dparse_via_tables} OF
-                [states_eq, gtab_eq, redtab_eq, xinit_eq, xclos_eq, i0_eq], []), lthy)
+                [states_eq, gtab_eq, redtab_eq, xinit_eq, xclos_eq, i0_eq], [],
+                SOME (Hist (gram_t, shn_t, rhs_of_eq gtab_eq, rhs_of_eq states_eq,
+                  rhs_of_eq redtab_eq, rhs_of_eq xinit_eq, rhs_of_eq xclos_eq,
+                  rhs_of_eq i0_eq))), lthy)
             end)
       end;
 
@@ -560,12 +932,13 @@ fun lr_build_parse
       else
         writeln ("parser: the code equation of \<open>" ^ Binding.name_of parse_bind ^
           "\<close> runs the set-anchored driver (LR_Driver)");
-    val ((dlr_specialized, fresh_checks), lthy) =
+    val ((dlr_specialized, fresh_checks, driver), lthy) =
       (case simple_checks of
-        SOME sc => timed lthy "simple tables" (simple_tables sc) lthy |>> rpair []
+        SOME sc =>
+          timed lthy "simple tables" (simple_tables sc) lthy |>> (fn (th, d) => (th, [], d))
       | NONE => set_tables lthy);
 
-    fun post ({parse_def_th, ...}: Parser_Generators.post_input) lthy =
+    fun post ({parse_const, parse_def_th}: Parser_Generators.post_input) lthy =
       let
         val parse_alt_th =
           timed lthy "post: unfold tables" (Local_Defs.unfold lthy [dlr_specialized]) parse_def_th;
@@ -586,6 +959,9 @@ fun lr_build_parse
           lthy
           |> Code.declare_eqns [(parse_alt_th, true)]
           |> Grammar_Common.declare_code_global {default = false} [parse_alt_global]) ()
+        |> (if member (op =) options "diagnostics"
+            then timed lthy "post: diagnostics" (define_diagnostics gram sts errors parse_bind parse_const parse_alt_th decoder driver)
+            else I)
       end;
   in
     ({parse_body = parse_body, post = post, checks = [rlalr_eq, acc_eq, paths_eq] @ fresh_checks}, lthy)
@@ -594,13 +970,6 @@ fun lr_build_parse
 (** explaining a non-empty check (LR_Parser: explain_rp / explain_acc) **)
 
 (* decoding evaluated literals *)
-
-fun dest_nat (Const (\<^const_name>\<open>Suc\<close>, _) $ t) = dest_nat t + 1
-  | dest_nat t = snd (HOLogic.dest_number t);
-
-fun dest_option (Const (\<^const_name>\<open>None\<close>, _)) = NONE
-  | dest_option (Const (\<^const_name>\<open>Some\<close>, _) $ x) = SOME x
-  | dest_option t = raise TERM ("dest_option", [t]);
 
 fun dest_ctor t =
   (case Term.strip_comb t of
