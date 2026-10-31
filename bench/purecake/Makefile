@@ -48,9 +48,11 @@ check: all
 	  done; \
 	done; echo "check: $(words $(NAMES)) inputs, the parsers agree"
 
-# the Poly/ML runs with one GC thread: their instruction counts are then exact
-# (to ~10 per 10^8; the parallel GC's spinning varies)
-POLYRTS := --gcthreads 1
+# one GC thread (the parallel GC's spinning varies) and an initial heap no parse
+# here fills: a collection inside the one measured parse would count in full, and
+# how many land there varies between runs (peg-poly prelude-lists: 28M without
+# any, 39M or 56M with), so the instruction counts exclude GC
+POLYRTS := --gcthreads 1 -H 512
 
 ROWS = for n in $(NAMES); do \
     export TOKENS=$$(wc -l < $(B)/tok/$$n.tok); \
