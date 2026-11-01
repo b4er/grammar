@@ -1,6 +1,5 @@
 {
-  "title": "PureCake parser bench",
+  "title": "PEG (PureCake parser)",
   "primary": "instructions",
-  "apt": ["gcc", "polyml", "libpolyml-dev", "valgrind"],
-  "ocaml": false
+  "apt": ["gcc", "polyml", "libpolyml-dev", "valgrind"]
 }

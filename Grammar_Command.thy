@@ -264,7 +264,11 @@ text \<open>
   \<^rail>\<open>
     @@{command parser} ('(' name ')')? (entry + @'and')
     ;
-    entry: name @'for'? name ('(' name ')')?
+    entry: name @'for'? name ('(' name ')')? (@'errors' (message + '|'))?
+    ;
+    message: (sentence | cartouche) ('(' ('token' | 'shift') ')')? ('\<Rightarrow>' | '=>') text
+    ;
+    sentence: (name (@'@' nat)?)+
   \<close>
 
   \<^descr> \<^theory_text>\<open>parser p for G\<close> defines \<open>p :: word \<Rightarrow> \<tau>\<^sub>S option\<close> for the start
@@ -285,6 +289,26 @@ text \<open>
   command of their own). The entries share the grammar's decoders, its relation
   and the decoder and relation lemmas the theorems are discharged with, proved
   once for the command; each entry has its own tables, from its own start.
+
+  \<^descr> \<^theory_text>\<open>parser (diagnostics) p for G errors s \<Rightarrow> \<open>m\<close> | \<dots>\<close> attaches hand-written
+  messages to the error states of \<open>p\<close>, by example (Jeffery 2003, Pottier 2016). The
+  word \<open>s\<close> is written with the terminals' spellings or constructor names, each
+  with an optional column after \<open>@\<close>; a token without one follows the previous token.
+  For tokens with further fields, or to use a lexer, \<open>s\<close> is a cartouche with a
+  term of the word type. The last token of \<open>s\<close>, or the end of \<open>s\<close>, is where it fails.
+
+  The command evaluates \<open>p_probe\<close>, the error state of a word without its decoder
+  and expected set, once on all the sentences, with no theorem, which gives the
+  constant \<open>p_messages\<close>, plain data that \<open>p_render\<close> consults: the text
+  replaces the primary line of the default message, \<open>$0\<close> to \<open>$9\<close> standing for the
+  text of the stack entries from the top. The key is the state where the error is
+  detected, with \<open>(token)\<close> that state and the offending terminal, which goes first,
+  and with \<open>(shift)\<close> the state after the last shift. A word that is accepted, a key
+  taken by an earlier sentence, a terminal that does not exist, and a sentence that
+  cannot be evaluated are warnings, and the sentence is ignored; a word rejected
+  before its last token and a hole below the stack are warnings only. Since keys
+  are computed at each elaboration, a grammar edit that renumbers the states
+  needs no change of the block.
 \<close>
 
 text \<open>
@@ -302,15 +326,17 @@ text \<open>
   fresh name for the augmented start symbol, and \<open>G__dec_S\<close> the decoder of
   the start symbol. For code generation the LR tables are constants \<open>p_states\<close>,
   \<open>p_gtab\<close>, \<open>p_redtab\<close>, \<open>p_i0\<close> and, for the driver, \<open>p_stab\<close>,
-  \<open>p_sinit\<close> and \<open>p_sclos\<close> (the sparse closures of
-  \<^file>\<open>lr/LR_Sparse.thy\<close>; \<open>p_xinit\<close> and \<open>p_xclos\<close> for a grammar with an
+  \<open>p_vtab\<close>, \<open>p_vktab\<close>, \<open>p_sinit\<close> and \<open>p_sclos\<close> (the state-indexed tables of
+  \<^file>\<open>lr/LR_Vec.thy\<close>, the sparse closures of \<^file>\<open>lr/LR_Sparse.thy\<close>; \<open>p_xinit\<close> and \<open>p_xclos\<close> for a grammar with an
   \<open>\<epsilon>\<close>-cycle), each defined by its term over the ones before it
   (\<open>p_gtab = la_gtab G p_states\<close>); generated code computes each once when it
   loads. The code equation of \<open>p\<close> refers to those constants, so neither
   \<^theory_text>\<open>eval\<close> nor exported code rebuilds the automaton per call. With
   \<^theory_text>\<open>declare [[parser_literal_tables]]\<close> the six constants are instead
   the evaluated tables, for exported code that must not compute them at startup;
-  the command then evaluates the tables as well as its checks. If the grammar
+  the command then evaluates the tables as well as its checks, including, for
+  the state-indexed driver, \<open>p_stab\<close>, \<open>p_vtab\<close>, \<open>p_vktab\<close>, \<open>p_sinit\<close> and
+  \<open>p_sclos\<close>. If the grammar
   has no layout annotations, the static determinism check is empty and no
   lookahead cell of a reduce constrains the width of its token, the code
   equation instead runs the

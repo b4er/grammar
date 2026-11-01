@@ -18,7 +18,8 @@ defaults:
   run:
     shell: bash
 
-# every bench/<name>/ with a bench.json is measured
+# every bench/<name>/ with a bench.json is measured; its "apt" lists packages to
+# install and an "opam" key (even an empty list) asks for an OCaml toolchain
 jobs:
   isabelle:
     name: Isabelle
@@ -92,7 +93,7 @@ jobs:
         run: |
           for f in bench/*/bench.json; do
             jq -c --arg name "$(basename "$(dirname "$f")")" \
-              '{name: $name, apt: (.apt // [] | join(" ")), ocaml: (.ocaml // false),
+              '{name: $name, apt: (.apt // [] | join(" ")), ocaml: has("opam"),
                 opam: (.opam // [] | join(" "))}' "$f"
           done | jq -sc . | sed 's/^/benches=/' >> "$GITHUB_OUTPUT"
 

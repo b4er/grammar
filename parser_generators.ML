@@ -16,11 +16,22 @@
 signature PARSER_GENERATORS =
 sig
   (* gram: the grammar the parser starts from; for an entry its start is the
-     entry's and its gram_t \<open>G\<lparr>istart := ''A''\<rparr>\<close> (see entry_grammar) *)
+     entry's and its gram_t \<open>G\<lparr>istart := ''A''\<rparr>\<close> (see entry_grammar);
+     options: the names in \<open>parser (\<dots>)\<close> other than the generator's, e.g.
+     "diagnostics";
+     errors: the entry's \<open>errors\<close> block *)
+  datatype sentence =
+    Symbols of (string * int option) list
+  | Word of string
+  datatype msg_key = By_State | By_Token | By_Shift
+  type error_message = {sentence: sentence, key: msg_key, text: string}
+
   type build_input =
    {gram: Grammar_Common.grammar,
     parse_bind: binding,
-    shn: string}
+    shn: string,
+    options: string list,
+    errors: error_message list}
 
   type post_input =
    {parse_const: term,
@@ -70,7 +81,16 @@ sig
     -> result * local_theory
   val define_entries: string option -> entry list -> local_theory
     -> result list * local_theory
+  (* the options known to the command; any other name in \<open>parser (\<dots>)\<close> is the
+     generator *)
+  val known_options: string list
+  val define_entries_options: string option -> string list ->
+    (string * error_message list) list -> entry list -> local_theory
+    -> result list * local_theory
   val define_cmd: string option -> entry list -> local_theory -> local_theory
+  (* `parser (N1, ..., Nk)`: the names split into the options and at most one generator *)
+  val define_names_cmd: string list -> (string * error_message list) list -> entry list ->
+    local_theory -> local_theory
 
   (** helpers reusable by backends **)
   val pick_fresh_shn: Grammar_Common.grammar -> string
@@ -83,10 +103,22 @@ struct
 
 (** registry **)
 
+(* a sentence of an \<open>errors\<close> block: its terminals, each with an optional column, or a
+   word as a term *)
+datatype sentence =
+  Symbols of (string * int option) list
+| Word of string;
+
+datatype msg_key = By_State | By_Token | By_Shift;
+
+type error_message = {sentence: sentence, key: msg_key, text: string};
+
 type build_input =
  {gram: Grammar_Common.grammar,
   parse_bind: binding,
-  shn: string};
+  shn: string,
+  options: string list,
+  errors: error_message list};
 
 type post_input =
  {parse_const: term,
@@ -407,9 +439,15 @@ fun shared_lemmas lthy gr : shared =
       (Grammar_Defs.lookup_rel lthy gr)};
 
 (* one entry: as a command of its own, but for the shared lemmas *)
-fun define_entry (gen_name, gen) (shared: shared) (parse_b, gr, start) lthy =
+fun define_entry options all_errors (gen_name, gen) (shared: shared) (parse_b, gr, start) lthy =
   let
     val gram_name = Binding.name_of (#name gr);
+    val errors = the_default [] (AList.lookup (op =) all_errors (Binding.name_of parse_b));
+    val _ =
+      if not (null errors) andalso not (member (op =) options "diagnostics") then
+        warning ("parser: the \<open>errors\<close> block of \<open>" ^ Binding.name_of parse_b ^
+          "\<close> needs \<open>parser (diagnostics)\<close>; it is ignored")
+      else ();
     val dec_names =
       Grammar_Common.nonterms_list gr
       |> map_filter (fn (A, _) =>
@@ -423,7 +461,8 @@ fun define_entry (gen_name, gen) (shared: shared) (parse_b, gr, start) lthy =
       if start = #start gr then (gr, K I)
       else timed "0 entry grammar" (entry_grammar gr start) lthy;
     val shn_name = pick_fresh_shn gr;
-    val binp = {gram = egr, parse_bind = parse_b, shn = shn_name};
+    val binp = {gram = egr, parse_bind = parse_b, shn = shn_name, options = options,
+                errors = errors};
 
     (* 1. the backend builds the parse body (may define auxiliary constants) *)
     val ({parse_body, post, checks}, lthy) = timed "1 build_parse" (#build_parse gen binp) lthy;
@@ -505,12 +544,15 @@ fun define_entry (gen_name, gen) (shared: shared) (parse_b, gr, start) lthy =
   in (result, lthy) end;
 
 (* phase 1: the entries one after the other, sharing the lemmas of the grammar *)
-fun define_entries parser_name_opt entries lthy =
+fun define_entries_options parser_name_opt options errors entries lthy =
   let
     val checked = check_entries lthy entries;
     val gen = resolve_generator (Proof_Context.theory_of lthy) parser_name_opt;
     val shared = shared_lemmas lthy (#2 (hd checked));
-  in fold_map (define_entry gen shared) checked lthy end;
+  in fold_map (define_entry options errors gen shared) checked lthy end;
+
+fun define_entries parser_name_opt entries lthy =
+  define_entries_options parser_name_opt [] [] entries lthy;
 
 fun define parser_name_opt parse_b gram_ref lthy =
   define_entries parser_name_opt [(parse_b, gram_ref, NONE)] lthy
@@ -519,18 +561,49 @@ fun define parser_name_opt parse_b gram_ref lthy =
 fun define_cmd parser_name_opt entries lthy =
   #2 (define_entries parser_name_opt entries lthy);
 
+val known_options = ["diagnostics"];
+
+fun define_names_cmd names errors entries lthy =
+  let
+    val (options, gens) = List.partition (member (op =) known_options) names;
+    val gen_opt =
+      (case gens of
+        [] => NONE
+      | [g] => SOME g
+      | _ =>
+          error ("parser: more than one generator named: " ^ commas_quote gens ^
+            "; known options: " ^ commas_quote known_options));
+  in #2 (define_entries_options gen_opt (distinct (op =) options) errors entries lthy) end;
+
 
 (** outer syntax **)
+
+val parse_sentence =
+  Parse.inner_syntax Parse.cartouche >> Word
+  || Scan.repeat1 (Scan.unless (Args.$$$ "@") Parse.name -- Scan.option (Args.$$$ "@" |-- Parse.nat))
+     >> Symbols;
+
+val parse_msg_key =
+  Scan.optional
+    (\<^keyword>\<open>(\<close> |-- (Args.$$$ "token" >> K By_Token || Args.$$$ "shift" >> K By_Shift)
+      --| \<^keyword>\<open>)\<close>)
+    By_State;
+
+val parse_error_message =
+  parse_sentence -- parse_msg_key --| (\<^keyword>\<open>\<Rightarrow>\<close> || \<^keyword>\<open>=>\<close>) -- Parse.embedded
+  >> (fn ((sentence, key), text) => {sentence = sentence, key = key, text = text});
 
 val _ =
   Outer_Syntax.local_theory \<^command_keyword>\<open>parser\<close>
     "emit an executable, verified parser from a grammar spec"
-    (Scan.option (\<^keyword>\<open>(\<close> |-- Parse.name --| \<^keyword>\<open>)\<close>)
+    (Scan.optional (\<^keyword>\<open>(\<close> |-- Parse.list1 Parse.name --| \<^keyword>\<open>)\<close>) []
      -- Parse.and_list1
           (Parse.binding
            -- (Scan.option \<^keyword>\<open>for\<close> |-- Parse.name_position)
            -- Scan.option (\<^keyword>\<open>(\<close> |-- Parse.name_position --| \<^keyword>\<open>)\<close>)
-           >> (fn ((b, g), a) => (b, g, a)))
-     >> (fn (gen_opt, entries) => define_cmd gen_opt entries));
+           -- Scan.optional (Parse.reserved "errors" |-- Parse.enum1 "|" parse_error_message) []
+           >> (fn (((b, g), a), errors) => ((b, g, a), (Binding.name_of b, errors))))
+     >> (fn (names, entries) =>
+          define_names_cmd names (map #2 entries) (map #1 entries)));
 
 end;
