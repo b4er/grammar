@@ -7,6 +7,7 @@
 #   make ci         check, then bench with instruction counts (needs valgrind)
 
 B := _build
+SESSION ?= VeriMon_Bench
 OCAMLFIND ?= ocamlfind
 OCAMLOPTFLAGS ?= -g
 
@@ -19,7 +20,7 @@ MODS := misc predicate MFOTL formula_parser formula_lexer show verimon_tabs veri
 all: $(B)/verimon
 
 export:
-	isabelle build -d ../.. -e VeriMon_Bench
+	isabelle build -d ../.. -e $(SESSION)
 
 $(B):
 	mkdir -p $@
@@ -39,23 +40,31 @@ $(B)/formula_lexer.ml: vendor/formula_lexer.mll | $(B)
 # once here: mktabs (the export with its signature opened) marshals them into
 # verimon_tabs.ml, and verimon_parser.ml is the export with the tables'
 # definitions replaced by that value.
+TABS = $(shell sed -n 's/^let verimon_parse_\([a-z0-9_]*\) :.*/\1/p' isabelle/verimon_parser.ocaml)
+
 $(B)/vp_open.ml: isabelle/verimon_parser.ocaml | $(B)
 	awk '/^module VeriMon_Parser : sig/ { skip = 1 } \
 	     skip && /^end = struct/ { print "module VeriMon_Parser = struct"; skip = 0; next } !skip' $< > $@
 
-$(B)/mktabs: $(B)/vp_open.ml src/mktabs.ml
-	cp src/mktabs.ml $(B)/mktabs.ml
+$(B)/mktabs.ml: isabelle/verimon_parser.ocaml | $(B)
+	{ echo 'open Vp_open.VeriMon_Parser'; \
+	  for t in $(TABS); do \
+	    echo "let () = Printf.printf \"let $$t = %S\\n\" (Marshal.to_string verimon_parse_$$t [])"; \
+	  done; } > $@
+
+$(B)/mktabs: $(B)/vp_open.ml $(B)/mktabs.ml
 	cd $(B) && $(OCAMLFIND) ocamlopt -w -a -package zarith -linkpkg vp_open.ml mktabs.ml -o mktabs
 
 $(B)/verimon_tabs.ml: $(B)/mktabs
 	$< > $@
 
+# a table's type annotation is kept; its body, from the line starting with
+# "  = " to the ";;", becomes the unmarshalled data
 $(B)/verimon_parser.ml: isabelle/verimon_parser.ocaml $(B)/verimon_tabs.ml | $(B)
-	awk '/^let verimon_parse_states :/ { skip = 1; \
-	       print "let (verimon_parse_ptabs, verimon_parse_i0) : ((char list), mtok) ptabs * nat"; \
-	       print "  = Marshal.from_string Verimon_tabs.data 0;;" } \
-	     /^let verimon_parse_i0 :/ { skip = 2 } \
-	     !skip { print } skip == 1 && /= ptabs_of / || skip == 2 && /;;$$/ { skip = 0 }' $< > $@
+	awk 'match($$0, /^let verimon_parse_[a-z0-9_]* :/) { \
+	       t = substr($$0, 19, RLENGTH - 20); head = 1 } \
+	     head && /^  = / { print "  = Marshal.from_string Verimon_tabs." t " 0;;"; head = 0; body = 1 } \
+	     !body { print } body && /;;$$/ { body = 0 }' $< > $@
 
 # MonPoly's code and the exported code are not ours: compiled without warnings
 $(B)/verimon: $(MODS:%=$(B)/%.ml)

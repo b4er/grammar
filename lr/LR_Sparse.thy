@@ -71,9 +71,6 @@ subsubsection \<open>Numbering\<close>
 lemma ntidx_less: \<open>ntidx xs x < length xs \<longleftrightarrow> x \<in> set xs\<close>
   by (induction xs) auto
 
-lemma ntidx_le: \<open>ntidx xs x \<le> length xs\<close>
-  by (induction xs) auto
-
 lemma ntidx_nth: \<open>x \<in> set xs \<Longrightarrow> xs ! ntidx xs x = x\<close>
   by (induction xs) auto
 
@@ -91,12 +88,6 @@ proof (induction xs arbitrary: k)
   case (Cons a xs)
   then show ?case by (cases k) auto
 qed simp
-
-lemma symid_eq_Nt: \<open>A \<in> set ns \<Longrightarrow> symid ns Y = Nt (ntidx ns A) \<longleftrightarrow> Y = Nt A\<close>
-  by (cases Y) (auto simp: ntidx_eq_iff)
-
-lemma symid_eq_Tm: \<open>symid ns Y = Tm a \<longleftrightarrow> Y = Tm a\<close>
-  by (cases Y) auto
 
 subsection \<open>The tables\<close>
 
@@ -402,11 +393,6 @@ lemma ximg_cong: \<open>irep_set R = irep_set R' \<Longrightarrow> ximg pr (p, m
 lemma ximg_emptyR: \<open>irep_set R = {} \<Longrightarrow> ximg pr (p, m, R) = {}\<close>
   by (cases p) simp
 
-lemma ximg_fst: \<open>ximg (A, x) it = ximg (A, y) it\<close>
-proof -
-  obtain B rhs m R where \<open>it = ((B, rhs), m, R)\<close> by (metis prod.collapse)
-  then show ?thesis by simp
-qed
 lemma ximg_filter_ine: \<open>\<Union> (ximg pr ` set (filter ine xs)) = \<Union> (ximg pr ` set xs)\<close>
 proof (induction xs)
   case (Cons x xs)
@@ -972,9 +958,6 @@ definition scells :: \<open>('n \<times> ('n, 't) rhs) list \<Rightarrow> ('n, '
     (nat \<times> (nat \<times> nat) \<times> 't option \<times> wrel) list\<close> where
   \<open>scells ps cells = map (\<lambda>(i', (pr, n), t, \<tau>). (i', (ntidx ps pr, n), t, \<tau>)) cells\<close>
 
-lemma rt_mk_stab: \<open>s_rt (mk_stab G Shn gt sts redtab) = IArray (map (scells (eprods G Shn)) redtab)\<close>
-  by (simp add: scells_def)
-
 text \<open>A symbol is told apart by its number when no other symbol has it: the
   terminals, and the nonterminals with productions.\<close>
 
@@ -986,10 +969,6 @@ lemma sgood_Tm [simp]: \<open>sgood ns (Tm a)\<close>
 
 lemma sgood_Nt: \<open>B \<in> set ns \<Longrightarrow> sgood ns (Nt B)\<close>
   unfolding sgood_def by (intro allI impI, case_tac Y) (auto simp: ntidx_eq_iff)
-
-lemma rrhs_nth:
-  \<open>m < length (snd p) \<Longrightarrow> rrhs (mkrec ps p) ! m = (symid (map fst ps) (fst (snd p ! m)), snd (snd p ! m))\<close>
-  by (simp add: split_beta)
 
 lemma swf_ConsD:
   assumes \<open>swf ps ((r, m, R) # xs)\<close>

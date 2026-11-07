@@ -1,5 +1,5 @@
 theory Regression_Tests
-  imports LR_Parser.LR_Parser
+  imports LR_Parser.LR_Parser Parser_Check
 begin
 
 section \<open>Command-level regression tests\<close>
@@ -31,20 +31,16 @@ parser do_parse2 for do
 
 text \<open>Accepted and rejected layouts of adams2013 subsection 5.7.\<close>
 
-lemma \<open>do_parse2 [tu 1 DDo ''do'', tu 4 DDo ''do'', tu 7 DId ''x''] = Some ()\<close>
-  by eval
+parser_check \<open>do_parse2 [tu 1 DDo ''do'', tu 4 DDo ''do'', tu 7 DId ''x''] = Some ()\<close>
 
-lemma \<open>do_parse2
+parser_check \<open>do_parse2
   [tu 1 DDo ''do'', tu 4 DDo ''do'', tu 7 DId ''x'', tu 2 DId ''y''] = None\<close>
-  by eval
 
-lemma \<open>do_parse2
+parser_check \<open>do_parse2
   [tu 1 DDo ''do'', tu 4 DDo ''do'', tu 7 DId ''x'', tu 4 DId ''y''] = Some ()\<close>
-  by eval
 
-lemma \<open>do_parse2
+parser_check \<open>do_parse2
   [tu 1 DDo ''do'', tu 4 DDo ''do'', tu 7 DId ''x'', tu 7 DId ''y''] = Some ()\<close>
-  by eval
 
 text \<open> The emitted theorems are hypothesis-free: no mentions of \<^const>\<open>mdet\<close> or \<^const>\<open>fresh_name\<close>.\<close>
 
@@ -83,14 +79,11 @@ text \<open>The code equation runs on the action table over the states, and
   numbers the tokens by a case distinction.\<close>
 
 term \<open>cyc_parse_ptabs\<close>
-lemma \<open>cyc_parse_tnum DId = pnum cyc_parse_ptabs DId\<close>
-  by eval
+parser_check \<open>cyc_parse_tnum DId = pnum cyc_parse_ptabs DId\<close>
 
-lemma \<open>acc_conflicts cyc ''!'' \<noteq> []\<close>
-  by eval
+parser_check \<open>acc_conflicts cyc ''!'' \<noteq> []\<close>
 
-lemma \<open>map (\<lambda>(_, prs, _, _). prs) (explain_acc cyc ''!'' (acc_conflicts cyc ''!'')) = [[2]]\<close>
-  by eval
+parser_check \<open>map (\<lambda>(_, prs, _, _). prs) (explain_acc cyc ''!'' (acc_conflicts cyc ''!'')) = [[2]]\<close>
 
 lemma cyc_two_values:
   \<open>cyc_S [tu 1 DId ''x''] 0\<close> \<open>cyc_S [tu 1 DId ''x''] 1\<close>
@@ -100,8 +93,7 @@ proof -
   then show \<open>cyc_S [tu 1 DId ''x''] 1\<close> by simp
 qed
 
-lemma \<open>cyc_parse [tu 1 DId ''x''] = Some 0\<close>
-  by eval
+parser_check \<open>cyc_parse [tu 1 DId ''x''] = Some 0\<close>
 
 text \<open>So \<open>cyc_S w x \<Longrightarrow> cyc_parse w = Some x\<close> is false, and \<open>.complete\<close> still
   carries the check as a hypothesis:\<close>
@@ -118,8 +110,7 @@ declare [[parser_int_tables = false]]
 
 term cyc_parse_int_ztabs
 
-lemma \<open>cyc_parse_int [tu 1 DId ''x''] = Some 0\<close> \<open>cyc_parse_int [tu 1 DDo ''do''] = None\<close>
-  by eval+
+parser_check \<open>cyc_parse_int [tu 1 DId ''x''] = Some 0\<close> \<open>cyc_parse_int [tu 1 DDo ''do''] = None\<close>
 
 subsection \<open>The rejection path: an ambiguous grammar keeps \<open>mdet\<close>\<close>
 
@@ -135,14 +126,14 @@ grammar (relation) iswim =
         = Expr\<^sup>= "where"\<^sup>\<ge> IId\<^sup>\<ge> "="\<^sup>\<ge> WExpr\<^sup>\<ge>  \<Rightarrow> \<open>\<lambda>_ _ _. ()\<close>
         | Expr\<^sup>= "+"\<^sup>\<ge> Expr\<^sup>=                 \<Rightarrow> \<open>\<lambda>_ _. ()\<close>
         | "-"\<^sup>\<ge> Expr\<^sup>=                       \<Rightarrow> \<open>\<lambda>_. ()\<close>
-        | "("\<^sup>\<ge> Expr\<^sup>* ")"\<^sup>\<ge>                  \<Rightarrow> \<open>\<lambda>_. ()\<close>
+        | "("\<^sup>\<ge> Expr ")"\<^sup>\<ge>                  \<Rightarrow> \<open>\<lambda>_. ()\<close>
         | IId\<^sup>\<ge>                             \<Rightarrow> \<open>\<lambda>_. ()\<close>
     and
       WExpr :: \<open>unit\<close>
         = WExpr\<^sup>= "where"\<^sup>\<ge> IId\<^sup>\<ge> "="\<^sup>\<ge> WExpr\<^sup>\<ge>  \<Rightarrow> \<open>\<lambda>_ _ _. ()\<close>
         | WExpr\<^sup>= "+"\<^sup>\<ge> Expr\<^sup>=                 \<Rightarrow> \<open>\<lambda>_ _. ()\<close>
         | "-"\<^sup>= Expr\<^sup>=                        \<Rightarrow> \<open>\<lambda>_. ()\<close>
-        | "("\<^sup>= Expr\<^sup>* ")"\<^sup>\<ge>                   \<Rightarrow> \<open>\<lambda>_. ()\<close>
+        | "("\<^sup>= Expr ")"\<^sup>\<ge>                   \<Rightarrow> \<open>\<lambda>_. ()\<close>
         | IId\<^sup>=                              \<Rightarrow> \<open>\<lambda>_. ()\<close>
 
 parser iswim_parse2 for iswim
@@ -155,8 +146,7 @@ text \<open>\<open>iswim\<close> is genuinely ambiguous, the check
   The driver still parses unambiguous ISWIM inputs (soundly):
   \<open>- x\<close> at columns 1 3.\<close>
 
-lemma \<open>iswim_parse2 [tu 1 IMinus ''-'', tu 3 IId ''x''] = Some ()\<close>
-  by eval
+parser_check \<open>iswim_parse2 [tu 1 IMinus ''-'', tu 3 IId ''x''] = Some ()\<close>
 
 
 subsection \<open>Haskell \<open>case\<close> layout (adams2013 Figure 4): unconditional\<close>
@@ -174,7 +164,7 @@ grammar (relation) hask_case =
       Exp = HId\<^sup>\<ge> \<Rightarrow> \<open>\<lambda>_. ()\<close>
     and
       AltBlock :: \<open>unit\<close>
-        = "{"\<^sup>> Alts\<^sup>* "}"\<^sup>* \<Rightarrow> \<open>\<lambda>_. ()\<close>
+        = "{"\<^sup>> Alts "}" \<Rightarrow> \<open>\<lambda>_. ()\<close>
         | AltLayout\<^sup>>      \<Rightarrow> \<open>\<lambda>_. ()\<close>
     and
       AltLayout :: \<open>unit\<close>
@@ -187,15 +177,13 @@ grammar (relation) hask_case =
 
 parser hask_case_parse2 for hask_case
 
-lemma \<open>hask_case_parse2
+parser_check \<open>hask_case_parse2
   [tu 1 HCase ''case'', tu 6 HId ''x'', tu 8 HOf ''of'',
    tu 3 HId ''A'', tu 3 HId ''B''] = Some ()\<close>
-  by eval
 
-lemma \<open>hask_case_parse2
+parser_check \<open>hask_case_parse2
   [tu 1 HCase ''case'', tu 6 HId ''x'', tu 8 HOf ''of'',
    tu 3 HId ''A'', tu 4 HId ''B''] = None\<close>
-  by eval
 
 subsection \<open>Python suites (adams2013 subsection 3.3.2, adapted): unconditional\<close>
 
@@ -219,15 +207,13 @@ grammar (relation) py_suite =
 
 parser py_parse2 for py_suite
 
-lemma \<open>py_parse2
+parser_check \<open>py_parse2
   [tu 1 PWhile ''while'', tu 7 PId ''x'', tu 8 PColon '':'',
    tu 3 PId ''y'', tu 3 PId ''z''] = Some ()\<close>
-  by eval
 
-lemma \<open>py_parse2
+parser_check \<open>py_parse2
   [tu 1 PWhile ''while'', tu 7 PId ''x'', tu 8 PColon '':'',
    tu 3 PId ''y'', tu 4 PId ''z''] = None\<close>
-  by eval
 
 text \<open>Both are hypothesis-free (\<open>.complete\<close> theorems are unconditional).\<close>
 
@@ -272,11 +258,10 @@ lemma \<open>(\<exists>x. t_ext_X w x) = (w \<in> ilang t_ext)\<close>
 
 parser t_ext_parse for t_ext
 
-lemma \<open>t_ext_parse [\<lparr>tok = PColon, span = \<lparr>s_line = 0, s_col = 0, s_off = 0, s_len = 1, s_txt = []\<rparr>, trailing = []\<rparr>,
+parser_check \<open>t_ext_parse [\<lparr>tok = PColon, span = \<lparr>s_line = 0, s_col = 0, s_off = 0, s_len = 1, s_txt = []\<rparr>, trailing = []\<rparr>,
                     \<lparr>tok = PId, span = \<lparr>s_line = 0, s_col = 2, s_off = 2, s_len = 1, s_txt = []\<rparr>,
                      trailing = [(Comment, \<lparr>s_line = 0, s_col = 4, s_off = 4, s_len = 3, s_txt = []\<rparr>)]\<rparr>]
        = Some (Foo [(Comment, \<lparr>s_line = 0, s_col = 4, s_off = 4, s_len = 3, s_txt = []\<rparr>)])\<close>
-  by eval
 
 text \<open>The plain record with a span payload, spelled out.\<close>
 
@@ -290,10 +275,9 @@ grammar (relation) t_span =
 
 parser t_span_parse for t_span
 
-lemma \<open>t_span_parse [\<lparr>tok = PColon, span = \<lparr>s_line = 0, s_col = 0, s_off = 0, s_len = 1, s_txt = [0]\<rparr>\<rparr>,
+parser_check \<open>t_span_parse [\<lparr>tok = PColon, span = \<lparr>s_line = 0, s_col = 0, s_off = 0, s_len = 1, s_txt = [0]\<rparr>\<rparr>,
                      \<lparr>tok = PId, span = \<lparr>s_line = 0, s_col = 2, s_off = 2, s_len = 1, s_txt = [7, 7]\<rparr>\<rparr>]
        = Some 4\<close>
-  by eval
 
 
 subsection \<open>Decoders without \<open>(relation)\<close>\<close>
@@ -308,9 +292,8 @@ grammar not =
 
 parser parse_not for not
 
-lemma \<open>parse_not [\<lparr>tok = False, span = \<lparr>s_line = 0, s_col = 0, s_off = 0, s_len = 1, s_txt = []\<rparr>\<rparr>] = Some True\<close>
+parser_check \<open>parse_not [\<lparr>tok = False, span = \<lparr>s_line = 0, s_col = 0, s_off = 0, s_len = 1, s_txt = []\<rparr>\<rparr>] = Some True\<close>
   and \<open>parse_not [] = None\<close>
-  by eval+
 
 lemma \<open>w \<in> ilang not \<Longrightarrow> \<exists>x. parse_not w = Some x\<close>
   by (fact parse_not.complete)
@@ -370,7 +353,7 @@ local
     ([(Grammar_Common.Ref ("PC", Position.none), NONE)],
      SOME (Input.string ("\<lambda>_. " ^ string_of_int v)));
   val dup : Grammar_Common.spec =
-    {name = Binding.name "dup", tok_typ = SOME (Input.string "abc_tok"), terminals = [],
+    {name = Binding.name "dup", tok_typ = SOME (Input.string "abc_tok"), terminals = [], prec = NONE,
      productions = [((Binding.name "S", SOME (Input.string "nat")), [alt 0, alt 1])]};
 in
 val _ =
@@ -448,7 +431,7 @@ grammar (relation) flat =
 ML \<open>
 local
   val clash : Grammar_Common.spec =
-    {name = Binding.name "flat_A", tok_typ = SOME (Input.string "abc_tok"), terminals = [],
+    {name = Binding.name "flat_A", tok_typ = SOME (Input.string "abc_tok"), terminals = [], prec = NONE,
      productions =
       [((Binding.name "B", SOME (Input.string "nat")),
         [([(Grammar_Common.Ref ("PA", Position.none), NONE)], SOME (Input.string "\<lambda>_. 0"))])]};
@@ -474,7 +457,7 @@ parser (in box) parse_sealed for idk
 
 global_interpretation box False by unfold_locales simp
 
-lemma \<open>parse_sealed [tu 0 DId ''F''] = Some False\<close> by eval
+parser_check \<open>parse_sealed [tu 0 DId ''F''] = Some False\<close>
 
 text \<open>The decoders of a locale with parameters are applied constants, not bare
   ones; the totality premise must still be discharged.\<close>
@@ -557,8 +540,7 @@ grammar (relation) uloop =
 
 parser uloop_parse for uloop
 
-lemma \<open>uloop_parse [tu 1 PB ''x''] = None\<close>
-  by eval
+parser_check \<open>uloop_parse [tu 1 PB ''x''] = None\<close>
 
 lemma \<open>mdet uloop ''!'' \<Longrightarrow> uloop_S w x \<Longrightarrow> uloop_parse w = Some x\<close>
   by (fact uloop_parse.complete)
@@ -573,7 +555,7 @@ text \<open>\<open>S = PA \<Rightarrow> \<open>\<lambda>_. n\<close>\<close> wit
 ML \<open>
 local
   val spec : Grammar_Common.spec =
-    {name = Binding.name "free_var", tok_typ = SOME (Input.string "abc_tok"), terminals = [],
+    {name = Binding.name "free_var", tok_typ = SOME (Input.string "abc_tok"), terminals = [], prec = NONE,
      productions =
       [((Binding.name "S", SOME (Input.string "nat")),
         [([(Grammar_Common.Ref ("PA", Position.none), NONE)],
@@ -608,7 +590,7 @@ text \<open>\<open>S :: \<open>'a list\<close> = \<dots>\<close> used to say “
 ML \<open>
 local
   val spec : Grammar_Common.spec =
-    {name = Binding.name "nonground", tok_typ = SOME (Input.string "abc_tok"), terminals = [],
+    {name = Binding.name "nonground", tok_typ = SOME (Input.string "abc_tok"), terminals = [], prec = NONE,
      productions =
       [((Binding.name "S", SOME (Input.string "'a list")),
         [([(Grammar_Common.Ref ("PA", Position.none), NONE)], SOME (Input.string "\<lambda>_. []"))])]};
@@ -638,7 +620,7 @@ local
     (map (fn s => (Grammar_Common.Tok (Input.string s), NONE)) toks,
      SOME (Input.string act));
   val spec : Grammar_Common.spec =
-    {name = Binding.name "spelling_dup", tok_typ = SOME (Input.string "nat"), terminals = [],
+    {name = Binding.name "spelling_dup", tok_typ = SOME (Input.string "nat"), terminals = [], prec = NONE,
      productions =
       [((Binding.name "S", SOME (Input.string "nat")),
         [alt ["1"] "0", alt ["Suc 0"] "1"])]};
@@ -661,8 +643,7 @@ parser spelling_parse for spelling
 lemma \<open>spelling_S w x \<Longrightarrow> spelling_parse w = Some x\<close>
   by (fact spelling_parse.complete)
 
-lemma \<open>spelling_parse [tu 0 (Suc 0) ''F'', tu 1 2 ''F''] = Some 1\<close>
-  by eval
+parser_check \<open>spelling_parse [tu 0 (Suc 0) ''F'', tu 1 2 ''F''] = Some 1\<close>
 
 
 subsection \<open>Many nonterminals\<close>
@@ -689,8 +670,7 @@ parser nt_chain_parse for nt_chain
 lemma \<open>nt_chain_N1 w x \<Longrightarrow> nt_chain_parse w = Some x\<close>
   by (fact nt_chain_parse.complete)
 
-lemma \<open>nt_chain_parse [tu 0 PA ''F'', tu 1 PA ''F'', tu 2 PB ''F''] = Some 2\<close>
-  by eval
+parser_check \<open>nt_chain_parse [tu 0 PA ''F'', tu 1 PA ''F'', tu 2 PB ''F''] = Some 2\<close>
 
 subsection \<open>Several start symbols for one grammar\<close>
 
@@ -733,49 +713,40 @@ grammar (relation) toy =
     and
       Decl :: \<open>nat \<times> ty\<close> = TId\<^sup>= ":"\<^sup>> Ty\<^sup>> \<Rightarrow> \<open>\<lambda>x t. (s_col (span x), t)\<close>
 
-parser toy_parse for toy
+parser (no_diagnostics) toy_parse for toy
   and toy_parse_ty for toy (Ty)
   and toy_parse_file for toy (TyFile)
 
 text \<open>Each entry parses from its own start: \<open>x y\<close> is a term, not a type, \<open>a -> b\<close>
   a type, not a term, and the two nest through \<open>{ \<dots> }\<close> and \<open>lam\<close>.\<close>
 
-lemma \<open>toy_parse [tu 1 TId ''x'', tu 3 TId ''y''] = Some (App (Var 1) (Var 3))\<close>
-  by eval
+parser_check \<open>toy_parse [tu 1 TId ''x'', tu 3 TId ''y''] = Some (App (Var 1) (Var 3))\<close>
 
-lemma \<open>toy_parse_ty [tu 1 TId ''x'', tu 3 TId ''y''] = None\<close>
-  by eval
+parser_check \<open>toy_parse_ty [tu 1 TId ''x'', tu 3 TId ''y''] = None\<close>
 
-lemma \<open>toy_parse_ty [tu 1 TId ''a'', tu 3 TArr ''->'', tu 6 TId ''b''] =
+parser_check \<open>toy_parse_ty [tu 1 TId ''a'', tu 3 TArr ''->'', tu 6 TId ''b''] =
     Some (Arr (TV 1) (TV 6))\<close>
-  by eval
 
-lemma \<open>toy_parse [tu 1 TId ''a'', tu 3 TArr ''->'', tu 6 TId ''b''] = None\<close>
-  by eval
+parser_check \<open>toy_parse [tu 1 TId ''a'', tu 3 TArr ''->'', tu 6 TId ''b''] = None\<close>
 
-lemma \<open>toy_parse_ty [tu 1 TLB ''{'', tu 2 TId ''f'', tu 4 TId ''x'', tu 5 TRB ''}'',
+parser_check \<open>toy_parse_ty [tu 1 TLB ''{'', tu 2 TId ''f'', tu 4 TId ''x'', tu 5 TRB ''}'',
     tu 7 TArr ''->'', tu 10 TId ''a''] = Some (Arr (Sing (App (Var 2) (Var 4))) (TV 10))\<close>
-  by eval
 
-lemma \<open>toy_parse [tu 1 TLam ''lam'', tu 5 TId ''x'', tu 7 TColon '':'', tu 9 TLB ''{'',
+parser_check \<open>toy_parse [tu 1 TLam ''lam'', tu 5 TId ''x'', tu 7 TColon '':'', tu 9 TLB ''{'',
     tu 10 TId ''y'', tu 11 TRB ''}'', tu 13 TDot ''.'', tu 15 TId ''x''] =
     Some (Lam 5 (Sing (Var 10)) (Var 15))\<close>
-  by eval
 
 text \<open>A \<open>TyFile\<close> is a block of aligned declarations; a misaligned line is rejected.\<close>
 
-lemma \<open>toy_parse_file [tu 1 TId ''x'', tu 3 TColon '':'', tu 5 TId ''a'',
+parser_check \<open>toy_parse_file [tu 1 TId ''x'', tu 3 TColon '':'', tu 5 TId ''a'',
     tu 1 TId ''y'', tu 3 TColon '':'', tu 5 TId ''b'', tu 7 TArr ''->'', tu 10 TId ''c''] =
     Some [(1, TV 5), (1, Arr (TV 5) (TV 10))]\<close>
-  by eval
 
-lemma \<open>toy_parse_file [tu 1 TId ''x'', tu 3 TColon '':'', tu 5 TId ''a'',
+parser_check \<open>toy_parse_file [tu 1 TId ''x'', tu 3 TColon '':'', tu 5 TId ''a'',
     tu 2 TId ''y'', tu 4 TColon '':'', tu 6 TId ''b'', tu 8 TArr ''->'', tu 11 TId ''c''] =
     None\<close>
-  by eval
 
-lemma \<open>toy_parse_file [tu 1 TId ''x'', tu 3 TId ''y''] = None\<close>
-  by eval
+parser_check \<open>toy_parse_file [tu 1 TId ''x'', tu 3 TId ''y''] = None\<close>
 
 text \<open>The relational forms are stated against the relation of each start,
   without hypotheses.\<close>
@@ -816,6 +787,10 @@ ML_val \<open>
       ["toy_parse_ty", "toy_parse_file"]
     orelse error "an entry defines more than its parse constant and its tables";
 \<close>
+
+text \<open>Without the option a parser has its diagnostics, which is the default.\<close>
+
+term do_parse2_diag
 
 text \<open>A start that is not a nonterminal, a name declared twice, and a second
   grammar in one command are rejected before anything is defined.\<close>
@@ -873,8 +848,7 @@ lemma \<open>toy_parse_tm w = Some x \<Longrightarrow> w \<in> ilang toy\<close>
 lemma \<open>w \<in> ilang toy \<Longrightarrow> \<exists>x. toy_parse_tm w = Some x\<close>
   by (fact toy_parse_tm.complete_lang)
 
-lemma \<open>toy_parse_tm_states = toy_parse_states\<close>
-  by eval
+parser_check \<open>toy_parse_tm_states = toy_parse_states\<close>
 
 text \<open>The generator option applies to all entries.\<close>
 
@@ -893,7 +867,7 @@ grammar (in box) (relation) idk2 =
 
 parser (in box) idk2_parse for idk2 and idk2_parse_y for idk2 (Y)
 
-lemma \<open>idk2_parse_y [tu 0 DId ''F''] = Some False\<close> by eval
+parser_check \<open>idk2_parse_y [tu 0 DId ''F''] = Some False\<close>
 
 lemma \<open>idk2_Y w x \<Longrightarrow> idk2_parse_y w = Some x\<close>
   by (fact idk2_parse_y.complete)
@@ -917,14 +891,11 @@ definition tg2 :: \<open>(string, string) is_cfg\<close> where
                      (''S'', [(Tm ''c'', Any)])],
            istart = ''S'', istart_ind = 0 \<rparr>\<close>
 
-lemma \<open>length (pr0_states tg1 ''!'') = 5\<close>
-  by eval
+parser_check \<open>length (pr0_states tg1 ''!'') = 5\<close>
 
-lemma \<open>nullables tg1 = [''S'']\<close> and \<open>nullables tg2 = []\<close>
-  by eval+
+parser_check \<open>nullables tg1 = [''S'']\<close> and \<open>nullables tg2 = []\<close>
 
-lemma \<open>rlalr_conflicts tg1 ''!'' = []\<close> and \<open>rlalr_conflicts tg2 ''!'' = []\<close>
-  by eval+
+parser_check \<open>rlalr_conflicts tg1 ''!'' = []\<close> and \<open>rlalr_conflicts tg2 ''!'' = []\<close>
 
 subsection \<open>Ambiguous: \<open>E \<rightarrow> E + E | x\<close>\<close>
 
@@ -933,8 +904,7 @@ definition tg3 :: \<open>(string, string) is_cfg\<close> where
                      (''E'', [(Tm ''x'', Any)])],
            istart = ''E'', istart_ind = 0 \<rparr>\<close>
 
-lemma \<open>rlalr_conflicts tg3 ''!'' \<noteq> []\<close>
-  by eval
+parser_check \<open>rlalr_conflicts tg3 ''!'' \<noteq> []\<close>
 
 subsection \<open>The NQLALR pitfall (deremer1982 section 5.1)\<close>
 
@@ -953,8 +923,7 @@ definition nqg :: \<open>(string, string) is_cfg\<close> where
       (''B'', [(Tm ''g'', Any)])],
     istart = ''S'', istart_ind = 0 \<rparr>\<close>
 
-lemma \<open>lalr_conflicts nqg ''!'' = []\<close> and \<open>rlalr_conflicts nqg ''!'' = []\<close>
-  by eval+
+parser_check \<open>lalr_conflicts nqg ''!'' = []\<close> and \<open>rlalr_conflicts nqg ''!'' = []\<close>
 
 subsection \<open>Cross-anchor ambiguity\<close>
 
@@ -975,22 +944,18 @@ definition xag :: \<open>(string, string) is_cfg\<close> where
       (''A'', [(Tm ''a'', Gt)])],
     istart = ''S'', istart_ind = 0 \<rparr>\<close>
 
-lemma \<open>rlalr_conflicts xag ''!'' \<noteq> []\<close>
-  by eval
+parser_check \<open>rlalr_conflicts xag ''!'' \<noteq> []\<close>
 
-lemma \<open>list_ex (\<lambda>(_, _, _, _, _, w). w \<noteq> None)
+parser_check \<open>list_ex (\<lambda>(_, _, _, _, _, w). w \<noteq> None)
          (explain_rp xag ''!'' (rlalr_conflicts xag ''!''))\<close>
-  by eval
 
-lemma \<open>explain_rp tg2 ''!'' (rlalr_conflicts tg2 ''!'') = []\<close>
-  by eval
+parser_check \<open>explain_rp tg2 ''!'' (rlalr_conflicts tg2 ''!'') = []\<close>
 
 text \<open>The cheaper levels of the explanation reach the same states: every
   reported pair of \<open>xag\<close> has a symbol path and its action pairs.\<close>
 
-lemma \<open>list_all (\<lambda>(_, _, path, prs). path \<noteq> None \<and> prs \<noteq> [])
+parser_check \<open>list_all (\<lambda>(_, _, path, prs). path \<noteq> None \<and> prs \<noteq> [])
          (explain_rp_brief xag ''!'' (rlalr_conflicts xag ''!''))\<close>
-  by eval
 
 subsection \<open>LALR merging\<close>
 
@@ -1010,14 +975,14 @@ definition pol :: \<open>(string, string) is_cfg\<close> where
       (''F'', [(Tm ''e'', Any)])],
     istart = ''S'', istart_ind = 0 \<rparr>\<close>
 
-lemma \<open>rlalr_conflicts pol ''!'' \<noteq> []\<close>
-  by eval
+parser_check \<open>rlalr_conflicts pol ''!'' \<noteq> []\<close>
 
 
 subsection \<open>The same checks without the oracle\<close>
 
-text \<open>Every \<^theory_text>\<open>by eval\<close> above is closed by \<open>holds_by_evaluation\<close>:
-  the goal is compiled to ML, run, and its verdict trusted.
+text \<open>Every check above is compiled to ML, run, and its verdict trusted:
+  \<^theory_text>\<open>parser_check\<close> proves nothing, and \<^theory_text>\<open>by eval\<close>
+  closes its goal by \<open>holds_by_evaluation\<close>.
   \<^theory_text>\<open>code_simp\<close> rewrites with the very same code equations inside
   the kernel instead, so it produces an ordinary theorem and trusts nothing
   beyond the simplifier.  Proving the checks both ways on one small grammar is
@@ -1112,9 +1077,8 @@ ML_val \<open>
 
 parser lay_parse for lay
 
-lemma \<open>lay_parse [tu 1 LX ''x'', tu 2 LPlus ''+'', tu 3 LLP ''('', tu 4 LNum ''2'',
+parser_check \<open>lay_parse [tu 1 LX ''x'', tu 2 LPlus ''+'', tu 3 LLP ''('', tu 4 LNum ''2'',
     tu 5 LRP '')'', tu 6 LSemi '';'', tu 7 LX ''x''] = Some [3, 1]\<close>
-  by eval
 
 lemma \<open>lay_S w x \<longleftrightarrow> lay_parse w = Some x\<close>
   using lay_parse.sound lay_parse.complete by blast

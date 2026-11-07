@@ -1,3 +1,5 @@
 bench/ocaml/thys
 bench/purecake/thys
 bench/verimon/thys
+bench/ocaml-prec/thys
+bench/verimon-prec/thys

@@ -1,5 +1,6 @@
 theory LR
-  imports Grammar_Command.Indentation_Sensitive "HOL-Library.While_Combinator" "HOL-Library.RBT"
+  imports Grammar_Model.Indentation_Sensitive "HOL-Library.While_Combinator" "HOL-Library.RBT"
+    "HOL-Library.IArray"
 begin
 
 section \<open>Fuel-free GLR steps\<close>
@@ -60,10 +61,6 @@ proof -
   show ?thesis by (simp add: xfuel_def)
 qed
 
-lemma xclosure_chk_xfuel:
-  \<open>xclosure_chk G (xfuel G xs) xs = Some (xclosure_auto G xs)\<close>
-  using xfuel_stable unfolding xclosure_chk_def xclosure_auto_def by simp
-
 text \<open>Executably, the rounds are iterated once, each computed once: the search
   for the fuel would recompute them from scratch for every candidate.\<close>
 
@@ -92,13 +89,6 @@ proof -
   from this[symmetric] show ?thesis
     by (simp add: xclosure_auto_def xclosure_def)
 qed
-
-text \<open>The fuel-free closure concretises to the abstract factored closure,
-  without a fuel hypothesis.\<close>
-
-theorem xclosure_auto_correct:
-  \<open>fconcs (xset (xclosure_auto G xs)) = fconcs (fclosure G 0 (xset xs))\<close>
-  using xclosure_chk_correct[OF xclosure_chk_xfuel] .
 
 subsection \<open>Acceptance\<close>
 
@@ -141,23 +131,6 @@ definition cgoto :: \<open>('n, 't) citem list \<Rightarrow> ('n, 't) sym \<Righ
 
 definition cclosure :: \<open>('n, 't) is_cfg \<Rightarrow> ('n, 't) citem list \<Rightarrow> ('n, 't) citem list\<close> where
   \<open>cclosure G cs = remdups (cs @ map (\<lambda>pr. (pr, 0)) (iprods G))\<close>
-
-lemma set_ccore_xgoto:
-  \<open>set (ccore (xgoto xs X l)) = set (cgoto (ccore xs) X)\<close>
-  unfolding ccore_def cgoto_def xgoto_def by force
-
-lemma set_ccore_xclosure:
-  \<open>set (ccore (xclosure G fuel xs)) = set (cclosure G (ccore xs))\<close>
-proof -
-  have len: \<open>length (xiter G xs fuel) = length (iprods G)\<close> by simp
-  show ?thesis
-    unfolding ccore_def cclosure_def xclosure_def xslots_def
-    by (force simp: set_zip in_set_conv_nth len intro: rev_image_eqI)
-qed
-
-lemma set_ccore_xclosure_auto:
-  \<open>set (ccore (xclosure_auto G xs)) = set (cclosure G (ccore xs))\<close>
-  unfolding xclosure_auto_def by (rule set_ccore_xclosure)
 
 subsection \<open>The finite universe of cores\<close>
 
@@ -435,33 +408,8 @@ subsection \<open>The LR(0) automaton\<close>
 definition lr0_states :: \<open>('n, 't) is_cfg \<Rightarrow> 'n \<Rightarrow> ('n, 't) citem list list\<close> where
   \<open>lr0_states G Shn = wl_states G Shn (cclosure G)\<close>
 
-lemma lr0_states_inv:
-  \<open>wl_inv G Shn (cclosure G) {set (lr0_start G Shn), {}} (lr0_states G Shn, [])\<close>
-  unfolding lr0_states_def by (rule wl_states_inv[OF cgoto_cclosure_univ])
-
-theorem lr0_states_closed:
-  assumes \<open>s \<in> set (lr0_states G Shn)\<close> and \<open>X \<in> set (gram_syms G)\<close>
-  shows \<open>\<exists>t \<in> set (lr0_states G Shn). set t = set (cgoto (cclosure G s) X)\<close>
-  using lr0_states_inv assms unfolding wl_inv_def by fastforce
-
 lemma ccore_xinit: \<open>set (ccore (xinit G Shn)) = set (lr0_start G Shn)\<close>
   unfolding ccore_def xinit_def lr0_start_def start_prod_def by simp
-
-theorem lr0_states_start:
-  \<open>\<exists>t \<in> set (lr0_states G Shn). set t = set (ccore (xinit G Shn))\<close>
-proof -
-  have \<open>set (lr0_start G Shn) \<in> set ` set (lr0_states G Shn)\<close>
-    using lr0_states_inv[of G Shn] unfolding wl_inv_def by auto
-  moreover have \<open>set (ccore (xinit G Shn)) = set (lr0_start G Shn)\<close> by (rule ccore_xinit)
-  ultimately show ?thesis by auto
-qed
-
-theorem lr0_states_empty: \<open>\<exists>t \<in> set (lr0_states G Shn). set t = {}\<close>
-proof -
-  have \<open>{} \<in> set ` set (lr0_states G Shn)\<close>
-    using lr0_states_inv[of G Shn] unfolding wl_inv_def by auto
-  then show ?thesis by auto
-qed
 
 subsection \<open>Reachable closure and conflict reporting\<close>
 
@@ -479,6 +427,46 @@ definition creach_step :: \<open>('n, 't) is_cfg \<Rightarrow> ('n, 't) citem li
 
 definition creach :: \<open>('n, 't) is_cfg \<Rightarrow> ('n, 't) citem list \<Rightarrow> ('n, 't) citem list\<close> where
   \<open>creach G cs = (creach_step G ^^ Suc (length (iprods G))) cs\<close>
+
+text \<open>Evaluated as defined, \<^const>\<open>creach\<close> takes all the rounds its fuel allows, one
+  per production, for every state; the code equation stops at the first round that
+  changes nothing.\<close>
+
+fun fuel_fix :: \<open>('a \<Rightarrow> 'a) \<Rightarrow> nat \<Rightarrow> 'a \<Rightarrow> 'a\<close> where
+  \<open>fuel_fix f n x = (if n = 0 then x else let y = f x in if y = x then x else fuel_fix f (n - 1) y)\<close>
+
+declare fuel_fix.simps [simp del]
+
+lemma fuel_fix_funpow: \<open>fuel_fix f n x = (f ^^ n) x\<close>
+proof (induction f n x rule: fuel_fix.induct)
+  case (1 f n x)
+  show ?case
+  proof (cases n)
+    case 0
+    then show ?thesis by (simp add: fuel_fix.simps)
+  next
+    case (Suc m)
+    show ?thesis
+    proof (cases \<open>f x = x\<close>)
+      case True
+      then have \<open>(f ^^ k) x = x\<close> for k by (induction k) simp_all
+      with True Suc show ?thesis by (simp add: fuel_fix.simps)
+    next
+      case False
+      have \<open>fuel_fix f n x = fuel_fix f m (f x)\<close>
+        using Suc False by (subst fuel_fix.simps) simp
+      also have \<open>\<dots> = (f ^^ m) (f x)\<close>
+        using 1 Suc False by simp
+      also have \<open>\<dots> = (f ^^ n) x\<close>
+        using Suc by (simp add: funpow_swap1)
+      finally show ?thesis .
+    qed
+  qed
+qed
+
+lemma creach_code [code]:
+  \<open>creach G cs = fuel_fix (creach_step G) (Suc (length (iprods G))) cs\<close>
+  unfolding creach_def fuel_fix_funpow ..
 
 lemma creach_step_mono: \<open>set cs \<subseteq> set (creach_step G cs)\<close>
   unfolding creach_step_def by auto
@@ -522,17 +510,10 @@ proof -
   finally show ?thesis .
 qed
 
-subsection \<open>The automaton covers every machine run\<close>
+subsection \<open>Cores stay in the universe\<close>
 
-text \<open>The core of every frame either machine builds is a tabulated state:
-  goto through a tabulated symbol stays tabulated by
-  \<^text>\<open>lr0_states_closed\<close>, and goto through any other symbol is
-  the (tabulated) empty state, since all next symbols of cores in
-  \<^const>\<open>cuniv\<close> are in \<^const>\<open>gram_syms\<close>.\<close>
-
-lemma set_cgoto_cong:
-  \<open>set cs = set cs' \<Longrightarrow> set (cgoto cs X) = set (cgoto cs' X)\<close>
-  unfolding cgoto_def by auto
+text \<open>Goto and closure keep cores inside \<^const>\<open>cuniv\<close>, and all next symbols of
+  cores in \<^const>\<open>cuniv\<close> are in \<^const>\<open>gram_syms\<close>.\<close>
 
 lemma cgoto_memI:
   \<open>(pr, m) \<in> set cs \<Longrightarrow> m < length (snd pr) \<Longrightarrow> fst (snd pr ! m) = X \<Longrightarrow> (pr, Suc m) \<in> set (cgoto cs X)\<close>
@@ -540,17 +521,6 @@ lemma cgoto_memI:
 
 lemma cgoto_set_mono: \<open>set cs \<subseteq> set cs' \<Longrightarrow> set (cgoto cs X) \<subseteq> set (cgoto cs' X)\<close>
   unfolding cgoto_def by auto
-
-lemma set_cclosure_cong:
-  \<open>set cs = set cs' \<Longrightarrow> set (cclosure G cs) = set (cclosure G cs')\<close>
-  unfolding cclosure_def by auto
-
-lemma lr0_states_univ:
-  \<open>s \<in> set (lr0_states G Shn) \<Longrightarrow> set s \<subseteq> cuniv G Shn\<close>
-  using lr0_states_inv[of G Shn] unfolding wl_inv_def by auto
-
-lemma lr0_states_distinct: \<open>distinct (map set (lr0_states G Shn))\<close>
-  using lr0_states_inv[of G Shn] unfolding wl_inv_def by auto
 
 lemma cclosure_univ:
   \<open>set cs \<subseteq> cuniv G Shn \<Longrightarrow> set (cclosure G cs) \<subseteq> cuniv G Shn\<close>
@@ -579,118 +549,6 @@ proof -
     case 2
     then show ?thesis using gram_syms_iprods[of \<open>fst pr\<close> \<open>snd pr\<close> G m] assms(2) by simp
   qed
-qed
-
-lemma cgoto_nosym:
-  assumes univ: \<open>set cs \<subseteq> cuniv G Shn\<close> and X: \<open>X \<notin> set (gram_syms G)\<close>
-  shows \<open>set (cgoto cs X) = {}\<close>
-proof -
-  have nsym: \<open>fst (snd pr ! m) \<in> set (gram_syms G)\<close>
-    if mem: \<open>(pr, m) \<in> set cs\<close> and m: \<open>m < length (snd pr)\<close> for pr m
-    using cuniv_next_gram_syms[OF _ m] univ mem by blast
-  show ?thesis
-    using nsym X unfolding cgoto_def by (fastforce simp: filter_empty_conv)
-qed
-
-definition cores_ok :: \<open>('n, 't) is_cfg \<Rightarrow> 'n \<Rightarrow> ('n, 't) xitem list \<Rightarrow> bool\<close> where
-  \<open>cores_ok G Shn f \<longleftrightarrow> (\<exists>s \<in> set (lr0_states G Shn). set (ccore f) = set s)\<close>
-
-lemma cores_ok_goto:
-  assumes ok: \<open>cores_ok G Shn f\<close>
-    and CL: \<open>set (ccore CL) = set (cclosure G (ccore f))\<close>
-    and new: \<open>set (ccore f') = set (cgoto (ccore CL) X)\<close>
-  shows \<open>cores_ok G Shn f'\<close>
-proof -
-  from ok obtain s where s: \<open>s \<in> set (lr0_states G Shn)\<close>
-    and eq: \<open>set (ccore f) = set s\<close>
-    unfolding cores_ok_def by blast
-  have red: \<open>set (ccore f') = set (cgoto (cclosure G s) X)\<close>
-    using new set_cgoto_cong[OF CL]
-      set_cgoto_cong[OF set_cclosure_cong[OF eq]] by simp
-  show ?thesis
-  proof (cases \<open>X \<in> set (gram_syms G)\<close>)
-    case True
-    from lr0_states_closed[OF s True] obtain t where
-      \<open>t \<in> set (lr0_states G Shn)\<close> and \<open>set t = set (cgoto (cclosure G s) X)\<close>
-      by blast
-    then show ?thesis using red unfolding cores_ok_def by auto
-  next
-    case False
-    have \<open>set (cclosure G s) \<subseteq> cuniv G Shn\<close>
-      by (rule cclosure_univ[OF lr0_states_univ[OF s]])
-    from cgoto_nosym[OF this False] red have \<open>set (ccore f') = {}\<close> by simp
-    then show ?thesis
-      using lr0_states_empty unfolding cores_ok_def by auto
-  qed
-qed
-
-lemma gstep_cores:
-  assumes step: \<open>gstep G (Xs, w) act = Some (Xs', w')\<close>
-    and ok: \<open>\<forall>f \<in> set Xs. cores_ok G Shn f\<close>
-  shows \<open>\<forall>f \<in> set Xs'. cores_ok G Shn f\<close>
-proof (cases act)
-  case (GShift fuel)
-  obtain a l w\<^sub>0 where w: \<open>w = (a, l) # w\<^sub>0\<close>
-    using step GShift by (cases w) auto
-  obtain CL where ne: \<open>Xs \<noteq> []\<close>
-    and chk: \<open>xclosure_chk G fuel (hd Xs) = Some CL\<close>
-    and Xs': \<open>Xs' = xgoto CL (Tm a) l # Xs\<close>
-    using step unfolding GShift w
-    by (auto split: if_splits option.splits)
-  have CL: \<open>CL = xclosure G fuel (hd Xs)\<close>
-    using chk unfolding xclosure_chk_def by (auto split: if_splits)
-  have hd_ok: \<open>cores_ok G Shn (hd Xs)\<close> using ok ne by auto
-  have \<open>cores_ok G Shn (xgoto CL (Tm a) l)\<close>
-    by (rule cores_ok_goto[OF hd_ok _ set_ccore_xgoto])
-       (simp add: CL set_ccore_xclosure)
-  then show ?thesis using ok unfolding Xs' by auto
-next
-  case (GReduce f\<^sub>1 f\<^sub>2 pr i)
-  obtain CL\<^sub>2 where ne: \<open>Xs \<noteq> []\<close>
-    and len: \<open>length (snd pr) < length Xs\<close>
-    and chk\<^sub>2: \<open>xclosure_chk G f\<^sub>2 (Xs ! length (snd pr)) = Some CL\<^sub>2\<close>
-    and Xs': \<open>Xs' = xgoto CL\<^sub>2 (Nt (fst pr)) i # drop (length (snd pr)) Xs\<close>
-    using step unfolding GReduce
-    by (auto split: if_splits option.splits)
-  have CL\<^sub>2: \<open>CL\<^sub>2 = xclosure G f\<^sub>2 (Xs ! length (snd pr))\<close>
-    using chk\<^sub>2 unfolding xclosure_chk_def by (auto split: if_splits)
-  have nth_ok: \<open>cores_ok G Shn (Xs ! length (snd pr))\<close> using ok len by auto
-  have \<open>cores_ok G Shn (xgoto CL\<^sub>2 (Nt (fst pr)) i)\<close>
-    by (rule cores_ok_goto[OF nth_ok _ set_ccore_xgoto])
-       (simp add: CL\<^sub>2 set_ccore_xclosure)
-  then show ?thesis using ok unfolding Xs' by (auto dest: in_set_dropD)
-qed
-
-theorem grun_cores:
-  assumes run: \<open>grun G as ([xinit G Shn], w) = Some (Ys, v)\<close>
-    and f: \<open>f \<in> set Ys\<close>
-  shows \<open>\<exists>s \<in> set (lr0_states G Shn). set (ccore f) = set s\<close>
-proof -
-  have init: \<open>\<forall>f \<in> set [xinit G Shn]. cores_ok G Shn f\<close>
-  proof -
-    obtain t where \<open>t \<in> set (lr0_states G Shn)\<close>
-      and \<open>set t = set (ccore (xinit G Shn))\<close>
-      using lr0_states_start[of G Shn] by blast
-    then show ?thesis unfolding cores_ok_def
-      by (intro ballI bexI[of _ t]) auto
-  qed
-  have \<open>grun G as (Xs, w') = Some (Ys, v) \<Longrightarrow> \<forall>f \<in> set Xs. cores_ok G Shn f \<Longrightarrow>
-      \<forall>f \<in> set Ys. cores_ok G Shn f\<close> for Xs w'
-  proof (induction as arbitrary: Xs w')
-    case Nil
-    then show ?case by simp
-  next
-    case (Cons a as)
-    obtain gc\<^sub>1 where step: \<open>gstep G (Xs, w') a = Some gc\<^sub>1\<close>
-      and rest: \<open>grun G as gc\<^sub>1 = Some (Ys, v)\<close>
-      using Cons.prems(1) by (auto split: option.splits)
-    obtain Xs\<^sub>1 w\<^sub>1 where gc\<^sub>1: \<open>gc\<^sub>1 = (Xs\<^sub>1, w\<^sub>1)\<close> by (cases gc\<^sub>1)
-    have \<open>\<forall>f \<in> set Xs\<^sub>1. cores_ok G Shn f\<close>
-      using gstep_cores[OF step[unfolded gc\<^sub>1] Cons.prems(2)] .
-    from Cons.IH[OF rest[unfolded gc\<^sub>1] this] show ?case .
-  qed
-  from this[OF run init] f show ?thesis
-    unfolding cores_ok_def by auto
 qed
 
 section \<open>Column-relative first sets: LR(k) lookahead, phase 1\<close>
@@ -860,6 +718,13 @@ definition nstep :: \<open>('n, 't) is_cfg \<Rightarrow> 'n list \<Rightarrow> '
 definition nullables :: \<open>('n, 't) is_cfg \<Rightarrow> 'n list\<close> where
   \<open>nullables G = (nstep G ^^ Suc (length (remdups (map fst (iprods G))))) []\<close>
 
+text \<open>The code stops at the fixpoint, which comes after a few steps, not one per
+  nonterminal.\<close>
+
+lemma nullables_code [code]:
+  \<open>nullables G = fuel_fix (nstep G) (Suc (length (remdups (map fst (iprods G))))) []\<close>
+  unfolding nullables_def fuel_fix_funpow ..
+
 lemma nsym_ext: \<open>set ns = set ns' \<Longrightarrow> nsym ns X = nsym ns' X\<close>
   unfolding nsym_def by (cases X) auto
 
@@ -931,19 +796,6 @@ proof -
     using derives_unann[OF relpowp_imp_rtranclp[OF assms]] by simp
   from nsym_nullables[OF nullable_if[OF this]] show ?thesis
     by (simp add: nsym_def)
-qed
-
-lemma annotated_null:
-  assumes \<open>(infG G) \<turnstile> arhs \<Rightarrow>(m) []\<close> and \<open>annotates j rhs arhs\<close>
-  shows \<open>list_all (\<lambda>(X, r). nsym (nullables G) X) rhs\<close>
-proof -
-  have d: \<open>set (derel (iprods G)) \<turnstile> map fst rhs \<Rightarrow>* []\<close>
-    using derives_unann[OF relpowp_imp_rtranclp[OF assms(1)]]
-      annotates_unann[OF assms(2)] by simp
-  have \<open>nsym (nullables G) (fst Xr)\<close> if \<open>Xr \<in> set rhs\<close> for Xr
-    using derives_NilD[OF d, of \<open>fst Xr\<close>] that
-    by (auto intro: nsym_nullables nullable_if)
-  then show ?thesis by (auto simp: list_all_iff case_prod_beta)
 qed
 
 subsection \<open>The first-token table\<close>
@@ -1248,51 +1100,6 @@ proof (induction n arbitrary: rhs arhs j V rule: less_induct)
   qed
 qed
 
-text \<open>The phase-1 theorem: the executable table covers \<^term>\<open>fHk G 1\<close>.
-  Every token that can begin the yield of an (annotated) production rest
-  is covered by a computed \<^text>\<open>(token, cirel)\<close> cell; the only other
-  possibility is a fully nullable rest exposing the follow-up lookahead.\<close>
-
-theorem first1_complete:
-  assumes \<open>v \<in> fHk G (Suc 0) rest i u\<close>
-  shows \<open>(\<exists>a c \<sigma>. v = [(a, c)] \<and>
-            (a, \<sigma>) \<in> set (fscan (ffix G) (nullables G) rest) \<and> csat \<sigma> c i)
-       \<or> (list_all (\<lambda>(X, r). nsym (nullables G) X) rest \<and> v = take (Suc 0) u)\<close>
-proof -
-  from fHkE[OF assms] obtain arest where
-    ann: \<open>annotates i rest arest\<close>
-    and vHk: \<open>v \<in> Hk (infG G) (Suc 0) (arest @ map Tm u)\<close> by metis
-  from vHk[unfolded Hk_def] obtain V where
-    len: \<open>length v = Suc 0\<close>
-    and der: \<open>infG G \<turnstile> arest @ map Tm u \<Rightarrow>* map Tm v @ V\<close>
-    by auto
-  obtain t where veq: \<open>v = [t]\<close> using len by (cases v) auto
-  obtain a c where t: \<open>t = (a, c)\<close> by (cases t)
-  from der obtain n where dern: \<open>(infG G) \<turnstile> arest @ map Tm u \<Rightarrow>(n) Tm (a, c) # V\<close>
-    unfolding veq t by (auto simp: rtranclp_power)
-  from iffD1[OF deriven_append_decomp dern]
-  obtain n\<^sub>1 n\<^sub>2 w\<^sub>1 w\<^sub>2 where w: \<open>Tm (a, c) # V = w\<^sub>1 @ w\<^sub>2\<close>
-    and d\<^sub>1: \<open>(infG G) \<turnstile> arest \<Rightarrow>(n\<^sub>1) w\<^sub>1\<close>
-    and d\<^sub>2: \<open>(infG G) \<turnstile> map Tm u \<Rightarrow>(n\<^sub>2) w\<^sub>2\<close>
-    by blast
-  show ?thesis
-  proof (cases w\<^sub>1)
-    case Nil
-    have nul: \<open>list_all (\<lambda>(X, r). nsym (nullables G) X) rest\<close>
-      by (rule annotated_null[OF d\<^sub>1[unfolded Nil] ann])
-    have w2eq: \<open>w\<^sub>2 = map Tm u\<close>
-      using relpowp_imp_rtranclp[OF d\<^sub>2] by (simp add: derives_from_Tms_iff)
-    have \<open>map Tm u = Tm (a, c) # V\<close> using w w2eq unfolding Nil by simp
-    then obtain u' where \<open>u = (a, c) # u'\<close> by (cases u) auto
-    then show ?thesis using nul veq t by simp
-  next
-    case (Cons y w\<^sub>1')
-    have \<open>y = Tm (a, c)\<close> using w unfolding Cons by simp
-    from fscan_complete[OF d\<^sub>1[unfolded Cons this] ann]
-    show ?thesis using veq t by auto
-  qed
-qed
-
 section \<open>LR tables and conflict reports\<close>
 
 text \<open>
@@ -1412,6 +1219,10 @@ definition wreach_step :: \<open>('n, 't) is_cfg \<Rightarrow> ('n, 't) witem li
 definition wreach :: \<open>('n, 't) is_cfg \<Rightarrow> ('n, 't) citem list \<Rightarrow> ('n, 't) witem list\<close> where
   \<open>wreach G s = (wreach_step G ^^ Suc (length (iprods G) * 6)) (wkernel s)\<close>
 
+lemma wreach_code [code]:
+  \<open>wreach G s = fuel_fix (wreach_step G) (Suc (length (iprods G) * 6)) (wkernel s)\<close>
+  unfolding wreach_def fuel_fix_funpow ..
+
 subsection \<open>Anchored shift cells\<close>
 
 text \<open>A shift cell relates the token's column to the state's common anchor
@@ -1445,6 +1256,40 @@ definition st_find :: \<open>('n, 't) citem list list \<Rightarrow> ('n, 't) cit
   \<open>st_find sts t = (case filter (\<lambda>j. set (sts ! j) = set t) [0..<length sts]
      of [] \<Rightarrow> length sts | j # _ \<Rightarrow> j)\<close>
 
+text \<open>Evaluated as defined, \<^const>\<open>st_find\<close> indexes the list once per state, which is
+  quadratic; the code equation walks it once.\<close>
+
+fun st_find_from :: \<open>('n, 't) citem list list \<Rightarrow> ('n, 't) citem list \<Rightarrow> nat \<Rightarrow> nat\<close> where
+  \<open>st_find_from [] t k = k\<close>
+| \<open>st_find_from (s # ss) t k = (if set s = set t then k else st_find_from ss t (Suc k))\<close>
+
+lemma st_find_from_eq:
+  \<open>st_find_from ss t k = (case filter (\<lambda>j. set (ss ! j) = set t) [0..<length ss]
+     of [] \<Rightarrow> k + length ss | j # _ \<Rightarrow> k + j)\<close>
+proof (induction ss arbitrary: k)
+  case Nil
+  then show ?case by simp
+next
+  case (Cons s ss)
+  have up: \<open>[0..<length (s # ss)] = 0 # map Suc [0..<length ss]\<close>
+    by (simp only: length_Cons upt_conv_Cons[OF zero_less_Suc] map_Suc_upt)
+  show ?case
+  proof (cases \<open>set s = set t\<close>)
+    case True
+    then show ?thesis unfolding up by simp
+  next
+    case False
+    have f: \<open>filter (\<lambda>j. set ((s # ss) ! j) = set t) [0..<length (s # ss)]
+        = map Suc (filter (\<lambda>j. set (ss ! j) = set t) [0..<length ss])\<close>
+      using False unfolding up by (simp add: filter_map comp_def)
+    show ?thesis
+      using False Cons.IH[of \<open>Suc k\<close>] unfolding f by (simp split: list.splits)
+  qed
+qed
+
+lemma st_find_code [code]: \<open>st_find sts t = st_find_from sts t 0\<close>
+  unfolding st_find_def st_find_from_eq by (simp split: list.splits)
+
 lemma st_find_le: \<open>st_find sts t \<le> length sts\<close>
 proof (cases \<open>filter (\<lambda>j. set (sts ! j) = set t) [0..<length sts]\<close>)
   case Nil
@@ -1468,30 +1313,6 @@ proof -
   have \<open>j' \<in> set (filter (\<lambda>j. set (sts ! j) = set s) [0..<length sts])\<close> unfolding f by simp
   then have j'_ok: \<open>j' < length sts \<and> set (sts ! j') = set s\<close> by simp
   show ?thesis unfolding st_find_def f using j'_ok by simp
-qed
-
-lemma st_find_cong: \<open>set t = set t' \<Longrightarrow> st_find sts t = st_find sts t'\<close>
-  unfolding st_find_def by simp
-
-lemma st_find_unique:
-  assumes dst: \<open>distinct (map set sts)\<close> and i: \<open>i < length sts\<close>
-    and eq: \<open>set (sts ! i) = set t\<close>
-  shows \<open>st_find sts t = i\<close>
-proof -
-  have uniq: \<open>j = i\<close> if \<open>j \<in> set (filter (\<lambda>j. set (sts ! j) = set t) [0..<length sts])\<close> for j
-  proof -
-    have j: \<open>j < length sts\<close> and ej: \<open>set (sts ! j) = set t\<close> using that by auto
-    have \<open>map set sts ! j = map set sts ! i\<close> using j i ej eq by simp
-    then show \<open>j = i\<close>
-      using dst j i nth_eq_iff_index_eq[of \<open>map set sts\<close> j i] by simp
-  qed
-  have imem: \<open>i \<in> set (filter (\<lambda>j. set (sts ! j) = set t) [0..<length sts])\<close>
-    using i eq by simp
-  then obtain j rest where f:
-    \<open>filter (\<lambda>j. set (sts ! j) = set t) [0..<length sts] = j # rest\<close>
-    by (cases \<open>filter (\<lambda>j. set (sts ! j) = set t) [0..<length sts]\<close>) auto
-  have \<open>j = i\<close> using uniq f by (metis list.set_intros(1))
-  then show ?thesis unfolding st_find_def f by simp
 qed
 
 type_synonym ('n, 't) lacell = \<open>nat \<times> ('n, 't) citem \<times> 't option \<times> wrel\<close>
@@ -1519,19 +1340,6 @@ definition la_gtab :: \<open>('n, 't) is_cfg \<Rightarrow> ('n, 't) citem list l
 lemma map_of_map_pair:
   \<open>map_of (map (\<lambda>X. (X, f X)) xs) X = (if X \<in> set xs then Some (f X) else None)\<close>
   by (induction xs) auto
-
-lemma la_gtab_lookup:
-  assumes \<open>i < length sts\<close> and \<open>(pr, m) \<in> set (cclosure G (sts ! i))\<close> and \<open>m < length (snd pr)\<close>
-  shows \<open>map_of (la_gtab G sts ! i) (fst (snd pr ! m)) =
-           Some (st_find sts (cgoto (cclosure G (sts ! i)) (fst (snd pr ! m))))\<close>
-proof -
-  let ?f = \<open>\<lambda>(pr, m). if m < length (snd pr) then [fst (snd pr ! m)] else []\<close>
-  have h1: \<open>fst (snd pr ! m) \<in> set (?f (pr, m))\<close> using assms(3) by simp
-  have mem: \<open>fst (snd pr ! m) \<in> set (concat (map ?f (cclosure G (sts ! i))))\<close>
-    unfolding set_concat set_map using h1 assms(2) by blast
-  show ?thesis unfolding la_gtab_def using assms(1) mem
-    by (simp add: Let_def map_of_map_pair)
-qed
 
 definition la_start :: \<open>('n, 't) is_cfg \<Rightarrow> 'n \<Rightarrow> ('n, 't) citem list list \<Rightarrow>
     ('n, 't) lacell list\<close> where
@@ -1800,19 +1608,20 @@ fun la_tindex :: \<open>'t list \<Rightarrow> 't \<Rightarrow> nat\<close> where
   \<open>la_tindex [] a = 0\<close>
 | \<open>la_tindex (b # bs) a = (if b = a then 0 else Suc (la_tindex bs a))\<close>
 
-text \<open>The key of a cell combines its state, lookahead, dot and the position of
-  its production in \<open>ps\<close>, the productions of the grammar.\<close>
+text \<open>The key of a cell combines its state, lookahead, the length of its
+  right-hand side and its dot; \<open>nt\<close> is the number of terminals \<open>ts\<close>, computed once.
+  A key that searched the productions would cost a linear scan per cell.\<close>
 
-definition la_key :: \<open>('n \<times> ('n, 't) rhs) list \<times> 't list \<Rightarrow> ('n, 't) lacell \<Rightarrow> integer\<close> where
-  \<open>la_key pts c = (case pts of (ps, ts) \<Rightarrow> case c of (i, (pr, m), t, \<tau>) \<Rightarrow>
-     ((of_nat i * (of_nat (length ts) + 2)
+definition la_key :: \<open>nat \<times> 't list \<Rightarrow> ('n, 't) lacell \<Rightarrow> integer\<close> where
+  \<open>la_key pts c = (case pts of (nt, ts) \<Rightarrow> case c of (i, (pr, m), t, \<tau>) \<Rightarrow>
+     ((of_nat i * (of_nat nt + 2)
         + of_nat (case t of None \<Rightarrow> 0 | Some a \<Rightarrow> Suc (la_tindex ts a)))
-        * (of_nat (length ps) + 2) + of_nat (la_tindex ps pr)) * 8 + of_nat (min m 7))\<close>
+        * 64 + of_nat (min (length (snd pr)) 63)) * 8 + of_nat (min m 7))\<close>
 
 definition la_bucket :: \<open>(integer, ('n, 't) lacell list) rbt \<Rightarrow> integer \<Rightarrow> ('n, 't) lacell list\<close> where
   \<open>la_bucket bk k = (case RBT.lookup bk k of None \<Rightarrow> [] | Some xs \<Rightarrow> xs)\<close>
 
-definition la_add :: \<open>('n \<times> ('n, 't) rhs) list \<times> 't list \<Rightarrow> ('n, 't) lacell \<Rightarrow> (integer, ('n, 't) lacell list) rbt \<Rightarrow>
+definition la_add :: \<open>nat \<times> 't list \<Rightarrow> ('n, 't) lacell \<Rightarrow> (integer, ('n, 't) lacell list) rbt \<Rightarrow>
     (integer, ('n, 't) lacell list) rbt\<close> where
   \<open>la_add ts x bk = RBT.insert (la_key ts x) (x # la_bucket bk (la_key ts x)) bk\<close>
 
@@ -1825,30 +1634,29 @@ type_synonym ('n, 't) la_fast =
   \<open>('n, 't) lacell list \<times> (integer, ('n, 't) lacell list) rbt \<times>
    ('n, 't) lacell list \<times> ('n, 't) lacell list\<close>
 
-definition la_wl_fast :: \<open>('n, 't) is_cfg \<Rightarrow> ('n, 't) ftab \<Rightarrow> 'n list \<Rightarrow>
-    (('n, 't) sym \<times> nat) list list \<Rightarrow> ('n, 't) citem list list \<Rightarrow>
-    ('n \<times> ('n, 't) rhs) list \<times> 't list \<Rightarrow> ('n, 't) la_fast \<Rightarrow> ('n, 't) la_fast\<close> where
-  \<open>la_wl_fast G ft ns gt sts ts = (\<lambda>(dn, bk, fr, bq).
+definition la_wl_fast :: \<open>(('n, 't) lacell \<Rightarrow> ('n, 't) lacell list) \<Rightarrow>
+    nat \<times> 't list \<Rightarrow> ('n, 't) la_fast \<Rightarrow> ('n, 't) la_fast\<close> where
+  \<open>la_wl_fast cf ts = (\<lambda>(dn, bk, fr, bq).
      (let (fr', bq') = (if fr = [] then (rev bq, []) else (fr, bq)) in
       case fr' of
         [] \<Rightarrow> (dn, bk, [], [])
       | c # ws \<Rightarrow>
           (let fresh = filter (\<lambda>x. x \<notin> set (la_bucket bk (la_key ts x)))
-                         (remdups (la_cell G ft ns gt sts c))
+                         (remdups (cf c))
            in (c # dn, fold (la_add ts) fresh bk, ws, rev fresh @ bq'))))\<close>
 
 definition la_fast_abs :: \<open>('n, 't) la_fast \<Rightarrow> ('n, 't) lacell list \<times> ('n, 't) lacell list\<close> where
   \<open>la_fast_abs = (\<lambda>(dn, bk, fr, bq). (dn, fr @ rev bq))\<close>
 
-definition la_fast_inv :: \<open>('n \<times> ('n, 't) rhs) list \<times> 't list \<Rightarrow> ('n, 't) la_fast \<Rightarrow> bool\<close> where
+definition la_fast_inv :: \<open>nat \<times> 't list \<Rightarrow> ('n, 't) la_fast \<Rightarrow> bool\<close> where
   \<open>la_fast_inv ts = (\<lambda>(dn, bk, fr, bq).
      \<forall>x. x \<in> set (dn @ fr @ rev bq) \<longleftrightarrow> x \<in> set (la_bucket bk (la_key ts x)))\<close>
 
 lemma la_wl_fast_commute:
   assumes inv: \<open>la_fast_inv ts s\<close>
-  shows \<open>la_fast_inv ts (la_wl_fast G ft ns gt sts ts s)\<close>
+  shows \<open>la_fast_inv ts (la_wl_fast (la_cell G ft ns gt sts) ts s)\<close>
     and \<open>(case la_fast_abs s of (dn, wk) \<Rightarrow> wk \<noteq> []) \<Longrightarrow>
-         la_fast_abs (la_wl_fast G ft ns gt sts ts s) = la_wl G ft ns gt sts (la_fast_abs s)\<close>
+         la_fast_abs (la_wl_fast (la_cell G ft ns gt sts) ts s) = la_wl G ft ns gt sts (la_fast_abs s)\<close>
 proof -
   obtain dn bk fr bq where s: \<open>s = (dn, bk, fr, bq)\<close> by (cases s) auto
   define fr' where \<open>fr' = (if fr = [] then rev bq else fr)\<close>
@@ -1860,7 +1668,7 @@ proof -
     using inv unfolding s la_fast_inv_def prod.case .
   have mem: \<open>x \<in> set (dn @ fr' @ rev bq') \<longleftrightarrow> x \<in> set (la_bucket bk (la_key ts x))\<close> for x
     unfolding q using spec[OF inv', of x] .
-  show \<open>la_fast_inv ts (la_wl_fast G ft ns gt sts ts s)\<close>
+  show \<open>la_fast_inv ts (la_wl_fast (la_cell G ft ns gt sts) ts s)\<close>
   proof (cases fr')
     case Nil
     then have \<open>fr = []\<close> \<open>bq = []\<close> unfolding fr'_def by (auto split: if_splits)
@@ -1869,7 +1677,7 @@ proof -
     case (Cons c ws)
     let ?fresh = \<open>filter (\<lambda>x. x \<notin> set (la_bucket bk (la_key ts x)))
                    (remdups (la_cell G ft ns gt sts c))\<close>
-    have step: \<open>la_wl_fast G ft ns gt sts ts s = (c # dn, fold (la_add ts) ?fresh bk, ws, rev ?fresh @ bq')\<close>
+    have step: \<open>la_wl_fast (la_cell G ft ns gt sts) ts s = (c # dn, fold (la_add ts) ?fresh bk, ws, rev ?fresh @ bq')\<close>
       using Cons unfolding s la_wl_fast_def fr'_def bq'_def by (cases fr) (simp_all add: Let_def)
     have \<open>x \<in> set ((c # dn) @ ws @ rev (rev ?fresh @ bq')) \<longleftrightarrow>
           x \<in> set (la_bucket (fold (la_add ts) ?fresh bk) (la_key ts x))\<close> for x
@@ -1890,14 +1698,14 @@ proof -
   qed
   let ?fresh = \<open>filter (\<lambda>x. x \<notin> set (la_bucket bk (la_key ts x)))
                  (remdups (la_cell G ft ns gt sts c))\<close>
-  have step: \<open>la_wl_fast G ft ns gt sts ts s = (c # dn, fold (la_add ts) ?fresh bk, ws, rev ?fresh @ bq')\<close>
+  have step: \<open>la_wl_fast (la_cell G ft ns gt sts) ts s = (c # dn, fold (la_add ts) ?fresh bk, ws, rev ?fresh @ bq')\<close>
     using Cons unfolding s la_wl_fast_def fr'_def bq'_def by (cases fr) (simp_all add: Let_def)
-  show \<open>la_fast_abs (la_wl_fast G ft ns gt sts ts s) = la_wl G ft ns gt sts (la_fast_abs s)\<close>
+  show \<open>la_fast_abs (la_wl_fast (la_cell G ft ns gt sts) ts s) = la_wl G ft ns gt sts (la_fast_abs s)\<close>
     unfolding step unfolding s la_fast_abs_def la_wl_def
     by (simp add: wk filt)
 qed
 
-definition la_fast_start :: \<open>'n \<Rightarrow> ('n \<times> ('n, 't) rhs) list \<times> 't list \<Rightarrow> ('n, 't) lacell list \<Rightarrow>
+definition la_fast_start :: \<open>'n \<Rightarrow> nat \<times> 't list \<Rightarrow> ('n, 't) lacell list \<Rightarrow>
     ('n, 't) la_fast\<close> where
   \<open>la_fast_start Shn ts st = ([], fold (la_add ts) st RBT.empty, st, [])\<close>
 
@@ -1908,18 +1716,18 @@ lemma la_fast_start: \<open>la_fast_inv ts (la_fast_start Shn ts st)\<close>
   \<open>la_fast_abs (la_fast_start Shn ts st) = ([], st)\<close>
   by (simp_all add: la_fast_inv_def la_fast_start_def la_fast_abs_def set_la_bucket_fold)
 
-lemma la_fix_gen_fast [code]:
-  \<open>la_fix_gen G Shn gt sts = (let ts = (iprods G, gram_terms G) in
+lemma la_fix_gen_fast:
+  \<open>la_fix_gen G Shn gt sts = (let ts = (length (gram_terms G), gram_terms G) in
      case while_option (\<lambda>(dn, bk, fr, bq). fr \<noteq> [] \<or> bq \<noteq> [])
-       (la_wl_fast G (ffix G) (nullables G) gt sts ts) (la_fast_start Shn ts (la_start G Shn sts)) of
+       (la_wl_fast (la_cell G (ffix G) (nullables G) gt sts) ts) (la_fast_start Shn ts (la_start G Shn sts)) of
        Some s \<Rightarrow> fst (la_fast_abs s)
      | None \<Rightarrow> fst (the (while_option (\<lambda>(dn, wk). wk \<noteq> []) (la_wl G (ffix G) (nullables G) gt sts)
                 ([], la_start G Shn sts))))\<close>
 proof -
-  let ?ts = \<open>(iprods G, gram_terms G)\<close>
+  let ?ts = \<open>(length (gram_terms G), gram_terms G)\<close>
   let ?b = \<open>\<lambda>(dn :: ('n, 't) lacell list, bk :: (integer, ('n, 't) lacell list) rbt,
              fr :: ('n, 't) lacell list, bq :: ('n, 't) lacell list). fr \<noteq> [] \<or> bq \<noteq> []\<close>
-  let ?c = \<open>la_wl_fast G (ffix G) (nullables G) gt sts ?ts\<close>
+  let ?c = \<open>la_wl_fast (la_cell G (ffix G) (nullables G) gt sts) ?ts\<close>
   have eq: \<open>map_option la_fast_abs (while_option ?b ?c (la_fast_start Shn ?ts (la_start G Shn sts))) =
       while_option (\<lambda>(dn, wk). wk \<noteq> []) (la_wl G (ffix G) (nullables G) gt sts)
         (la_fast_abs (la_fast_start Shn ?ts (la_start G Shn sts)))\<close>
@@ -1944,6 +1752,63 @@ proof -
     with Some show ?thesis unfolding la_fix_gen_def Let_def by simp
   qed
 qed
+
+text \<open>\<^const>\<open>la_cell\<close> looks up the goto table per cell, by \<^const>\<open>nth\<close> on a list
+  and with \<^term>\<open>length sts\<close> recomputed each time, and scans all productions for
+  those of the nonterminal after the dot. The code equation passes the same cell
+  function over an array and a table of the productions by nonterminal, both
+  built once.\<close>
+
+fun la_cell_nx :: \<open>('n, 't) ftab \<Rightarrow> 'n list \<Rightarrow> ('n \<Rightarrow> ('n \<times> ('n, 't) rhs) list) \<Rightarrow>
+    (nat \<Rightarrow> ('n, 't) sym \<Rightarrow> nat) \<Rightarrow> ('n, 't) lacell \<Rightarrow> ('n, 't) lacell list\<close> where
+  \<open>la_cell_nx ft ns po nx (i, (pr, m), t, \<tau>) = (
+      if m < length (snd pr)
+      then (nx i (fst (snd pr ! m)), (pr, Suc m), t, \<tau>)
+        # (case fst (snd pr ! m) of
+             Nt B \<Rightarrow> (let back = winv (w_of (snd (snd pr ! m)));
+                         la = map (\<lambda>(a, \<sigma>). (Some a, wcomp back (wemb \<sigma>)))
+                                (fscan ft ns (drop (Suc m) (snd pr)))
+                              @ (if list_all (\<lambda>(X, r). nsym ns X)
+                                       (drop (Suc m) (snd pr))
+                                 then [(t, wcomp back \<tau>)] else [])
+                     in concat (map (\<lambda>br. map (\<lambda>(u, \<rho>). (i, (br, 0), u, \<rho>)) la) (po B)))
+           | Tm _ \<Rightarrow> [])
+      else [])\<close>
+
+definition la_ptab :: \<open>('n, 't) is_cfg \<Rightarrow> ('n \<times> ('n \<times> ('n, 't) rhs) list) list\<close> where
+  \<open>la_ptab G = map (\<lambda>A. (A, filter (\<lambda>br. fst br = A) (iprods G))) (remdups (map fst (iprods G)))\<close>
+
+definition la_prods :: \<open>('n \<times> ('n \<times> ('n, 't) rhs) list) list \<Rightarrow> 'n \<Rightarrow> ('n \<times> ('n, 't) rhs) list\<close> where
+  \<open>la_prods tab B = (case map_of tab B of None \<Rightarrow> [] | Some bs \<Rightarrow> bs)\<close>
+
+lemma la_prods_ptab: \<open>la_prods (la_ptab G) B = filter (\<lambda>br. fst br = B) (iprods G)\<close>
+  unfolding la_prods_def la_ptab_def map_of_map_pair by (auto simp: image_iff intro!: filter_False[symmetric])
+
+lemma concat_map_if_filter:
+  \<open>concat (map (\<lambda>x. if P x then f x else []) xs) = concat (map f (filter P xs))\<close>
+  by (induction xs) auto
+
+definition la_next_arr :: \<open>(('n, 't) sym \<times> nat) list iarray \<Rightarrow> nat \<Rightarrow> nat \<Rightarrow> ('n, 't) sym \<Rightarrow> nat\<close> where
+  \<open>la_next_arr A n i X = min (case map_of (IArray.sub A i) X of Some j \<Rightarrow> j | None \<Rightarrow> n) n\<close>
+
+lemma la_cell_nx_eq:
+  \<open>la_cell G ft ns gt sts = la_cell_nx ft ns (la_prods (la_ptab G)) (la_next_arr (IArray gt) (length sts))\<close>
+proof
+  fix c :: \<open>('a, 'b) lacell\<close>
+  obtain i pr m t \<tau> where c: \<open>c = (i, (pr, m), t, \<tau>)\<close> by (cases c) auto
+  show \<open>la_cell G ft ns gt sts c = la_cell_nx ft ns (la_prods (la_ptab G)) (la_next_arr (IArray gt) (length sts)) c\<close>
+    unfolding c by (simp add: la_next_def la_next_arr_def la_prods_ptab concat_map_if_filter Let_def split: sym.split)
+qed
+
+lemma la_fix_gen_code [code]:
+  \<open>la_fix_gen G Shn gt sts = (let ts = (length (gram_terms G), gram_terms G);
+       cf = la_cell_nx (ffix G) (nullables G) (la_prods (la_ptab G)) (la_next_arr (IArray gt) (length sts)) in
+     case while_option (\<lambda>(dn, bk, fr, bq). fr \<noteq> [] \<or> bq \<noteq> [])
+       (la_wl_fast cf ts) (la_fast_start Shn ts (la_start G Shn sts)) of
+       Some s \<Rightarrow> fst (la_fast_abs s)
+     | None \<Rightarrow> fst (the (while_option (\<lambda>(dn, wk). wk \<noteq> []) (la_wl G (ffix G) (nullables G) gt sts)
+                ([], la_start G Shn sts))))\<close>
+  unfolding la_fix_gen_fast la_cell_nx_eq Let_def ..
 
 subsection \<open>The canonical conflict report\<close>
 
@@ -2142,63 +2007,52 @@ proof -
   then show ?thesis unfolding creach_stable .
 qed
 
-text \<open>The live-closure lemma, by induction on the round number: a
-  slot with a non-empty anchor set was contributed by an anchored item,
-  which is a live kernel item or an earlier live slot.\<close>
+text \<open>Induction on the round number of \<^const>\<open>xiter\<close>: a slot with an anchor \<open>j\<close> was
+  contributed by an anchored item, a kernel item or an earlier slot, whose anchor \<open>i\<close>
+  relates to \<open>j\<close>. A property \<open>Q\<close> of the kernel's anchored items that every such step
+  preserves holds of every slot.\<close>
+
+lemma xiter_slot_induct:
+  assumes kern: \<open>\<And>pr m R i. (pr, m, R) \<in> set xs \<Longrightarrow> i \<in> irep_set R \<Longrightarrow> Q pr m i\<close>
+    and emit: \<open>\<And>pr m i j p. Q pr m i \<Longrightarrow> m < length (snd pr) \<Longrightarrow> fst (snd pr ! m) = Nt (fst (iprods G ! p)) \<Longrightarrow>
+      p < length (iprods G) \<Longrightarrow> irel_sat (snd (snd pr ! m)) j i \<Longrightarrow> Q (iprods G ! p) 0 j\<close>
+  shows \<open>p < length (iprods G) \<Longrightarrow> j \<in> irep_set (xiter G xs t ! p) \<Longrightarrow> Q (iprods G ! p) 0 j\<close>
+proof (induction t arbitrary: p j)
+  case (Suc t)
+  have \<open>length (xiter G xs t) = length (iprods G)\<close> by simp
+  then have \<open>xiter G xs (Suc t) ! p =
+      fold (xcontrib (iprods G ! p)) (xslots G xs (xiter G xs t)) (xiter G xs t ! p)\<close>
+    by (simp add: xround_nth Suc.prems(1))
+  with Suc.prems(2) consider \<open>j \<in> irep_set (xiter G xs t ! p)\<close>
+    | xit where \<open>xit \<in> set (xslots G xs (xiter G xs t))\<close> \<open>j \<in> ximg (iprods G ! p) xit\<close>
+    by (auto simp: fold_xcontrib_set)
+  then show ?case
+  proof cases
+    case 2
+    obtain pr' m' R' where xit: \<open>xit = (pr', m', R')\<close> by (cases xit)
+    from 2(2) obtain i where m: \<open>m' < length (snd pr')\<close> \<open>fst (snd pr' ! m') = Nt (fst (iprods G ! p))\<close>
+      and iR: \<open>i \<in> irep_set R'\<close> and rel: \<open>irel_sat (snd (snd pr' ! m')) j i\<close>
+      unfolding xit by (cases pr') (auto split: if_splits)
+    from 2(1) have \<open>Q pr' m' i\<close>
+    proof (rule xslots_memE)
+      assume \<open>xit \<in> set xs\<close>
+      with kern iR show ?thesis unfolding xit by blast
+    qed (use Suc.IH iR xit in auto)
+    from emit[OF this m Suc.prems(1) rel] show ?thesis .
+  qed (rule Suc.IH[OF Suc.prems(1)])
+qed simp
+
+text \<open>The live-closure lemma: a slot with a non-empty anchor set comes from a live kernel
+  item.\<close>
 
 lemma xiter_live_creach:
   assumes kern: \<open>\<And>pr m R. (pr, m, R) \<in> set xs \<Longrightarrow> irep_nonempty R \<Longrightarrow> (pr, m) \<in> set s\<close>
   shows \<open>p < length (iprods G) \<Longrightarrow> j \<in> irep_set (xiter G xs t ! p) \<Longrightarrow>
      (iprods G ! p, 0) \<in> set (creach G s)\<close>
-proof (induction t arbitrary: p j)
-  case 0
-  then show ?case by simp
-next
-  case (Suc t)
-  have len: \<open>length (xiter G xs t) = length (iprods G)\<close> by simp
-  have \<open>xiter G xs (Suc t) ! p =
-      fold (xcontrib (iprods G ! p)) (xslots G xs (xiter G xs t)) (xiter G xs t ! p)\<close>
-    by (simp add: xround_nth[OF len Suc.prems(1)])
-  with Suc.prems(2) have
-    \<open>j \<in> irep_set (xiter G xs t ! p) \<or>
-     (\<exists>xit \<in> set (xslots G xs (xiter G xs t)). j \<in> ximg (iprods G ! p) xit)\<close>
-    by (simp add: fold_xcontrib_set)
-  then show ?case
-  proof
-    assume \<open>j \<in> irep_set (xiter G xs t ! p)\<close>
-    from Suc.IH[OF Suc.prems(1) this] show ?thesis .
-  next
-    assume \<open>\<exists>xit \<in> set (xslots G xs (xiter G xs t)). j \<in> ximg (iprods G ! p) xit\<close>
-    then obtain xit where xit: \<open>xit \<in> set (xslots G xs (xiter G xs t))\<close>
-      and jimg: \<open>j \<in> ximg (iprods G ! p) xit\<close> by blast
-    obtain pr' m' R' where xeq: \<open>xit = (pr', m', R')\<close> by (cases xit) auto
-    obtain A rhs where pr': \<open>pr' = (A, rhs)\<close> by (cases pr')
-    from jimg have m_lt: \<open>m' < length rhs\<close>
-      and nxt: \<open>fst (rhs ! m') = Nt (fst (iprods G ! p))\<close>
-      and jsat: \<open>\<exists>i \<in> irep_set R'. irel_sat (snd (rhs ! m')) j i\<close>
-      unfolding xeq pr' by (auto split: if_splits)
-    from jsat obtain i where iR: \<open>i \<in> irep_set R'\<close> by blast
-    have src: \<open>(pr', m') \<in> set (creach G s)\<close>
-      using xit
-    proof (rule xslots_memE)
-      assume \<open>xit \<in> set xs\<close>
-      then have memxs: \<open>(pr', m', R') \<in> set xs\<close> using xeq by simp
-      have \<open>(pr', m') \<in> set s\<close> using kern[OF memxs] iR by auto
-      then show ?thesis using creach_superset by (auto simp: creach_def creach_funpow_mono)
-    next
-      fix q assume q: \<open>q < length (iprods G)\<close> and \<open>q < length (xiter G xs t)\<close>
-        and xq: \<open>xit = (iprods G ! q, 0, xiter G xs t ! q)\<close>
-      have pq: \<open>pr' = iprods G ! q\<close> and mq: \<open>m' = 0\<close>
-        and Rq: \<open>R' = xiter G xs t ! q\<close> using xq xeq by auto
-      have \<open>i \<in> irep_set (xiter G xs t ! q)\<close> using iR Rq by simp
-      from Suc.IH[OF q this] show ?thesis unfolding pq mq by simp
-    qed
-    have m_lt': \<open>m' < length (snd pr')\<close> using m_lt pr' by simp
-    have nxt': \<open>fst (snd pr' ! m') = Nt (fst (iprods G ! p))\<close> using nxt pr' by simp
-    have prp: \<open>iprods G ! p \<in> set (iprods G)\<close> using Suc.prems(1) by simp
-    from creach_emit[OF src m_lt' nxt' prp] show ?thesis .
-  qed
-qed
+proof (rule xiter_slot_induct[where Q = \<open>\<lambda>pr m _. (pr, m) \<in> set (creach G s)\<close>])
+  show \<open>(pr, m) \<in> set (creach G s)\<close> if \<open>(pr, m, R) \<in> set xs\<close> \<open>i \<in> irep_set R\<close> for pr m R i
+    using kern[OF that(1)] that(2) creach_superset by (auto simp: creach_def creach_funpow_mono)
+qed (auto intro: creach_emit)
 
 theorem xclosure_auto_live_creach:
   assumes kern: \<open>\<And>pr m R. (pr, m, R) \<in> set xs \<Longrightarrow> irep_nonempty R \<Longrightarrow> (pr, m) \<in> set s\<close>
@@ -2236,9 +2090,6 @@ definition lcore :: \<open>('n, 't) xitem list \<Rightarrow> ('n, 't) citem set\
 
 lemma lcoreI: \<open>(pr, m, R) \<in> set xs \<Longrightarrow> j \<in> irep_set R \<Longrightarrow> (pr, m) \<in> lcore xs\<close>
   unfolding lcore_def by (cases pr) auto
-
-lemma lcore_sub_ccore: \<open>lcore xs \<subseteq> set (ccore xs)\<close>
-  unfolding lcore_def ccore_def by force
 
 lemma lcore_subD:
   \<open>lcore xs \<subseteq> S \<Longrightarrow> (pr, m, R) \<in> set xs \<Longrightarrow> j \<in> irep_set R \<Longrightarrow> (pr, m) \<in> S\<close>

@@ -1,5 +1,6 @@
 theory LR_Parser
-  imports LR_Plain LR_Sparse LR_Vec LR_Diag Grammar_Command.Grammar_Command
+  imports LR_Core.LR_Plain LR_Core.LR_Sparse LR_Core.LR_Vec LR_Core.LR_Diag LR_Core.LR_Recover Grammar_Command
+  keywords "parser_error_states" :: diag
 begin
 
 section \<open>Parser-facing theorems: \<open>dparse\<close> composed with a decoder\<close>
@@ -354,7 +355,7 @@ subsection \<open>Parser-facing forms: the relation family\<close>
 text \<open>For \<^theory_text>\<open>grammar (relation)\<close> the backend states soundness and
   completeness against the relation \<open>P\<close> of the start symbol.  The two
   \<open>bridge\<close> premises are per-grammar lemmas proved at parser-definition
-  time (\<^file>\<open>../parser_rel_bridge.ML\<close>): a decoded value satisfies the relation, and
+  time (\<^file>\<open>parser_rel_bridge.ML\<close>): a decoded value satisfies the relation, and
   the relation exhibits a tree the decoder maps to the value.\<close>
 
 lemma dparse_rel_sound_generic:
@@ -390,6 +391,46 @@ proof -
     by (simp add: y)
   with d body show ?thesis by simp
 qed
+
+subsection \<open>Parser-facing forms: the tree\<close>
+
+text \<open>For \<^theory_text>\<open>parser (ast)\<close> the decoder is \<^const>\<open>Some\<close>: the parser returns the
+  tree of \<^const>\<open>dparse\<close>, and the theorems speak of it. Soundness: the tree is the
+  erasure of a parse tree of the word; completeness: the erasure of every parse tree is
+  returned for its yield, which also makes the tree unique.\<close>
+
+lemma dparse_ast_sound_generic:
+  assumes body: \<open>parse_fn = (\<lambda>w. Option.bind (dparse G Shn w) Some)\<close>
+    and fn: \<open>fresh_name G Shn\<close>
+    and rec: \<open>parse_fn w = Some t\<close>
+  shows \<open>ast_of G (Nt (istart G)) (istart_ind G) t w\<close>
+  using rec by (simp add: body dparse_sound_ast[OF fn])
+
+lemma dparse_ast_complete_lang_generic:
+  assumes body: \<open>parse_fn = (\<lambda>w. Option.bind (dparse G Shn w) Some)\<close>
+    and fn: \<open>fresh_name G Shn\<close>
+    and det: \<open>mdet G Shn\<close>
+    and mem: \<open>w \<in> ilang G\<close>
+  shows \<open>\<exists>t. parse_fn w = Some t\<close>
+  by (rule dparse_complete_generic[OF body fn det mem]) simp
+
+lemma dparse_ast_complete_generic:
+  assumes body: \<open>parse_fn = (\<lambda>w. Option.bind (dparse G Shn w) Some)\<close>
+    and fn: \<open>fresh_name G Shn\<close>
+    and det: \<open>mdet G Shn\<close>
+    and chk: \<open>acc_conflicts G Shn = []\<close>
+    and wf: \<open>wf_ptree G pt\<close>
+    and rt: \<open>proot pt = (Nt (istart G), istart_ind G)\<close>
+  shows \<open>parse_fn (pyield pt) = Some (erase pt)\<close>
+  using dparse_complete_exact[OF fn det chk wf rt] by (simp add: body)
+
+lemma recover_no_error_ast_generic:
+  assumes body: \<open>parse_fn = (\<lambda>w. Option.bind (dparse G Shn w) Some)\<close>
+    and fn: \<open>fresh_name G Shn\<close>
+    and rec: \<open>parse_fn w = Some t\<close>
+    and none: \<open>\<forall>y \<in> set w. tok y \<noteq> e\<close>
+  shows \<open>ast_of G (Nt (istart G)) (istart_ind G) t w \<and> e \<notin> set (atoks t)\<close>
+  using recover_no_error_generic[OF body fn rec none] by simp
 
 
 section \<open>Explaining the reports\<close>
@@ -686,8 +727,170 @@ lemma lr_vec_tables_eq:
           (red_buckets G Shn (length (pr0_states G Shn))))))\<close>
   by (simp add: lr_vec_tables_def Let_def)
 
+section \<open>Coverage of the errors of a parser\<close>
+
+text \<open>What \<^file>\<open>lr_reach.ML\<close> reads, as numbers, so that the tables are evaluated once:
+  the automaton, the pairs of a state and a terminal whose action depends on the columns, and
+  the driver as a function on words of terminals with their columns. Nothing here is
+  proved, and nothing depends on it but warnings and the skeleton of an \<open>errors\<close> block
+  (Pottier, CC 2016; pottier2016-lr1-reachability).
+
+  The states hold kernels, so a shift counts as decided by the columns if its terminal
+  has a relation anywhere in the grammar. A reduction does if its cell has a relation,
+  or if the left-hand side occurs with one, as the goto then narrows the anchors.\<close>
+
+definition lr_rel_syms :: \<open>('n, 't) is_cfg \<Rightarrow> ('n, 't) sym list\<close> where
+  \<open>lr_rel_syms G = remdups (concat (map (\<lambda>(A, rhs).
+     map fst (filter (\<lambda>(X, r). r \<noteq> Any) rhs)) (iprods G)))\<close>
+
+definition lr_dep :: \<open>('n, 't) is_cfg \<Rightarrow> 't list \<Rightarrow> (('n, 't) sym \<times> nat) list list \<Rightarrow>
+    ('n, 't) lacell list list \<Rightarrow> nat list\<close> where
+  \<open>lr_dep G ts gt rt = (let ss = lr_rel_syms G in
+     concat (map (\<lambda>(i, row). concat (map (\<lambda>(X, _). (case X of
+         Tm a \<Rightarrow> if X \<in> set ss then [i, ntidx ts a] else []
+       | Nt _ \<Rightarrow> [])) row)) (zip [0..<length gt] gt)) @
+     concat (map (\<lambda>r. concat (map (\<lambda>(i, (pr, m), t, \<tau>).
+       if \<tau> \<noteq> WAny \<or> Nt (fst pr) \<in> set ss
+       then [i, case t of None \<Rightarrow> length ts | Some a \<Rightarrow> ntidx ts a] else []) r)) rt))\<close>
+
+text \<open>\<open>on_error_reduce\<close> (Pottier, Reachability and error diagnosis in LR(1) parsers, Sect. 4):
+  in the second run on a rejected word a state reduces a production of a named
+  nonterminal on every terminal it has no action on. The production is the lowest one the
+  state can reduce. The parser and its tables stay as they are.\<close>
+
+definition oer_prods :: \<open>'n list \<Rightarrow> ('n, 't) is_cfg \<Rightarrow> ('n, 't) lacell list \<Rightarrow>
+    ('n \<times> ('n, 't) rhs) list\<close> where
+  \<open>oer_prods As G row = filter (\<lambda>pr. fst pr \<in> set As \<and>
+     list_ex (\<lambda>(_, (pr', _), _, _). pr' = pr) row) (iprods G)\<close>
+
+definition oer_row :: \<open>'n list \<Rightarrow> ('n, 't) is_cfg \<Rightarrow> 't list \<Rightarrow> nat \<Rightarrow> bool \<Rightarrow>
+    (('n, 't) sym \<times> nat) list \<Rightarrow> ('n, 't) lacell list \<Rightarrow> ('n, 't) lacell list\<close> where
+  \<open>oer_row As G ts i fin gr row = (case oer_prods As G row of
+       [] \<Rightarrow> row
+     | pr # _ \<Rightarrow>
+         row @ map (\<lambda>z. (i, (pr, length (snd pr)), z, WAny))
+           (filter (\<lambda>z. \<not> list_ex (\<lambda>(_, _, t, _). t = z) row \<and>
+              (case z of None \<Rightarrow> \<not> fin | Some a \<Rightarrow> map_of gr (Tm a) = None))
+            (None # map Some ts)))\<close>
+
+definition oer_cells :: \<open>'n list \<Rightarrow> ('n, 't) is_cfg \<Rightarrow> 't list \<Rightarrow> bool list \<Rightarrow>
+    (('n, 't) sym \<times> nat) list list \<Rightarrow> ('n, 't) lacell list list \<Rightarrow> ('n, 't) lacell list list\<close> where
+  \<open>oer_cells As G ts pf gt rt =
+     map (\<lambda>(i, fin, gr, row). oer_row As G ts i fin gr row) (zip [0..<length rt] (zip pf (zip gt rt)))\<close>
+
+definition oer_diag :: \<open>('w \<Rightarrow> 'e + 'x) \<Rightarrow> ('w \<Rightarrow> 'e + 'x) \<Rightarrow> 'w \<Rightarrow> 'e + 'x\<close> where
+  \<open>oer_diag f g w = (case f w of
+     Inr x \<Rightarrow> Inr x
+   | Inl e \<Rightarrow> (case g w of Inl e' \<Rightarrow> Inl e' | Inr _ \<Rightarrow> Inl e))\<close>
+
+lemma oer_diag_Inr_iff: \<open>oer_diag f g w = Inr x \<longleftrightarrow> f w = Inr x\<close>
+  by (simp add: oer_diag_def split: sum.split)
+
+text \<open>In the recovery the plan stays that of the parser's tables, and the report is the
+  one of \<open>oer_diag\<close>, with the repair of the plan.\<close>
+
+definition oer_stop :: \<open>(nat \<Rightarrow> 'w \<Rightarrow> (('n, 't, 'ch, 'm) perr \<times> 'p) option) \<Rightarrow>
+    ('w \<Rightarrow> ('n, 't, 'ch, 'm) perr + 'x) \<Rightarrow> nat \<Rightarrow> 'w \<Rightarrow> (('n, 't, 'ch, 'm) perr \<times> 'p) option\<close> where
+  \<open>oer_stop stop g b w = map_option (\<lambda>(e, pl).
+     (case g w of Inl e' \<Rightarrow> e'\<lparr>pe_repair := pe_repair e\<rparr> | Inr _ \<Rightarrow> e, pl)) (stop b w)\<close>
+
+text \<open>For the pruning of the candidates that depend on columns (\<^file>\<open>lr_reach.ML\<close>), the
+  relations of the productions, the kernels, and the relation of each reduce cell, as numbers.
+  A kernel item of no production of the grammar (the start item) gets the number of
+  productions.\<close>
+
+definition lr_irel_code :: \<open>irel \<Rightarrow> nat\<close> where
+  \<open>lr_irel_code r = (case r of Eq \<Rightarrow> 0 | Gt \<Rightarrow> 1 | Ge \<Rightarrow> 2 | Any \<Rightarrow> 3)\<close>
+
+definition lr_wrel_code :: \<open>wrel \<Rightarrow> nat\<close> where
+  \<open>lr_wrel_code \<tau> = (case \<tau> of WEq \<Rightarrow> 0 | WGe \<Rightarrow> 1 | WGt \<Rightarrow> 2 | WLe \<Rightarrow> 3 | WLt \<Rightarrow> 4 | WAny \<Rightarrow> 5)\<close>
+
+definition lr_view :: \<open>'n list \<Rightarrow> ('n, 't) is_cfg \<Rightarrow> bool list \<Rightarrow> nat \<Rightarrow> 't list \<Rightarrow>
+    ('n, 't) citem list list \<Rightarrow> (('n, 't) sym \<times> nat) list list \<Rightarrow> ('n, 't) lacell list list \<Rightarrow>
+    integer list list\<close> where
+  \<open>lr_view As G pf i0 ts sts gt rt = (let
+     nts = remdups (map fst (iprods G)); nt = length ts;
+     prs = zip (iprods G) [0..<length (iprods G)];
+     pnum = (\<lambda>pr. case map_of prs pr of None \<Rightarrow> length (iprods G) | Some p \<Rightarrow> p);
+     sc = (\<lambda>X. case X of Tm a \<Rightarrow> ntidx ts a | Nt A \<Rightarrow> nt + 1 + ntidx nts A)
+   in map (map integer_of_nat)
+     [[length sts, nt, length nts, i0],
+      concat (map (\<lambda>(i, row). concat (map (\<lambda>(X, j). [i, sc X, j]) row)) (zip [0..<length gt] gt)),
+      concat (map (\<lambda>(A, rhs). ntidx nts A # length rhs # map (sc \<circ> fst) rhs) (iprods G)),
+      concat (map (\<lambda>r. concat (map (\<lambda>(i, (pr, m), t, \<tau>). case map_of prs pr of None \<Rightarrow> []
+            | Some p \<Rightarrow> [i, p, case t of None \<Rightarrow> nt | Some a \<Rightarrow> ntidx ts a]) r)) rt),
+      map fst (filter snd (zip [0..<length sts] pf)),
+      lr_dep G ts gt rt,
+      concat (map (\<lambda>(i, r). if Suc 0 < length (oer_prods As G r) then [i] else [])
+        (zip [0..<length rt] rt)),
+      concat (map (\<lambda>(A, rhs). length rhs # map (lr_irel_code \<circ> snd) rhs) (iprods G)),
+      concat (map (\<lambda>(i, k). i # length k # concat (map (\<lambda>(pr, m). [pnum pr, m]) k))
+        (zip [0..<length sts] sts)),
+      concat (map (\<lambda>r. concat (map (\<lambda>(i, (pr, m), t, \<tau>). [i, pnum pr, m,
+          case t of None \<Rightarrow> nt | Some a \<Rightarrow> ntidx ts a, lr_wrel_code \<tau>]) r)) rt)])\<close>
+
+fun reach_pairs :: \<open>integer list \<Rightarrow> (nat \<times> nat) list\<close> where
+  \<open>reach_pairs (a # b # r) = (nat_of_integer a, nat_of_integer b) # reach_pairs r\<close>
+| \<open>reach_pairs _ = []\<close>
+
+text \<open>A rejected word as numbers, \<open>[]\<close> for an accepted one: the end of the input is
+  \<^term>\<open>length ts\<close>, and a terminal of no production the number after it.\<close>
+
+definition reach_enc :: \<open>'t list \<Rightarrow> (nat \<times> 't option \<times> nat \<times> nat \<times> nat) option \<Rightarrow> integer list\<close> where
+  \<open>reach_enc ts r = (case r of
+     None \<Rightarrow> []
+   | Some (st, tk, sh, idx, depth) \<Rightarrow> map integer_of_nat
+       [st, case tk of None \<Rightarrow> length ts
+          | Some a \<Rightarrow> if a \<in> set ts then ntidx ts a else Suc (length ts),
+        sh, idx, depth])\<close>
+
+definition reach_fn :: \<open>(('t, 'ch, 'm) token_scheme list \<Rightarrow> ('n, 't, 'ch, 'm) perr + 'x) \<Rightarrow>
+    ('t \<Rightarrow> string \<Rightarrow> nat \<Rightarrow> ('t, 'ch, 'm) token_scheme) \<Rightarrow> ('t \<times> string) list \<Rightarrow>
+    integer list \<Rightarrow> integer list\<close> where
+  \<open>reach_fn probe mk tss is =
+     reach_enc (map fst tss) (diag_probe (probe (map (\<lambda>(t, c).
+       (case tss ! t of (a, s) \<Rightarrow> mk a s c)) (reach_pairs is))))\<close>
+
+text \<open>The checks with the errors of the words of an \<open>errors\<close> block, in one evaluation:
+  the words run on the state-indexed driver over the automaton of the checks, as the
+  parser's \<open>p_probe\<close> runs them over its constants, so that the tables are built once.
+  The errors are not proved, only the checks: they are the first component. A grammar
+  for the simple driver gets no errors here.\<close>
+
+definition lr_checks_keys :: \<open>('n, 't) is_cfg \<Rightarrow> 'n \<Rightarrow> 't list \<Rightarrow> 't list \<Rightarrow>
+    ('m, 'ch, 't) tword list \<Rightarrow> (nat list \<times> nat list \<times> bool \<times> bool \<times>
+      (nat \<times> ('n, 't) sym list option) list \<times> nat list) \<times> integer list list\<close> where
+  \<open>lr_checks_keys G Shn ctrs ts ws =
+     (let sp = pr0_states G Shn; gp = pgtab G sp; L = la_fix_gen G Shn gp sp;
+          ants = anchored_nts G; wrs = map (wreach G) sp; fuel = ifuel wrs;
+          p0 = p0start G Shn; s0 = start_prod G Shn;
+          confs = filter (rlalr_conflict_at_gen Shn wrs gp ants fuel L) [0..<length sp];
+          rt = cell_buckets L (length sp); i = ii G; wa = wany_ok rt
+      in ((confs,
+           filter (\<lambda>i. (s0, Suc 0) \<in> set (sp ! i) \<and>
+                     list_ex (\<lambda>(i', (pr, m), t, \<tau>). i' = i \<and> m = length (snd pr) \<and>
+                               t = None \<and> pr \<noteq> s0) L)
+             [0..<length sp],
+           i, wa,
+           map (\<lambda>i. (i, path_bfs (\<lambda>j. if j < length gp then gp ! j else []) i
+                (Suc (length sp)) [] [(p0, [])])) confs,
+           map (ntidx (vtoks G rt)) ctrs),
+          if i \<and> confs = [] \<and> wa then []
+          else
+            (let T = mk_stab G Shn gp sp rt; V = mk_vtab G Shn T sp gp rt; kin = sinit T;
+                 i\<^sub>0 = st_find sp (lr0_start G Shn)
+             in map (\<lambda>w. reach_enc ts (diag_probe
+                  (vdiag V T kin (sclosure T kin) i\<^sub>0 [] (\<lambda>_. Some ()) w))) ws)))\<close>
+
+lemma lr_checks_keys_fst: \<open>fst (lr_checks_keys G Shn ctrs ts ws) = lr_checks G Shn ctrs\<close>
+  by (simp add: lr_checks_keys_def lr_checks_def Let_def)
+
 section \<open>The LR backend of the \<^theory_text>\<open>parser\<close> command\<close>
 
+ML_file \<open>lr_reach.ML\<close>
+ML_file \<open>lr_util.ML\<close>
+ML_file \<open>lr_diag.ML\<close>
+ML_file \<open>lr_build.ML\<close>
 ML_file \<open>lr.ML\<close>
 
 end

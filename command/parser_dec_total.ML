@@ -3,16 +3,17 @@
 
      \<And>t. ast_of G (Nt (istart G)) (istart_ind G) t ?w \<Longrightarrow> \<exists>x. dec t = Some x
 
-   and `prove` establishes it in that shape; `prover` states it for any
-   nonterminal A, at the root \<open>(Nt ''A'', 0)\<close> unless A is the start, with one
+   and `prover` states it for any nonterminal A (the shape above for the start),
+   at the root \<open>(Nt ''A'', 0)\<close> unless A is the start, with one
    wf_ptree induction for all of them *)
 
 signature PARSER_DEC_TOTAL =
 sig
   val gram_eqs: Proof.context -> Grammar_Common.grammar -> thm list
   val dec_none: Proof.context -> Grammar_Common.grammar -> string -> thm
-  val prove: Proof.context -> Grammar_Common.grammar -> thm
-  val prover: Proof.context -> Grammar_Common.grammar -> string -> thm
+  (* dec_none for every nonterminal, in the order of the grammar; shared with the bridge *)
+  val dec_nones: Proof.context -> Grammar_Common.grammar -> thm list
+  val prover: Proof.context -> Grammar_Common.grammar -> thm list -> string -> thm
 end;
 
 structure Parser_Dec_Total: PARSER_DEC_TOTAL =
@@ -46,15 +47,15 @@ fun gram_eqs ctxt (gram: Grammar_Common.grammar) =
    `fst (proot c) = Nt B`) *)
 fun dec_none ctxt (gram: Grammar_Common.grammar) A =
   let
-    val {astT, ...} = Grammar_Common.get_desc gram;
-    val symT = Type (\<^type_name>\<open>sym\<close>, [\<^typ>\<open>string\<close>, #tokT gram]);
+    val {astT, symT, ...} = Grammar_Common.get_desc gram;
     val t_nm = the_single (fst (Variable.variant_fixes ["t"] ctxt));
     val t = Free (t_nm, astT);
     val prop =
       Logic.mk_implies
         (HOLogic.mk_Trueprop (HOLogic.mk_not (HOLogic.mk_eq
           (Const (\<^const_name>\<open>asym\<close>, astT --> symT) $ t,
-           Const (\<^const_name>\<open>Nt\<close>, \<^typ>\<open>string\<close> --> symT) $ HOLogic.mk_string A))),
+           Const (\<^const_name>\<open>Nt\<close>, Grammar_Common.name_typ gram --> symT) $
+             Grammar_Common.name_term gram A))),
          HOLogic.mk_Trueprop (HOLogic.mk_eq
           (Grammar_Defs.decoder_of ctxt gram A $ t,
            Grammar_Common.mk_None (Grammar_Common.carrier_of gram A))));
@@ -78,20 +79,18 @@ fun dec_none ctxt (gram: Grammar_Common.grammar) A =
      \<And>w t. ast_of gram (Nt ''A'') 0 t w \<Longrightarrow> \<exists>x. dec_A t = Some x *)
 fun prop2 ctxt (gram: Grammar_Common.grammar) start_nt =
   let
-    val {isgT, wordT, astT, ...} = Grammar_Common.get_desc gram;
+    val {isgT, wordT, astT, symT, ...} = Grammar_Common.get_desc gram;
     val gram_t = #gram_t (Grammar_Common.artifacts_of gram);
-    val tokT = #tokT gram;
-    val stringT = \<^typ>\<open>string\<close>;
-    val symT = Type (\<^type_name>\<open>sym\<close>, [stringT, tokT]);
-    val Nt_c = Const (\<^const_name>\<open>Nt\<close>, stringT --> symT);
+    val nameT = Grammar_Common.name_typ gram;
+    val Nt_c = Const (\<^const_name>\<open>Nt\<close>, nameT --> symT);
     val dec_of = Grammar_Defs.decoder_of ctxt gram;
 
     val start_cT = Grammar_Common.carrier_of gram start_nt;
     val (istart_t, istart_ind_t) =
       if start_nt = #start gram then
-        (Const (\<^const_name>\<open>istart\<close>, isgT --> stringT) $ gram_t,
+        (Const (\<^const_name>\<open>istart\<close>, isgT --> nameT) $ gram_t,
          Const (\<^const_name>\<open>istart_ind\<close>, isgT --> \<^typ>\<open>nat\<close>) $ gram_t)
-      else (HOLogic.mk_string start_nt, \<^term>\<open>0 :: nat\<close>);
+      else (Grammar_Common.name_term gram start_nt, \<^term>\<open>0 :: nat\<close>);
     val ast_of_c = Const (\<^const_name>\<open>ast_of\<close>,
       isgT --> symT --> \<^typ>\<open>nat\<close> --> astT --> wordT --> HOLogic.boolT);
     val t = Free ("t", astT);
@@ -104,18 +103,19 @@ fun prop2 ctxt (gram: Grammar_Common.grammar) start_nt =
       (HOLogic.mk_Trueprop prem2, HOLogic.mk_Trueprop concl2)))
   end;
 
-fun prover ctxt (gram: Grammar_Common.grammar) =
+fun dec_nones ctxt (gram: Grammar_Common.grammar) =
+  Grammar_Common.timed ctxt "parser" "dec_none lemmas"
+    (map (dec_none ctxt gram o fst)) (Grammar_Common.nonterms_list gram);
+
+fun prover ctxt (gram: Grammar_Common.grammar) dec_nones =
   let
-    val {astT, ...} = Grammar_Common.get_desc gram;
+    val {astT, ptreeT, ...} = Grammar_Common.get_desc gram;
     val gram_t = #gram_t (Grammar_Common.artifacts_of gram);
-    val Ts = (case astT of Type (_, Ts) => Ts | _ => raise Fail "astT");
-    val ptreeT = Type (\<^type_name>\<open>ptree\<close>, Ts);
     val erase_c = Const (\<^const_name>\<open>erase\<close>, ptreeT --> astT);
     val dec_of = Grammar_Defs.decoder_of ctxt gram;
     val nts = Grammar_Common.nonterms_list gram;
 
     val eqs = gram_eqs ctxt gram;
-    val dec_nones = map (dec_none ctxt gram o fst) nts;
 
     (* body_A pt: \<exists>x. dec_A (erase pt) = Some x *)
     fun body (A, _) =
@@ -143,7 +143,9 @@ fun prover ctxt (gram: Grammar_Common.grammar) =
       end;
     val project =
       Grammar_Ptree_Induct.prove ctxt
-        {gram_t = gram_t, ptreeT = ptreeT, tokT = #tokT gram, bodies = map body nts}
+        {gram_t = gram_t, ptreeT = ptreeT, tokT = #tokT gram,
+         nameT = Grammar_Common.name_typ gram, name = Grammar_Common.name_term gram,
+         bodies = map body nts}
         node_tac;
 
     fun tac2 start_th ctxt =
@@ -157,7 +159,5 @@ fun prover ctxt (gram: Grammar_Common.grammar) =
         |> Grammar_Common.close_binders ctxt ["t"]
       end;
   in tot end;
-
-fun prove ctxt (gram: Grammar_Common.grammar) = prover ctxt gram (#start gram);
 
 end;

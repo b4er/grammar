@@ -33,8 +33,23 @@ text \<open>
   Symbols, ordinary context-free grammars, their derivation relations and their
   parse trees are those of \<^theory>\<open>Context_Free_Grammar.Parse_Tree\<close> and its
   parent: \<^const>\<open>Nt\<close> and \<^const>\<open>Tm\<close>, here over the tokens of theory
-  \<^theory>\<open>Grammar_Command.Token\<close>, \<^const>\<open>derive\<close> and \<^const>\<open>deriver\<close> over a
+  \<^theory>\<open>Grammar_Model.Token\<close>, \<^const>\<open>derive\<close> and \<^const>\<open>deriver\<close> over a
   production set, and \<^const>\<open>parse_tree\<close>.
+
+  Not all of this is used by the LR development and the \<^text>\<open>grammar\<close>
+  command downstream. The following subsections are paper-only: none of
+  their lemmas is used downstream. They are kept as the formal reading of the paper.
+  \<^item> Soundness and completeness of the executable parser against parse trees,
+    and the correctness of the top-level parser.
+  \<^item> Rightmost derivations and handles (Sect. 5.3), item-set completeness
+    (Definition 9, Lemma 10), and LR(k) grammars (Sect. 5.6).
+  \<^item> Factored item sets, the factored operations, and the bisimulation of the
+    factored machine with Algorithm 8 (Sect. 5.5, 5.7).
+  Item cores, the correctness of Algorithm 8, and the language-level
+  corollaries are paper-only but for one or a few facts each, and about half of
+  the first-token desugaring (Sect. 2) is. The model (the rewrite relation,
+  parse trees, the erased grammar) and the executable GLR machine at the end
+  are what the LR theories build on.
 \<close>
 
 subsection \<open>Indentation relations\<close>

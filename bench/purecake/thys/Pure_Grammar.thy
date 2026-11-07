@@ -7,7 +7,7 @@ section \<open>PureCake's PEG as an indentation-sensitive CFG\<close>
 text \<open>A transcription of \<open>purePEG\<close>:
 
   PureCake's IS-PEG attaches the relations \<open>lrEQ\<close>, \<open>lrGE\<close>, \<open>lrGT\<close>, \<open>lrOK\<close> to
-  symbols exactly as adams2013 does; they become \<open>^=\<close>, \<open>^>=\<close>, \<open>^>\<close>, \<open>^*\<close>.
+  symbols exactly as adams2013 does; they become \<open>^=\<close>, \<open>^>=\<close>, \<open>^>\<close> and no annotation.
   The PEG's \<open>rpt\<close>, \<open>sepby\<close> and optional parts become left-recursive auxiliary
   nonterminals under \<open>^=\<close>, which pass the parent's indentation through unchanged; their
   values are lists in reverse.
@@ -156,7 +156,7 @@ grammar (relation) pure =
     "\<lambda>" = PBackslash
   productions
       File :: \<open>declAST list option\<close>
-        = Decls\<^sup>*                                 \<Rightarrow> \<open>orev\<close>
+        = Decls                                 \<Rightarrow> \<open>orev\<close>
     and
       Decls :: \<open>declAST list option\<close>
         =                                       \<Rightarrow> \<open>Some []\<close>
@@ -207,23 +207,23 @@ grammar (relation) pure =
         | TyArr\<^sup>= "->"\<^sup>\<ge> TyApp\<^sup>\<ge>                 \<Rightarrow> \<open>\<lambda>ts t. t # ts\<close>
     and
       EqBindSeq :: \<open>expdecAST list option\<close>
-        = "{"\<^sup>> "}"\<^sup>*                            \<Rightarrow> \<open>Some []\<close>
-        | "{"\<^sup>> ";"\<^sup>* "}"\<^sup>*                       \<Rightarrow> \<open>None\<close>
-        | "{"\<^sup>> FreeBinds\<^sup>* "}"\<^sup>*                 \<Rightarrow> \<open>orev\<close>
-        | "{"\<^sup>> FreeBinds\<^sup>* ";"\<^sup>* "}"\<^sup>*            \<Rightarrow> \<open>orev\<close>
+        = "{"\<^sup>> "}"                            \<Rightarrow> \<open>Some []\<close>
+        | "{"\<^sup>> ";" "}"                       \<Rightarrow> \<open>None\<close>
+        | "{"\<^sup>> FreeBinds "}"                 \<Rightarrow> \<open>orev\<close>
+        | "{"\<^sup>> FreeBinds ";" "}"            \<Rightarrow> \<open>orev\<close>
         | LBinds\<^sup>>                              \<Rightarrow> \<open>orev\<close>
     and
       FreeBinds :: \<open>expdecAST list option\<close>
-        = FreeEqBind\<^sup>*                          \<Rightarrow> \<open>\<lambda>b. osnoc (Some []) b\<close>
-        | FreeBinds\<^sup>* ";"\<^sup>* FreeEqBind\<^sup>*          \<Rightarrow> \<open>osnoc\<close>
+        = FreeEqBind                          \<Rightarrow> \<open>\<lambda>b. osnoc (Some []) b\<close>
+        | FreeBinds ";" FreeEqBind          \<Rightarrow> \<open>osnoc\<close>
     and
       LBinds :: \<open>expdecAST list option\<close>
         =                                       \<Rightarrow> \<open>Some []\<close>
         | LBinds\<^sup>= EqBind\<^sup>=                      \<Rightarrow> \<open>osnoc\<close>
     and
       FreeEqBind :: \<open>expdecAST option\<close>
-        = Exp\<^sup>* "="\<^sup>* Exp\<^sup>*                      \<Rightarrow> \<open>act_eqbind\<close>
-        | PLc\<^sup>* "::"\<^sup>* Ty\<^sup>*                      \<Rightarrow> \<open>\<lambda>x t. Some (expdecTysig (ttxt x) t)\<close>
+        = Exp "=" Exp                      \<Rightarrow> \<open>act_eqbind\<close>
+        | PLc "::" Ty                      \<Rightarrow> \<open>\<lambda>x t. Some (expdecTysig (ttxt x) t)\<close>
     and
       EqBind :: \<open>expdecAST option\<close>
         = ExpEQ\<^sup>= "="\<^sup>> Exp\<^sup>>                    \<Rightarrow> \<open>act_eqbind\<close>
@@ -307,7 +307,7 @@ grammar (relation) pure =
         = ExpEQ\<^sup>= "->"\<^sup>> Exp\<^sup>>                   \<Rightarrow> \<open>act_patalt\<close>
     and
       DoBlock :: \<open>expAST option\<close>
-        = "{"\<^sup>> SeqE\<^sup>* "}"\<^sup>*                      \<Rightarrow> \<open>act_do\<close>
+        = "{"\<^sup>> SeqE "}"                      \<Rightarrow> \<open>act_do\<close>
         | LinesE\<^sup>>                             \<Rightarrow> \<open>act_do\<close>
     and
       SeqE :: \<open>dosE\<close>
