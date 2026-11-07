@@ -1,0 +1,22 @@
+chapter AFP
+
+session Token in "token" = HOL +
+  description "Spans, positions, and the token record standalone"
+  options [timeout = 300]
+  theories Token
+  document_files "root.tex"
+
+session Lexer = Token +
+  description
+    "Symbolic regexes and their derivatives, the inductive lexer
+     specification, the DFA table generator and the runner."
+  options [timeout = 600]
+  sessions "Regular-Sets" "HOL-Library"
+  theories Regex Pred_Algebra Intervals Spec Gen Lexer Driver Tables Codepoints
+  document_files "root.tex" "root.bib"
+
+session Lexer_Tests in "tests" = Lexer +
+  description "Tests and examples."
+  options [document = false, timeout = 300]
+  theories Intervals_Tests Tables_Tests Driver_Tests Codepoint_Tests
+  document_files (in "../document") "root.bib"

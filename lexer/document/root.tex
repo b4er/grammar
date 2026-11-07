@@ -1,0 +1,35 @@
+\documentclass[11pt,a4paper]{article}
+
+\usepackage[T1]{fontenc}
+\usepackage{isabelle,isabellesym}
+\usepackage{pdfsetup}
+
+\urlstyle{rm}
+\isabellestyle{it}
+
+\begin{document}
+
+\title{A Verified Lexer Generator with Modes}
+\author{Basil F\"urer}
+\maketitle
+
+\begin{abstract}
+  We formalize a flex-style lexer generator. A specification gives each mode a
+  prioritized list of rules over symbolic regular expressions, whose atoms are
+  predicates on characters, and rule actions manipulate a stack of modes.
+  Lexing is specified by inductive judgments: longest match, first matching rule,
+  and a driver that attaches trailing trivia to tokens and computes source spans.
+  We prove the judgments deterministic and the driver total, so the specification
+  defines a function. The generated lexer computes this function: it is sound and
+  complete with respect to the driver, and it runs in linear time when the DFA has
+  bounded lookahead.
+\end{abstract}
+
+\tableofcontents
+
+\input{session}
+
+\bibliographystyle{abbrv}
+\bibliography{root}
+
+\end{document}
