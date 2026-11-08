@@ -133,8 +133,8 @@ subsection \<open>Errors\<close>
 ML \<open>
 fun command_error src =
   let val thy = \<^theory> in
-    (fold (Toplevel.command_exception true) (Outer_Syntax.parse_text thy (K thy) Position.none src)
-       (Toplevel.make_state (SOME thy)); NONE)
+    (fold Toplevel.command_exception (Outer_Syntax.parse_text thy (K {skip_theory = false, theory = thy}) Position.none src)
+       (Toplevel.make_state (SOME (Context.Theory thy))); NONE)
     handle Runtime.EXCURSION_FAIL (exn, _) => SOME (Runtime.exn_message exn)
   end;
 

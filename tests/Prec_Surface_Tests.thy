@@ -198,8 +198,8 @@ subsection \<open>Errors of the declarations\<close>
 ML \<open>
 fun command_error src =
   let val thy = \<^theory> in
-    (fold (Toplevel.command_exception true) (Outer_Syntax.parse_text thy (K thy) Position.none src)
-       (Toplevel.make_state (SOME thy)); NONE)
+    (fold Toplevel.command_exception (Outer_Syntax.parse_text thy (K {skip_theory = false, theory = thy}) Position.none src)
+       (Toplevel.make_state (SOME (Context.Theory thy))); NONE)
     handle Runtime.EXCURSION_FAIL (exn, _) => SOME (Runtime.exn_message exn)
   end;
 
@@ -252,8 +252,8 @@ fun command_output thy prefix src =
     val _ = (Private_Output.warning_fn := keep w0; Private_Output.writeln_fn := keep l0);
     val res =
       Exn.capture (fn () =>
-        fold (Toplevel.command_exception true) (Outer_Syntax.parse_text thy (K thy) Position.none src)
-          (Toplevel.make_state (SOME thy))) ();
+        fold Toplevel.command_exception (Outer_Syntax.parse_text thy (K {skip_theory = false, theory = thy}) Position.none src)
+          (Toplevel.make_state (SOME (Context.Theory thy)))) ();
     val _ = restore ();
     val _ = Exn.release res;
   in rev (Synchronized.value buf) end;

@@ -641,11 +641,11 @@ fun define_diagnostics gram states_c (block, errors, given) recover repair on_er
                 THEN resolve_tac ctxt @{thms refl} 1
             | (NONE, SOME (_, def)) =>
                 HEADGOAL (asm_full_simp_tac
-                  (ctxt addsimps [diag_def, def, @{thm pe_diag_names_Inr_iff}, @{thm oer_diag_Inr_iff}]
+                  (ctxt |> Simplifier.add_simps [diag_def, def, @{thm pe_diag_names_Inr_iff}, @{thm oer_diag_Inr_iff}]
                     |> Splitter.add_split @{thm option.split}))
             | (NONE, NONE) =>
                 HEADGOAL (asm_full_simp_tac
-                  (ctxt addsimps [diag_def, @{thm pe_diag_names_Inr_iff}] |> Splitter.add_split @{thm option.split})));
+                  (ctxt |> Simplifier.add_simps [diag_def, @{thm pe_diag_names_Inr_iff}] |> Splitter.add_split @{thm option.split})));
           val iff_th = Goal.prove lthy ["w", "x"] [] iff_t (fn {context, ...} => tac context);
           val lthy =
             lthy

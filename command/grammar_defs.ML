@@ -54,7 +54,7 @@ fun define_const code (b, def_b, rhs) lthy =
   end;
 
 fun simp_only ctxt extra =
-  asm_full_simp_tac (put_simpset HOL_basic_ss ctxt addsimps extra);
+  asm_full_simp_tac (put_simpset HOL_basic_ss ctxt |> Simplifier.add_simps extra);
 
 
 (** grammar constant: the isg / cfg record **)
@@ -429,7 +429,7 @@ fun define_decoders (gram: Grammar_Common.grammar) lthy =
        case distinctions on the children list *)
     fun children_ctxt ctxt =
       put_simpset HOL_basic_ss ctxt
-        addsimps @{thms list.set insert_iff simp_thms if_True}
+        |> Simplifier.add_simps @{thms list.set insert_iff simp_thms if_True}
       |> Simplifier.add_cong @{thm list.case_cong};
     fun prove_eqn A goal =
       let

@@ -91,7 +91,7 @@ fun tnum_case lthy parse_b (sugar: Ctr_Sugar.ctr_sugar) (num_c, tab_eq, nums_e, 
     val conjs =
       HOLogic.conj_elims
         (Simplifier.full_simplify
-          (put_simpset HOL_basic_ss lthy' addsimps @{thms list.map list.inject simp_thms}) nums_eq);
+          (put_simpset HOL_basic_ss lthy' |> Simplifier.add_simps @{thms list.map list.inject simp_thms}) nums_eq);
     val num_t = Syntax.check_term lthy' (Const (num_c, dummyT) $ tab_c);
     val tokT = domain_type (fastype_of tnum_c);
     val y = Free ("y", tokT);
@@ -115,7 +115,7 @@ fun tnum_case lthy parse_b (sugar: Ctr_Sugar.ctr_sugar) (num_c, tab_eq, nums_e, 
         THEN ALLGOALS (fn i =>
           hyp_subst_tac ctxt i
           THEN simp_tac (put_simpset HOL_basic_ss ctxt
-            addsimps (def_eq :: conjs @ #case_thms sugar @ @{thms simp_thms})) i));
+            |> Simplifier.add_simps (def_eq :: conjs @ #case_thms sugar @ @{thms simp_thms})) i));
   in (@{thm ext} OF [th], tnum_c, lthy') end;
 
 val parser_int_tables = Attrib.setup_config_bool \<^binding>\<open>parser_int_tables\<close> (K false);

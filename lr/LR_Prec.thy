@@ -361,7 +361,7 @@ definition ropen :: \<open>('n, 't) is_cfg \<Rightarrow> ('n, 't) alt \<Rightarr
 type_synonym ('n, 't) ltab = \<open>(('n, 't) alt \<times> nat \<times> passoc \<times> bool) list\<close>
 
 definition lvl_tab :: \<open>(passoc \<times> (('n, 't) alt \<times> bool) list) list \<Rightarrow> ('n, 't) ltab\<close> where
-  \<open>lvl_tab lvs = concat (map (\<lambda>(i, a, cs). map (\<lambda>(c, s). (c, i, a, s)) cs) (List.enumerate 0 lvs))\<close>
+  \<open>lvl_tab lvs = concat (map (\<lambda>(i, a, cs). map (\<lambda>(c, s). (c, i, a, s)) cs) (List.indexed_from 0 lvs))\<close>
 
 definition lside :: \<open>('n, 't) is_cfg \<Rightarrow> ('n, 't) ltab \<Rightarrow> ('n, 't) alt \<Rightarrow> nat \<Rightarrow> passoc \<Rightarrow> 'n \<Rightarrow> ('n, 't) forbid list\<close> where
   \<open>lside G tb p lp ap X = (if ap = AOpen then [] else concat (map (\<lambda>c.

@@ -147,7 +147,7 @@ fun prepare parse_b shn (gr: Grammar_Common.grammar) lthy =
         (case prem of
           \<^Const_>\<open>Trueprop for \<^Const_>\<open>no_self_unit _ _ for _\<close>\<close> =>
             SOME (resolve_tac ctxt @{thms no_self_unitI} THEN'
-              asm_full_simp_tac (ctxt addsimps (gram_def :: @{thms is_cfg.make_def})))
+              asm_full_simp_tac (ctxt |> Simplifier.add_simps (gram_def :: @{thms is_cfg.make_def})))
         | _ => NONE);
   in
     ({gram = Grammar_Common.put_artifacts arts' gr, inst = inst, discharge = discharge}, lthy)

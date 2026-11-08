@@ -1021,7 +1021,7 @@ proof (induction n arbitrary: rhs arhs j V rule: less_induct)
     unfolding rhs Xr by (cases arhs) (auto simp: annotates_def)
   have \<open>(infG G) \<turnstile> [Y] @ arest \<Rightarrow>(n) Tm (a, c) # V\<close>
     using less.prems(1) unfolding arhs by simp
-  from iffD1[OF deriven_append_decomp this]
+  from iffD1[OF deriven_appendD this]
   obtain n\<^sub>1 n\<^sub>2 w\<^sub>1 w\<^sub>2 where n: \<open>n = n\<^sub>1 + n\<^sub>2\<close> and w: \<open>Tm (a, c) # V = w\<^sub>1 @ w\<^sub>2\<close>
     and d\<^sub>1: \<open>(infG G) \<turnstile> [Y] \<Rightarrow>(n\<^sub>1) w\<^sub>1\<close>
     and d\<^sub>2: \<open>(infG G) \<turnstile> arest \<Rightarrow>(n\<^sub>2) w\<^sub>2\<close>

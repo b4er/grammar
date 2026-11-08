@@ -103,10 +103,10 @@ fun b1_body (s: setup) (A, pred) pt =
    premises then closed by the child's induction hypothesis and the relation *)
 fun b1_node_tac ctxt (s: setup) (intros, loops) dec_nones sel_eqs =
   let
-    val ctxt1 = ctxt addsimps (#gram_eqs s @ sel_eqs @ @{thms list_all2_Cons1} @ span_simps);
+    val ctxt1 = ctxt |> Simplifier.add_simps (#gram_eqs s @ sel_eqs @ @{thms list_all2_Cons1} @ span_simps);
     val ctxt2 =
       Splitter.add_split @{thm option.split_asm} ctxt
-        addsimps (dec_nones @ sel_eqs @
+        |> Simplifier.add_simps (dec_nones @ sel_eqs @
           @{thms bind_eq_Some_conv asym_erase case_ast_Nt_None} @ span_simps);
     val ctxt3 = ctxt2 addIs intros;
     val close = Clasimp.fast_force_tac ctxt3;
@@ -147,7 +147,7 @@ fun prove_dec_sound ctxt (s: setup) b1_all start =
     val start_th = b1_all start;
     fun tac {context, ...} =
       Method.insert_tac context [start_th] 1
-      THEN HEADGOAL (SOLVED' (Clasimp.fast_force_tac (context addsimps #gram_eqs s)));
+      THEN HEADGOAL (SOLVED' (Clasimp.fast_force_tac (context |> Simplifier.add_simps (#gram_eqs s))));
   in
     Goal.prove_sorry ctxt [pt_nm, x_nm] [] prop tac
     |> Grammar_Common.close_binders ctxt [pt_nm, x_nm]
@@ -227,7 +227,7 @@ fun b2_case_tac ctxt (s: setup) (p: Grammar_Common.prod) =
       (* the decoder conjunct: nonterminal children by their induction
          hypotheses, wrong alternatives by dec_none / case_ast_Nt_None *)
       val simp_ctxt =
-        ctxt' addsimps (#gram_eqs s @ @{thms wf_leaf asym_erase case_ast_Nt_None} @ span_simps);
+        ctxt' |> Simplifier.add_simps (#gram_eqs s @ @{thms wf_leaf asym_erase case_ast_Nt_None} @ span_simps);
     in
       HEADGOAL (resolve_tac ctxt' [exI_inst])
       THEN HEADGOAL (REPEAT_ALL_NEW (resolve_tac ctxt' @{thms conjI}))
@@ -249,7 +249,7 @@ fun prove_b2_all ctxt (s: setup) dec_nones =
         in (preds, #induct (#2 (Inductive.the_inductive ctxt (snd (hd preds))))) end);
     val prods = #prods (#gram s);
     fun case_tac ctxt' k =
-      DETERM (HEADGOAL (SOLVED' (b2_case_tac (ctxt' addsimps dec_nones) s (nth prods k))));
+      DETERM (HEADGOAL (SOLVED' (b2_case_tac (ctxt' |> Simplifier.add_simps dec_nones) s (nth prods k))));
     val ths =
       Grammar_Defs.prove_family ctxt
         {comps = comps, prod_lhss = map #lhs prods, insensitive = #insensitive s,
@@ -275,7 +275,7 @@ fun prove_rel_dec ctxt (s: setup) b2_all start =
          HOLogic.mk_Trueprop (b2_body s start (start_root s start) w x));
     val start_th = nth b2_all (find_index (fn (A, _) => A = start) (#preds s));
     fun tac {context, ...} =
-      HEADGOAL (TRY o simp_tac (put_simpset HOL_basic_ss context addsimps #gram_eqs s))
+      HEADGOAL (TRY o simp_tac (put_simpset HOL_basic_ss context |> Simplifier.add_simps (#gram_eqs s)))
       THEN HEADGOAL (SOLVED' (eresolve_tac context [start_th]));
   in
     Goal.prove_sorry ctxt [w_nm, x_nm] [] prop tac

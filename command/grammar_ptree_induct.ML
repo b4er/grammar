@@ -57,7 +57,7 @@ fun node_intros ctxt {witness, rhs, pts} =
    else; the bodies in the branches are left alone (if_weak_cong) *)
 fun literal_ss ctxt =
   put_simpset HOL_basic_ss ctxt
-    addsimps @{thms if_True if_False list.inject list.distinct char.inject simp_thms
+    |> Simplifier.add_simps @{thms if_True if_False list.inject list.distinct char.inject simp_thms
       num.inject num.distinct numeral_eq_iff numeral_eq_one_iff one_eq_numeral_iff
       zero_neq_numeral numeral_neq_zero zero_neq_one one_neq_zero}
   |> Simplifier.add_cong @{thm if_weak_cong};

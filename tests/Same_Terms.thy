@@ -41,7 +41,7 @@ fun entries thy =
     names |> maps (fn n =>
       map_index (fn (i, th) =>
           (n ^ "(" ^ string_of_int i ^ ")",
-           (SHA1.rep (SHA1.digest (ML_Syntax.print_term (Thm.full_prop_of th))), th)))
+           (Message_Digest.rep (SHA1.digest (ML_Syntax.print_term (Thm.full_prop_of th))), th)))
         (Global_Theory.get_thms thy n))
   end;
 

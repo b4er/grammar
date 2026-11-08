@@ -241,7 +241,7 @@ fun lr_build_parse
           | NONE =>
               Goal.prove_sorry lthy [] []
                 (HOLogic.mk_Trueprop (app \<^const_name>\<open>fresh_name\<close> [gram_t, shn_t]))
-                (fn {context, ...} => HEADGOAL (asm_full_simp_tac (context addsimps fresh_simps))));
+                (fn {context, ...} => HEADGOAL (asm_full_simp_tac (context |> Simplifier.add_simps fresh_simps))));
         val static_th =
           @{thm sstaticI} OF
             [ii_eq RS @{thm eqTrueE}, rlalr_eq, fresh_th, wany_eq RS @{thm eqTrueE}];
@@ -331,7 +331,7 @@ fun lr_build_parse
             else
               SOME (Goal.prove_sorry lthy [] []
                 (HOLogic.mk_Trueprop (app \<^const_name>\<open>fresh_name\<close> [gram_t, shn_t]))
-                (fn {context, ...} => HEADGOAL (asm_full_simp_tac (context addsimps fresh_simps))))
+                (fn {context, ...} => HEADGOAL (asm_full_simp_tac (context |> Simplifier.add_simps fresh_simps))))
           end;
       in
         (* without a cycle the driver keeps no history: linear on reduce chains.  With

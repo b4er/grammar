@@ -353,7 +353,7 @@ fun lr_discharge
     val fresh_tac =
       (case #restricted arts of
         SOME {fresh, ...} => resolve_tac ctxt [fresh]
-      | NONE => SOLVED' (asm_full_simp_tac (ctxt addsimps fresh_simps)));
+      | NONE => SOLVED' (asm_full_simp_tac (ctxt |> Simplifier.add_simps fresh_simps)));
     (* the reports walk the tables, so they read the productions the tables have *)
     val report_gram = Lazy.lazy (fn () => Grammar_Common.report_grammar gram);
 

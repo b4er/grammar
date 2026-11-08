@@ -110,4 +110,4 @@ isabelle build -d . Grammar_Tests_Slow     # and the slow ones
 
 `ROOTS` lists the benchmark sessions in `bench/*/thys`; see `bench/README.md`.
 
-Depends on the AFP entry `Context_Free_Grammar`.
+Built with Isabelle2026; depends on the AFP entry `Context_Free_Grammar` (tested with afp-2026-11-06).

@@ -456,10 +456,10 @@ fun entry_grammar (gr: Grammar_Common.grammar) A ctxt =
       | _ => raise Fail "entry_grammar: grammar definition");
     val zero = \<^term>\<open>0 :: nat\<close>;
     val make_eq =
-      prove (basic addsimps (gram_def :: @{thms is_cfg.make_def is_cfg.update_convs refl}))
+      prove (basic |> Simplifier.add_simps (gram_def :: @{thms is_cfg.make_def is_cfg.update_convs refl}))
         (HOLogic.mk_eq (eg_t, make_c $ ps $ Grammar_Common.name_term gr A $ zero));
     fun sel c T t = Const (c, isgT --> T) $ t;
-    val sel_ctxt = basic addsimps (make_eq :: @{thms is_cfg.make_def is_cfg.select_convs});
+    val sel_ctxt = basic |> Simplifier.add_simps (make_eq :: @{thms is_cfg.make_def is_cfg.select_convs});
     val iprodsT = fastype_of ps;
     val iprods_eq =
       prove ctxt
@@ -472,7 +472,7 @@ fun entry_grammar (gr: Grammar_Common.grammar) A ctxt =
     val istart_ind_eq =
       prove sel_ctxt (HOLogic.mk_eq (sel \<^const_name>\<open>istart_ind\<close> HOLogic.natT eg_t, zero));
     val transport_ss =
-      simpset_of (basic addsimps
+      simpset_of (basic |> Simplifier.add_simps
         [@{thm wf_ptree_iprods_cong} OF [iprods_eq], @{thm ast_of_iprods_cong} OF [iprods_eq],
          istart_eq, istart_ind_eq]);
     fun transport ctxt' =
