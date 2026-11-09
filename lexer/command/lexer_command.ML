@@ -19,6 +19,9 @@ sig
      after: Input.source option, newline: (string * Position.T) option,
      defs: definition list, items: item list}
   val lexer_cmd: spec -> local_theory -> local_theory
+  val define: binding * term -> local_theory -> (term * thm) * local_theory
+  val ctr_sugar: Proof.context -> Position.T -> typ -> Ctr_Sugar.ctr_sugar * typ list
+  val case_fun: Proof.context -> typ -> (term -> term) -> typ -> term
 end;
 
 structure Lexer_Command: LEXER_COMMAND =

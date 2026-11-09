@@ -37,7 +37,7 @@ definition \<open>is_lf c \<longleftrightarrow> c = (0x0A :: nat)\<close>
 
 definition \<open>start = \<lparr>line = 0, col = 0, off = 0\<rparr>\<close>
 
-definition \<open>cp_lex s = cp_lexer cp_tables_test cp_rules is_lf [0] start s\<close>
+definition \<open>cp_lex s = cp_lexer cp_tables_test id (list_spec cp_rules) is_lf [0] start s\<close>
 
 text \<open>On an input in range the lexer is the driver of the spec with the plain reading of
   classes:\<close>
@@ -46,7 +46,7 @@ theorem cp_lex_iff_lexes:
   \<open>\<forall>c \<in> set s. c \<le> 0x10FFFF \<Longrightarrow>
     cp_lex s = (l, r, st\<^sub>f) \<longleftrightarrow>
       symbolic.lexes in_cls (list_spec cp_rules) is_lf [0] start s l r st\<^sub>f\<close>
-  by (simp add: cp_lex_def cp_tables_test_def cp_lexer_iff_lexes_in_range)
+  by (simp add: cp_lex_def cp_tables_test_def cp_lexer_list_iff_lexes_in_range)
 
 text \<open>\<open>\<alpha>\<beta> \<rightarrow>\<Rightarrow> \<Lambda>'\<close>, then a newline and \<open>x1\<close>. Columns count codepoints:\<close>
 
@@ -94,7 +94,7 @@ local_setup \<open>eval_table (\<^binding>\<open>wide_tables_code\<close>, \<^te
 
 declare wide_tables_code[code]
 
-lemma \<open>cp_lexer wide_tables wide_rules is_lf [0] start [0x10FFFF, 0x110000, 0x61] =
+lemma \<open>cp_lexer wide_tables id (list_spec wide_rules) is_lf [0] start [0x10FFFF, 0x110000, 0x61] =
   (Lexed []
     [\<lparr>tok = OP, span = \<lparr>s_line = 0, s_col = 0, s_off = 0, s_len = 2, s_txt = [0x10FFFF, 0x110000]\<rparr>,
       trivia = []\<rparr>],

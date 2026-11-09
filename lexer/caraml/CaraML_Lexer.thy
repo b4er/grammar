@@ -28,7 +28,7 @@ fun next_mode :: \<open>tok option \<Rightarrow> cmode \<Rightarrow> cmode\<clos
 definition is_keyword :: \<open>nat list \<Rightarrow> bool\<close> where
   \<open>is_keyword u \<longleftrightarrow> u \<in> fst ` set keyword_table\<close>
 
-lexer caraml :: \<open>tok\<close>
+lexer caraml :: \<open>tok\<close> (* ~90 s *)
   modes \<open>cmode\<close> start \<open>Tok Outer Spaced\<close> exclusive Comment final \<open>Tok Outer _\<close>
   after next_mode
   newline newline
@@ -93,5 +93,14 @@ lexer caraml :: \<open>tok\<close>
   | <Comment> (
       "{-" \<Rightarrow> skip, push Comment | "-}" \<Rightarrow> skip, pop | \<open>cmt_char+ | [{\-]\<close> \<Rightarrow> skip)
 
+text \<open>@{command lexer} evaluates ten tables: one for each token mode and one for
+  \<open>Comment\<close>. No two token modes share a table (the selector rules tell the kinds apart,
+  the string pieces the contexts). A token table has 96 intervals in its class table, 63
+  minterms and 195 to 216 states, where the prototype's have 98 and 124 states (the
+  keyword rules add a trie of the keywords). Each token table takes 7 to 9 s, the first
+  20 s with the setup of the code generator, and the command about 90 s. An evaluation
+  of \<^const>\<open>caraml_lex\<close> takes about 40 s, nearly all of it compiling the table
+  literals (about 3.5 s each), so the generated lexers are tested on smaller specs
+  (\<open>Lexer_Table_Tests\<close>).\<close>
 
 end

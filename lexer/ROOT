@@ -23,14 +23,14 @@ session Lexer_Command in "command" = Lexer +
 
 session Lexer_Tests in "tests" = Lexer_Command +
   description "Tests and examples."
-  options [document = false, timeout = 300]
+  options [document = false, timeout = 600]
   sessions "CaraML_Lexer"
   theories Intervals_Tests Tables_Tests Driver_Tests Codepoint_Tests Pattern_Tests
-    Lexer_Command_Tests CaraML_Lexer_Tests
+    Lexer_Command_Tests Lexer_Table_Tests CaraML_Lexer_Tests
   document_files (in "../document") "root.bib"
 
 session CaraML_Lexer in "caraml" = Lexer_Command +
   description "WIP for CaraML."
-  options [document = false, timeout = 300]
+  options [document = false, timeout = 600]
   theories CaraML_Spec CaraML_Lexer
   document_files (in "../document") "root.bib"

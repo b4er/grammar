@@ -131,10 +131,11 @@ fun lexer_fails ctxt text msg =
     val toks =
       Token.explode (Thy_Header.get_keywords' ctxt) Position.none text
       |> filter Token.is_proper;
-    val spec = #1 (Scan.finite Token.stopper Lexer_Syntax.spec toks);
+    val (opts, spec) =
+      #1 (Scan.finite Token.stopper (Lexer_Syntax.options -- Lexer_Syntax.spec) toks);
     val thy = Proof_Context.theory_of ctxt;
   in
-    (case Exn.capture (fn () => Named_Target.theory_map (Lexer_Command.lexer_cmd spec) thy) () of
+    (case Exn.capture (fn () => Named_Target.theory_map (Lexer_Syntax.lexer opts spec) thy) () of
       Exn.Res _ => error ("No error, expected " ^ quote msg)
     | Exn.Exn exn =>
         let val msg' = Runtime.exn_message exn in

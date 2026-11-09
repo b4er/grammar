@@ -1,7 +1,12 @@
-(* outer syntax of the lexer command: the clauses, the where entries and the rules,
-   handed to Lexer_Command.lexer_cmd *)
+(* outer syntax of the lexer command: the options, the clauses, the where entries and the
+   rules, handed to Lexer_Command.lexer_cmd and, unless sketch, Lexer_Tables.tables_cmd *)
 
-structure Lexer_Syntax: sig val spec: Lexer_Command.spec parser end =
+structure Lexer_Syntax:
+sig
+  val options: (string * Position.T) list parser
+  val spec: Lexer_Command.spec parser
+  val lexer: (string * Position.T) list -> Lexer_Command.spec -> local_theory -> local_theory
+end =
 struct
 
 open Lexer_Command;
@@ -170,9 +175,27 @@ val spec =
   Scan.optional (Parse.where_ |-- Parse.enum1 "|" definition) [] --
   (Parse.$$$ "rules" |-- Parse.enum1 "|" item) >> make_spec;
 
+val options =
+  Scan.optional (Parse.$$$ "(" |-- Parse.list1 (Parse.position Parse.name) --| Parse.$$$ ")")
+    [];
+
+(* the spec and, unless sketch, the tables and the lexer L_lex on them (in a context where
+   the constants of the spec are no longer local) *)
+fun lexer opts (spec: spec) =
+  let
+    val name = #name spec;
+    val (sketch, opts') = List.partition (fn (n, _) => n = "sketch") opts;
+  in
+    Local_Theory.begin_nested #> snd #> lexer_cmd spec #> Local_Theory.end_nested #>
+    (if null sketch then
+      Lexer_Tables.tables_cmd opts' (Binding.suffix_name "_lex" name)
+        (Binding.name_of name, Binding.pos_of name)
+    else I)
+  end;
+
 val _ =
   Outer_Syntax.local_theory \<^command_keyword>\<open>lexer\<close>
-    "define the classes, regexes, modes and rules of a lexer spec"
-    (spec >> lexer_cmd);
+    "define the classes, regexes, modes and rules of a lexer spec and its lexer"
+    (options -- spec >> (fn (opts, spec) => lexer opts spec));
 
 end;

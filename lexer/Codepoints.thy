@@ -13,7 +13,13 @@ text \<open>Codepoints are natural numbers, as in CaraML's \<open>ustring\<close
   (\<^const>\<open>in_cls\<close>).
 
   Generated code represents \<^typ>\<open>nat\<close> by target integers (\<open>Code_Target_Nat\<close>):
-  in the default unary representation \<open>0x10FFFF\<close> alone has a million constructors.\<close>
+  in the default unary representation \<open>0x10FFFF\<close> alone has a million constructors.
+
+  The lexer \<open>cp_lexer\<close> takes the tables of the modes as one array and a
+  mode index into it, so modes with the same rules share their tables. Its surface
+  theorems hold for every index under which each mode finds its tables. A spec on
+  codepoints is read on bytes by \<open>char_spec\<close>, which keeps the part of each
+  class below \<open>0x100\<close>.\<close>
 
 subsection \<open>Classes read in the range\<close>
 
@@ -288,6 +294,13 @@ definition cp_tables :: \<open>('k, nat cls, nat, 'm) rule list \<Rightarrow> cp
     IArray (map IArray (dfa_trans (cp_mode_dfa rs))), IArray (dfa_accept (cp_mode_dfa rs)),
     cp_dead_state rs)\<close>
 
+text \<open>The sizes of the tables of a mode, on codepoints or bytes: the intervals of the class
+  table, the minterms (the columns of the transitions) and the states:\<close>
+
+definition table_size :: \<open>'c iarray \<times> 'n iarray iarray \<times> 'a \<times> 'd \<Rightarrow> nat \<times> nat \<times> nat\<close> where
+  \<open>table_size t = (case t of (C, T, A, d) \<Rightarrow>
+     (IArray.length C, IArray.length (T !! 0), IArray.length T))\<close>
+
 fun run_cp :: \<open>cp_tables \<Rightarrow> nat list \<Rightarrow> (nat \<times> nat list \<times> nat list) option\<close> where
   \<open>run_cp (C, T, A, d) = run_tables_ia T A (\<lambda>c. class_of C (cp_clamp c)) d\<close>
 
@@ -297,57 +310,95 @@ lemma run_cp_tables:
   by (simp add: fun_eq_iff cp_tables_def cp_mode_minterms_eq cp_mode_dfa_eq cp_dead_state_eq
       cp_cls.run_tables_ia_eq_run_dfa cp_cls.minterm_classifier_class_of_clamp)
 
+text \<open>The lexer on codepoints takes the tables of all modes as one array and an index
+  \<open>ix\<close> into it for each mode, so modes with the same rules share their tables and the
+  driver never compares modes. A mode whose index is outside the array has no rules:\<close>
+
+definition cp_lexer ::
+  \<open>cp_tables iarray \<Rightarrow> ('m \<Rightarrow> nat) \<Rightarrow> ('k, nat cls, nat, 'm) lexer_spec \<Rightarrow> (nat \<Rightarrow> bool) \<Rightarrow>
+    'm list \<Rightarrow> pos \<Rightarrow> nat list \<Rightarrow> ('k, nat) lexed \<times> nat list \<times> 'm list\<close>
+where
+  \<open>cp_lexer TT ix =
+    drive (\<lambda>m. if ix m < IArray.length TT then run_cp (TT !! ix m) else (\<lambda>_. None))\<close>
+
+text \<open>The runner of \<^const>\<open>cp_lexer\<close> runs the modes of \<open>sp\<close> if the index of each mode
+  holds its tables or is outside the array for a mode without rules:\<close>
+
+lemma mode_runner_cp_lexer:
+  assumes \<open>\<And>m. if ix m < IArray.length TT then TT !! ix m = cp_tables (sp m) else sp m = []\<close>
+  shows \<open>cp_cls.mode_runner sp
+    (\<lambda>m. if ix m < IArray.length TT then run_cp (TT !! ix m) else (\<lambda>_. None))\<close>
+  unfolding cp_cls.mode_runner_def
+proof (intro allI)
+  fix m s i p rest
+  show \<open>(if ix m < IArray.length TT then run_cp (TT !! ix m) else (\<lambda>_. None)) s =
+      Some (i, p, rest) \<longleftrightarrow> cp_cls.first_token (sp m) i p s \<and> s = p @ rest\<close>
+    using assms[of m]
+    by (auto simp: run_cp_tables cp_cls.run_dfa_Some_iff cp_cls.minterm_classifier_class_of_clamp
+        cp_cls.first_token.simps split: if_splits)
+qed
+
+text \<open>The tables of a spec on the modes \<open>0, \<dots>, n - 1\<close> (\<^const>\<open>list_spec\<close>), with the
+  identity as index:\<close>
+
 definition cp_lexer_tables :: \<open>('k, nat cls, nat, nat) rule list list \<Rightarrow> cp_tables iarray\<close> where
   \<open>cp_lexer_tables sps = IArray (map cp_tables sps)\<close>
 
-definition cp_lexer ::
-  \<open>cp_tables iarray \<Rightarrow> ('k, nat cls, nat, nat) rule list list \<Rightarrow> (nat \<Rightarrow> bool) \<Rightarrow>
-    nat list \<Rightarrow> pos \<Rightarrow> nat list \<Rightarrow> ('k, nat) lexed \<times> nat list \<times> nat list\<close>
+lemma cp_lexer_tables_index:
+  \<open>if id m < IArray.length (cp_lexer_tables sps) then cp_lexer_tables sps !! id m =
+    cp_tables (list_spec sps m) else list_spec sps m = []\<close>
+  by (simp add: cp_lexer_tables_def list_spec_def)
+
+theorem cp_lexer_list_iff_lexes:
+  \<open>cp_lexer (cp_lexer_tables sps) id (list_spec sps) is_newline st q s = (l, r, st\<^sub>f) \<longleftrightarrow>
+    cp_cls.lexes (list_spec sps) is_newline st q s l r st\<^sub>f\<close>
+  unfolding cp_lexer_def
+  by (rule cp_cls.drive_iff_lexes[OF mode_runner_cp_lexer[OF cp_lexer_tables_index]])
+
+theorem cp_lexer_list_iff_lexes_in_range:
+  assumes \<open>\<forall>c \<in> set s. c \<le> 0x10FFFF\<close>
+  shows \<open>cp_lexer (cp_lexer_tables sps) id (list_spec sps) is_newline st q s = (l, r, st\<^sub>f) \<longleftrightarrow>
+    symbolic.lexes in_cls (list_spec sps) is_newline st q s l r st\<^sub>f\<close>
+  unfolding cp_lexer_list_iff_lexes
+  by (rule lexes_cong[where A = \<open>{.. 0x10FFFF}\<close>]) (use assms in \<open>auto simp: cp_cls.in_clamped_iff\<close>)
+
+subsection \<open>A spec on codepoints read on bytes\<close>
+
+text \<open>A class of codepoints read on bytes is its part below \<open>0x100\<close>. A rule reads its
+  lexeme as the codepoints of the bytes:\<close>
+
+definition byte_cls :: \<open>nat cls \<Rightarrow> char cls\<close> where
+  \<open>byte_cls ps = [(char_of a, char_of (min b 255)). (a, b) \<leftarrow> ps, a \<le> 255]\<close>
+
+definition char_rule :: \<open>('k, nat cls, nat, 'm) rule \<Rightarrow> ('k, char cls, char, 'm) rule\<close> where
+  \<open>char_rule \<rho> = \<lparr>match = map_rexp byte_cls (match \<rho>), act = \<lambda>u. act \<rho> (map of_char u)\<rparr>\<close>
+
+definition char_spec :: \<open>('k, nat cls, nat, 'm) lexer_spec \<Rightarrow> ('k, char cls, char, 'm) lexer_spec\<close>
 where
-  \<open>cp_lexer TT sps =
-    drive (\<lambda>m. if m < IArray.length TT then run_cp (TT !! m) else (\<lambda>_. None)) (list_spec sps)\<close>
+  \<open>char_spec sp m = map char_rule (sp m)\<close>
 
 section \<open>Surface theorems\<close>
 
-text \<open>On the tables of its spec, the lexer on codepoints is the driver of the spec with
-  classes read in the range:\<close>
+text \<open>If the index of each mode holds its tables, the lexer on codepoints is the driver
+  of the spec with classes read in the range:\<close>
 
 theorem cp_lexer_iff_lexes:
-  \<open>cp_lexer (cp_lexer_tables sps) sps is_newline st q s = (l, r, st\<^sub>f) \<longleftrightarrow>
-    cp_cls.lexes (list_spec sps) is_newline st q s l r st\<^sub>f\<close>
-proof -
-  have \<open>cp_cls.mode_runner (list_spec sps)
-    (\<lambda>m. if m < IArray.length (cp_lexer_tables sps) then run_cp (cp_lexer_tables sps !! m)
-      else (\<lambda>_. None))\<close>
-    unfolding cp_cls.mode_runner_def
-  proof (intro allI)
-    fix m s i p rest
-    show \<open>(if m < IArray.length (cp_lexer_tables sps) then run_cp (cp_lexer_tables sps !! m)
-        else (\<lambda>_. None)) s = Some (i, p, rest) \<longleftrightarrow>
-      cp_cls.first_token (list_spec sps m) i p s \<and> s = p @ rest\<close>
-    proof (cases \<open>m < length sps\<close>)
-      case True
-      then show ?thesis
-        by (simp add: cp_lexer_tables_def list_spec_def run_cp_tables
-            cp_cls.run_dfa_Some_iff cp_cls.minterm_classifier_class_of_clamp)
-    next
-      case False
-      then show ?thesis
-        by (auto simp: cp_lexer_tables_def list_spec_def cp_cls.first_token.simps)
-    qed
-  qed
-  then show ?thesis
-    unfolding cp_lexer_def by (rule cp_cls.drive_iff_lexes)
-qed
+  assumes \<open>\<forall>m. ix m < IArray.length TT \<and> TT !! ix m = cp_tables (sp m)\<close>
+  shows \<open>cp_lexer TT ix sp is_newline st q s = (l, r, st\<^sub>f) \<longleftrightarrow>
+    cp_cls.lexes sp is_newline st q s l r st\<^sub>f\<close>
+  unfolding cp_lexer_def
+  by (rule cp_cls.drive_iff_lexes[OF mode_runner_cp_lexer]) (use assms in auto)
 
 text \<open>On an input in range, it is the driver of the spec with the plain reading
   \<^const>\<open>in_cls\<close> of classes:\<close>
 
 theorem cp_lexer_iff_lexes_in_range:
-  assumes \<open>\<forall>c \<in> set s. c \<le> 0x10FFFF\<close>
-  shows \<open>cp_lexer (cp_lexer_tables sps) sps is_newline st q s = (l, r, st\<^sub>f) \<longleftrightarrow>
-    symbolic.lexes in_cls (list_spec sps) is_newline st q s l r st\<^sub>f\<close>
-  unfolding cp_lexer_iff_lexes
-  by (rule lexes_cong[where A = \<open>{.. 0x10FFFF}\<close>]) (use assms in \<open>auto simp: cp_cls.in_clamped_iff\<close>)
+  assumes \<open>\<forall>m. ix m < IArray.length TT \<and> TT !! ix m = cp_tables (sp m)\<close>
+    and \<open>\<forall>c \<in> set s. c \<le> 0x10FFFF\<close>
+  shows \<open>cp_lexer TT ix sp is_newline st q s = (l, r, st\<^sub>f) \<longleftrightarrow>
+    symbolic.lexes in_cls sp is_newline st q s l r st\<^sub>f\<close>
+  unfolding cp_lexer_iff_lexes[OF assms(1)]
+  by (rule lexes_cong[where A = \<open>{.. 0x10FFFF}\<close>])
+    (use assms(2) in \<open>auto simp: cp_cls.in_clamped_iff\<close>)
 
 end
