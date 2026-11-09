@@ -15,10 +15,17 @@ session Lexer = Token +
   theories Regex Pred_Algebra Intervals Spec Gen Lexer Driver Tables Codepoints
   document_files "root.tex" "root.bib"
 
-session Lexer_Tests in "tests" = Lexer +
+session Lexer_Command in "command" = Lexer +
+  description "The pattern sublanguage of the lexer commands."
+  options [document = false, timeout = 300]
+  theories Pattern
+  document_files (in "../document") "root.bib"
+
+session Lexer_Tests in "tests" = Lexer_Command +
   description "Tests and examples."
   options [document = false, timeout = 300]
-  theories Intervals_Tests Tables_Tests Driver_Tests Codepoint_Tests
+  sessions "CaraML_Lexer"
+  theories Intervals_Tests Tables_Tests Driver_Tests Codepoint_Tests Pattern_Tests
   document_files (in "../document") "root.bib"
 
 session CaraML_Lexer in "caraml" = Lexer +

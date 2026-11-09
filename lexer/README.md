@@ -14,6 +14,14 @@ only (parsers and tooling can import it alone).
 (`Spec`), the table generator (`Gen`) and the runner (`Lexer`). It depends on `Token`
 and the AFP entry `Regular-Sets`.
 
+`Lexer_Command` (`command/`) holds the front end of the lexer commands on top of
+`Lexer`: the pattern sublanguage (`Pattern`), its diagnostic command `pattern` and the
+term syntax `PAT‹…›`.
+
+`Lexer_Tests` (`tests/`) holds the tests of both. It builds on `Lexer_Command` and
+imports the CaraML prototype (`CaraML_Lexer`) to check that the patterns elaborate to
+the prototype's classes and regexes.
+
 ## Milestones
 
 1. Symbolic regexes, derivatives, finiteness, the spec judgments, determinism and
