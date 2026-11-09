@@ -8,12 +8,13 @@ open Lexer_Command;
 
 fun err pos msg = error ("Lexer: " ^ msg ^ Position.here pos);
 
-(* clause words are reserved, not keywords, so that they stay names elsewhere *)
-val clause_words = ["modes", "start", "exclusive", "final", "after", "newline", "rules"];
+(* the clause and action words are minor keywords (Lexer_Command.thy); an entry of
+   where may still be named like one of them *)
+val words =
+  ["modes", "start", "exclusive", "final", "after", "newline", "rules", "skip", "error", "push",
+   "pop"];
 
-val clause_word = Scan.first (map Parse.reserved clause_words);
-
-fun args p = Scan.repeat1 (Scan.unless clause_word p);
+val entry_name = Parse.position (Parse.name || Scan.first (map Parse.$$$ words));
 
 datatype clause =
     Modes of modes
@@ -26,13 +27,14 @@ datatype clause =
 val term = Parse.input Parse.term;
 
 val clause =
-  Parse.reserved "modes" |--
-    (Parse.input Parse.cartouche >> Mode_Type || args Parse.binding >> Mode_Names) >> Modes ||
-  Parse.reserved "start" |-- term >> Start ||
-  Parse.reserved "exclusive" |-- args term >> Exclusive ||
-  Parse.reserved "final" |-- args term >> Final ||
-  Parse.reserved "after" |-- term >> After ||
-  Parse.reserved "newline" |-- Parse.position Parse.name >> Newline;
+  Parse.$$$ "modes" |--
+    (Parse.input Parse.cartouche >> Mode_Type || Scan.repeat1 Parse.binding >> Mode_Names)
+    >> Modes ||
+  Parse.$$$ "start" |-- term >> Start ||
+  Parse.$$$ "exclusive" |-- Scan.repeat1 term >> Exclusive ||
+  Parse.$$$ "final" |-- Scan.repeat1 term >> Final ||
+  Parse.$$$ "after" |-- term >> After ||
+  Parse.$$$ "newline" |-- entry_name >> Newline;
 
 fun clause_name (Modes _) = "modes"
   | clause_name (Start _) = "start"
@@ -42,7 +44,7 @@ fun clause_name (Modes _) = "modes"
   | clause_name (Newline _) = "newline";
 
 val definition =
-  Parse.position Parse.name --
+  entry_name --
     Scan.optional (Parse.$$$ "(" |-- Parse.enum1 "," (Parse.position Parse.name) --| Parse.$$$ ")")
       [] --|
     Parse.$$$ "=" -- Parse.input Parse.cartouche;
@@ -116,14 +118,14 @@ val pattern =
 val arrow = Parse.position (Parse.$$$ "\<Rightarrow>" || Parse.$$$ "=>") >> #2;
 
 val action =
-  Parse.reserved "skip" >> K Skip || Parse.reserved "error" >> K Fail || term >> Act;
+  Parse.$$$ "skip" >> K Skip || Parse.$$$ "error" >> K Fail || term >> Act;
 
 val mode_op =
   Scan.optional
     (Parse.$$$ "," |--
       (Parse.$$$ "begin" |-- term >> Begin ||
-       Parse.reserved "push" |-- term >> Push ||
-       Parse.reserved "pop" >> K Pop ||
+       Parse.$$$ "push" |-- term >> Push ||
+       Parse.$$$ "pop" >> K Pop ||
        Parse.input Parse.cartouche >> Stack))
     Keep;
 
@@ -166,7 +168,7 @@ val spec =
   Parse.binding --| Parse.$$$ "::" -- Parse.input Parse.typ --
   Scan.repeat clause --
   Scan.optional (Parse.where_ |-- Parse.enum1 "|" definition) [] --
-  (Parse.reserved "rules" |-- Parse.enum1 "|" item) >> make_spec;
+  (Parse.$$$ "rules" |-- Parse.enum1 "|" item) >> make_spec;
 
 val _ =
   Outer_Syntax.local_theory \<^command_keyword>\<open>lexer\<close>

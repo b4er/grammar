@@ -1,6 +1,8 @@
 theory Lexer_Command
   imports Pattern Rules
-  keywords "lexer" :: thy_decl and "\<Rightarrow>"
+  keywords "lexer" :: thy_decl
+    and "modes" "start" "exclusive" "final" "after" "newline" "rules"
+    and "skip" "error" "push" "pop" "\<Rightarrow>"
 begin
 
 section \<open>The lexer command\<close>
