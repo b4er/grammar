@@ -50,7 +50,8 @@ definition \<open>comment_lex st = char_lexer comment_tables comment_rules is_lf
 text \<open>The lexer on the tables is the driver of the spec:\<close>
 
 theorem comment_lex_iff_lexes:
-  \<open>comment_lex st s = (l, r) \<longleftrightarrow> char_cls.lexes (list_spec comment_rules) is_lf st start s l r\<close>
+  \<open>comment_lex st s = (l, r, st\<^sub>f) \<longleftrightarrow>
+    char_cls.lexes (list_spec comment_rules) is_lf st start s l r st\<^sub>f\<close>
   by (simp add: comment_lex_def comment_tables_def char_lexer_iff_lexes)
 
 text \<open>A nested comment across a newline is the trailing trivia of \<open>ab\<close>. The span of
@@ -66,7 +67,7 @@ lemma \<open>comment_lex [0] nested =
       trivia = '' (* c (* d *) e'' @ [CHR 0x0A] @ '' *) ''\<rparr>,
      \<lparr>tok = IDENT, span = \<lparr>s_line = 1, s_col = 4, s_off = 22, s_len = 2, s_txt = ''xy''\<rparr>,
       trivia = []\<rparr>],
-   [])\<close>
+   [], [0])\<close>
   by eval
 
 text \<open>Leading trivia go into the header:\<close>
@@ -75,7 +76,7 @@ lemma \<open>comment_lex [0] '' (*c*) ab'' =
   (Lexed '' (*c*) ''
     [\<lparr>tok = IDENT, span = \<lparr>s_line = 0, s_col = 7, s_off = 7, s_len = 2, s_txt = ''ab''\<rparr>,
       trivia = []\<rparr>],
-   [])\<close>
+   [], [0])\<close>
   by eval
 
 text \<open>An unmatched character stops the lexer with the residue:\<close>
@@ -84,21 +85,26 @@ lemma \<open>comment_lex [0] ''ab $ cd'' =
   (Lexed []
     [\<lparr>tok = IDENT, span = \<lparr>s_line = 0, s_col = 0, s_off = 0, s_len = 2, s_txt = ''ab''\<rparr>,
       trivia = '' ''\<rparr>],
-   ''$ cd'')\<close>
+   ''$ cd'', [0])\<close>
   by eval
 
 text \<open>Popping the last mode is no step either: from the stack \<open>[1]\<close>, \<open>*)\<close> stays
-  unread. An unterminated comment ends the input in mode \<open>1\<close>, which \<^const>\<open>char_cls.lexes\<close>
-  accepts as it stands (MAP \<section>8 Q6):\<close>
+  unread:\<close>
 
-lemma \<open>comment_lex [1] ''c *) ab'' = (Lexed ''c '' [], ''*) ab'')\<close>
+lemma \<open>comment_lex [1] ''c *) ab'' = (Lexed ''c '' [], ''*) ab'', [1])\<close>
   by eval
+
+text \<open>An unterminated comment consumes the input. The residue is empty, and the final
+  stack, one entry per open comment, says that the input ended in mode \<open>1\<close>:\<close>
 
 lemma \<open>comment_lex [0] ''ab (* c'' =
   (Lexed []
     [\<lparr>tok = IDENT, span = \<lparr>s_line = 0, s_col = 0, s_off = 0, s_len = 2, s_txt = ''ab''\<rparr>,
       trivia = '' (* c''\<rparr>],
-   [])\<close>
+   [], [1, 0])\<close>
+  by eval
+
+lemma \<open>comment_lex [0] ''(* a (* b *)'' = (Lexed ''(* a (* b *)'' [], [], [1, 0])\<close>
   by eval
 
 end

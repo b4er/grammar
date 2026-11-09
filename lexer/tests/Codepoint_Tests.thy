@@ -44,7 +44,8 @@ text \<open>On an input in range the lexer is the driver of the spec with the pl
 
 theorem cp_lex_iff_lexes:
   \<open>\<forall>c \<in> set s. c \<le> 0x10FFFF \<Longrightarrow>
-    cp_lex s = (l, r) \<longleftrightarrow> symbolic.lexes in_cls (list_spec cp_rules) is_lf [0] start s l r\<close>
+    cp_lex s = (l, r, st\<^sub>f) \<longleftrightarrow>
+      symbolic.lexes in_cls (list_spec cp_rules) is_lf [0] start s l r st\<^sub>f\<close>
   by (simp add: cp_lex_def cp_tables_test_def cp_lexer_iff_lexes_in_range)
 
 text \<open>\<open>\<alpha>\<beta> \<rightarrow>\<Rightarrow> \<Lambda>'\<close>, then a newline and \<open>x1\<close>. Columns count codepoints:\<close>
@@ -59,19 +60,19 @@ lemma \<open>cp_lex [0x3B1, 0x3B2, 0x20, 0x2192, 0x21D2, 0x20, 0x39B, 0x27, 0x0A
       trivia = [0x0A]\<rparr>,
      \<lparr>tok = LIDENT, span = \<lparr>s_line = 1, s_col = 0, s_off = 9, s_len = 2, s_txt = [0x78, 0x31]\<rparr>,
       trivia = []\<rparr>],
-   [])\<close>
+   [], [0])\<close>
   by eval
 
 text \<open>\<open>\<lambda>x\<close> stops at \<open>\<lambda>\<close>, and a surrogate stops too:\<close>
 
-lemma \<open>cp_lex [0x3BB, 0x78] = (Lexed [] [], [0x3BB, 0x78])\<close>
+lemma \<open>cp_lex [0x3BB, 0x78] = (Lexed [] [], [0x3BB, 0x78], [0])\<close>
   by eval
 
 lemma \<open>cp_lex [0x61, 0x20, 0xD800] =
   (Lexed []
     [\<lparr>tok = LIDENT, span = \<lparr>s_line = 0, s_col = 0, s_off = 0, s_len = 1, s_txt = [0x61]\<rparr>,
       trivia = [0x20]\<rparr>],
-   [0xD800])\<close>
+   [0xD800], [0])\<close>
   by eval
 
 text \<open>A number above the range lexes as \<open>U+10FFFF\<close>. No class of \<open>cp_rules\<close> holds
@@ -81,7 +82,7 @@ lemma \<open>cp_lex [0x61, 0x110000] =
   (Lexed []
     [\<lparr>tok = LIDENT, span = \<lparr>s_line = 0, s_col = 0, s_off = 0, s_len = 1, s_txt = [0x61]\<rparr>,
       trivia = []\<rparr>],
-   [0x110000])\<close>
+   [0x110000], [0])\<close>
   by eval
 
 definition wide_rules :: \<open>(tok, nat cls, nat, nat) rule list list\<close> where
@@ -97,7 +98,7 @@ lemma \<open>cp_lexer wide_tables wide_rules is_lf [0] start [0x10FFFF, 0x110000
   (Lexed []
     [\<lparr>tok = OP, span = \<lparr>s_line = 0, s_col = 0, s_off = 0, s_len = 2, s_txt = [0x10FFFF, 0x110000]\<rparr>,
       trivia = []\<rparr>],
-   [0x61])\<close>
+   [0x61], [0])\<close>
   by eval
 
 end

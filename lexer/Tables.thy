@@ -392,7 +392,7 @@ where
 
 definition char_lexer ::
   \<open>char_tables iarray \<Rightarrow> ('k, char cls, char, nat) rule list list \<Rightarrow> (char \<Rightarrow> bool) \<Rightarrow>
-    nat list \<Rightarrow> pos \<Rightarrow> char list \<Rightarrow> ('k, char) lexed \<times> char list\<close>
+    nat list \<Rightarrow> pos \<Rightarrow> char list \<Rightarrow> ('k, char) lexed \<times> char list \<times> nat list\<close>
 where
   \<open>char_lexer TT sps =
     drive (\<lambda>m. if m < IArray.length TT then run_char (TT !! m) else (\<lambda>_. None)) (list_spec sps)\<close>
@@ -400,8 +400,8 @@ where
 text \<open>On the tables of its spec, the lexer on bytes is \<^const>\<open>char_cls.lexes\<close>:\<close>
 
 theorem char_lexer_iff_lexes:
-  \<open>char_lexer (char_lexer_tables sps) sps is_newline st q s = (l, r) \<longleftrightarrow>
-    char_cls.lexes (list_spec sps) is_newline st q s l r\<close>
+  \<open>char_lexer (char_lexer_tables sps) sps is_newline st q s = (l, r, st\<^sub>f) \<longleftrightarrow>
+    char_cls.lexes (list_spec sps) is_newline st q s l r st\<^sub>f\<close>
 proof -
   have \<open>char_cls.mode_runner (list_spec sps)
     (\<lambda>m. if m < IArray.length (char_lexer_tables sps) then run_char (char_lexer_tables sps !! m)

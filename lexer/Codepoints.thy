@@ -149,8 +149,8 @@ lemma step_cong:
   by (simp add: symbolic.step.simps first_token_cong[OF assms])
 
 lemma lexes_cong_imp:
-  assumes \<open>symbolic.lexes sem sp is_newline st q s l r\<close> \<open>set s \<subseteq> A\<close>
-  shows \<open>symbolic.lexes sem' sp is_newline st q s l r\<close>
+  assumes \<open>symbolic.lexes sem sp is_newline st q s l r st\<^sub>f\<close> \<open>set s \<subseteq> A\<close>
+  shows \<open>symbolic.lexes sem' sp is_newline st q s l r st\<^sub>f\<close>
   using assms
 proof (induction rule: symbolic.lexes.induct[of sem, consumes 1, case_names stop token trivia])
   case (stop st s q)
@@ -159,7 +159,7 @@ proof (induction rule: symbolic.lexes.induct[of sem, consumes 1, case_names stop
   then show ?case
     by (rule symbolic.lexes_stop)
 next
-  case (token st s k p st' s' q h ts r)
+  case (token st s k p st' s' q h ts r st\<^sub>f)
   from token.hyps(1) token.prems have \<open>set s' \<subseteq> A\<close>
     by (auto simp: symbolic.step.simps)
   from token.hyps(1) have \<open>symbolic.step sem' sp st s (Some k, p, st', s')\<close>
@@ -167,7 +167,7 @@ next
   from this token.IH[OF \<open>set s' \<subseteq> A\<close>] show ?case
     by (rule symbolic.lexes_token)
 next
-  case (trivia st s p st' s' q h ts r)
+  case (trivia st s p st' s' q h ts r st\<^sub>f)
   from trivia.hyps(1) trivia.prems have \<open>set s' \<subseteq> A\<close>
     by (auto simp: symbolic.step.simps)
   from trivia.hyps(1) have \<open>symbolic.step sem' sp st s (None, p, st', s')\<close>
@@ -180,8 +180,8 @@ end
 
 lemma lexes_cong:
   assumes \<open>\<And>p c. c \<in> A \<Longrightarrow> sem p c = sem' p c\<close> \<open>set s \<subseteq> A\<close>
-  shows \<open>symbolic.lexes sem sp is_newline st q s l r \<longleftrightarrow>
-    symbolic.lexes sem' sp is_newline st q s l r\<close>
+  shows \<open>symbolic.lexes sem sp is_newline st q s l r st\<^sub>f \<longleftrightarrow>
+    symbolic.lexes sem' sp is_newline st q s l r st\<^sub>f\<close>
   using lexes_cong_imp[of A sem sem'] lexes_cong_imp[of A sem' sem] assms by (metis (no_types))
 
 context range_order
@@ -302,7 +302,7 @@ definition cp_lexer_tables :: \<open>('k, nat cls, nat, nat) rule list list \<Ri
 
 definition cp_lexer ::
   \<open>cp_tables iarray \<Rightarrow> ('k, nat cls, nat, nat) rule list list \<Rightarrow> (nat \<Rightarrow> bool) \<Rightarrow>
-    nat list \<Rightarrow> pos \<Rightarrow> nat list \<Rightarrow> ('k, nat) lexed \<times> nat list\<close>
+    nat list \<Rightarrow> pos \<Rightarrow> nat list \<Rightarrow> ('k, nat) lexed \<times> nat list \<times> nat list\<close>
 where
   \<open>cp_lexer TT sps =
     drive (\<lambda>m. if m < IArray.length TT then run_cp (TT !! m) else (\<lambda>_. None)) (list_spec sps)\<close>
@@ -313,8 +313,8 @@ text \<open>On the tables of its spec, the lexer on codepoints is the driver of 
   classes read in the range:\<close>
 
 theorem cp_lexer_iff_lexes:
-  \<open>cp_lexer (cp_lexer_tables sps) sps is_newline st q s = (l, r) \<longleftrightarrow>
-    cp_cls.lexes (list_spec sps) is_newline st q s l r\<close>
+  \<open>cp_lexer (cp_lexer_tables sps) sps is_newline st q s = (l, r, st\<^sub>f) \<longleftrightarrow>
+    cp_cls.lexes (list_spec sps) is_newline st q s l r st\<^sub>f\<close>
 proof -
   have \<open>cp_cls.mode_runner (list_spec sps)
     (\<lambda>m. if m < IArray.length (cp_lexer_tables sps) then run_cp (cp_lexer_tables sps !! m)
@@ -345,8 +345,8 @@ text \<open>On an input in range, it is the driver of the spec with the plain re
 
 theorem cp_lexer_iff_lexes_in_range:
   assumes \<open>\<forall>c \<in> set s. c \<le> 0x10FFFF\<close>
-  shows \<open>cp_lexer (cp_lexer_tables sps) sps is_newline st q s = (l, r) \<longleftrightarrow>
-    symbolic.lexes in_cls (list_spec sps) is_newline st q s l r\<close>
+  shows \<open>cp_lexer (cp_lexer_tables sps) sps is_newline st q s = (l, r, st\<^sub>f) \<longleftrightarrow>
+    symbolic.lexes in_cls (list_spec sps) is_newline st q s l r st\<^sub>f\<close>
   unfolding cp_lexer_iff_lexes
   by (rule lexes_cong[where A = \<open>{.. 0x10FFFF}\<close>]) (use assms in \<open>auto simp: cp_cls.in_clamped_iff\<close>)
 

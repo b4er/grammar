@@ -9,7 +9,8 @@ text \<open>A lexer spec maps each mode to a prioritized list of rules. A rule i
   (its head is the current mode) and returns the token kind, or \<^const>\<open>None\<close> for
   trivia, and the new stack \<^cite>\<open>\<open>Sect. 10\<close> in "paxson2026-flex-manual"\<close>. The judgments follow Verbatim
   \<^cite>\<open>\<open>Figs. 3--4\<close> in "egolf2021-verbatim-verified-lexer"\<close>: the longest prefix, the
-  first rule matching it, and the driver, which stops with the unread residue.
+  first rule matching it, and the driver, which stops with the unread residue and the
+  stack it stops in.
 
   The judgments live in the context of \<open>symbolic\<close> and read a rule's regex through the
   denotation \<open>sem\<close> of its predicates (\<^const>\<open>symbolic.lang\<close>).
@@ -68,27 +69,32 @@ text \<open>One step in the stack \<open>m # st\<close> reads the winning lexeme
 
 inductive lexes ::
   \<open>('k, 'p, 'ch, 'm) lexer_spec \<Rightarrow> ('ch \<Rightarrow> bool) \<Rightarrow> 'm list \<Rightarrow> pos \<Rightarrow>
-    'ch list \<Rightarrow> ('k, 'ch) lexed \<Rightarrow> 'ch list \<Rightarrow> bool\<close>
+    'ch list \<Rightarrow> ('k, 'ch) lexed \<Rightarrow> 'ch list \<Rightarrow> 'm list \<Rightarrow> bool\<close>
 for sp is_newline where
   lexes_stop:
-    \<open>(\<And>x. \<not> step sp st s x) \<Longrightarrow> lexes sp is_newline st q s (Lexed [] []) s\<close>
+    \<open>(\<And>x. \<not> step sp st s x) \<Longrightarrow> lexes sp is_newline st q s (Lexed [] []) s st\<close>
 | lexes_token:
     \<open>\<lbrakk> step sp st s (Some k, p, st', s');
-       lexes sp is_newline st' (advance_list is_newline p q) s' (Lexed h ts) r
+       lexes sp is_newline st' (advance_list is_newline p q) s' (Lexed h ts) r st\<^sub>f
      \<rbrakk> \<Longrightarrow>
      lexes sp is_newline st q s
-      (Lexed [] (\<lparr>tok = k, span = span_at q p, trivia = h\<rparr> # ts)) r\<close>
+      (Lexed [] (\<lparr>tok = k, span = span_at q p, trivia = h\<rparr> # ts)) r st\<^sub>f\<close>
 | lexes_trivia:
     \<open>\<lbrakk> step sp st s (None, p, st', s');
-       lexes sp is_newline st' (advance_list is_newline p q) s' (Lexed h ts) r
+       lexes sp is_newline st' (advance_list is_newline p q) s' (Lexed h ts) r st\<^sub>f
      \<rbrakk> \<Longrightarrow>
-     lexes sp is_newline st q s (Lexed (p @ h) ts) r\<close>
+     lexes sp is_newline st q s (Lexed (p @ h) ts) r st\<^sub>f\<close>
 
-text \<open>The driver lexes \<open>s\<close> from stack \<open>st\<close> and position \<open>q\<close> into a lexed source and
-  the residue \<open>r\<close> where no step applies \<^cite>\<open>\<open>Fig. 4, Tokens\<close> in
-  "egolf2021-verbatim-verified-lexer"\<close>. The leading trivia of the rest become the
-  trailing trivia of a token, or the header in front of the first token. Spans come
-  from \<^const>\<open>advance_list\<close>.\<close>
+text \<open>The driver lexes \<open>s\<close> from stack \<open>st\<close> and position \<open>q\<close> into a lexed source, the
+  residue \<open>r\<close> where no step applies and the stack \<open>st\<^sub>f\<close> it stops in
+  \<^cite>\<open>\<open>Fig. 4, Tokens\<close> in "egolf2021-verbatim-verified-lexer"\<close>. The leading trivia
+  of the rest become the trailing trivia of a token, or the header in front of the
+  first token. Spans come from \<^const>\<open>advance_list\<close>.
+
+  The final stack says where the input ended, so the end of the input needs no
+  sentinel character (flex's \<open><<EOF>>\<close> \<^cite>\<open>\<open>Sect. 12\<close> in "paxson2026-flex-manual"\<close>).
+  An empty residue in a stack whose top is not a final mode (an unterminated comment)
+  is an error of the consumer's, not of the driver.\<close>
 
 subsection \<open>Some facts\<close>
 
@@ -124,7 +130,7 @@ lemma step_length_less: \<open>step sp st s (k, p, st', s') \<Longrightarrow> le
 text \<open>Every step consumes input (no empty matches). This is the progress measure of the
   driver.\<close>
 
-lemma lexes_source: \<open>lexes sp is_newline st q s l r \<Longrightarrow> source l @ r = s\<close>
+lemma lexes_source: \<open>lexes sp is_newline st q s l r st\<^sub>f \<Longrightarrow> source l @ r = s\<close>
   by (induct rule: lexes.induct) (auto simp: source_def span_at_def elim!: step.cases)
 
 section \<open>Surface theorems\<close>
@@ -153,18 +159,20 @@ theorem step_deterministic: \<open>step sp st s x \<Longrightarrow> step sp st s
   by (elim step.cases) (auto dest: first_token_deterministic)
 
 theorem lexes_deterministic:
-  \<open>lexes sp is_newline st q s l r \<Longrightarrow> lexes sp is_newline st q s l' r' \<Longrightarrow> l = l' \<and> r = r'\<close>
-proof (induction arbitrary: l' r' rule: lexes.induct)
+  assumes \<open>lexes sp is_newline st q s l r st\<^sub>f\<close> \<open>lexes sp is_newline st q s l' r' st\<^sub>f'\<close>
+  shows \<open>l = l' \<and> r = r' \<and> st\<^sub>f = st\<^sub>f'\<close>
+  using assms
+proof (induction arbitrary: l' r' st\<^sub>f' rule: lexes.induct)
   case (lexes_stop st s q)
   from lexes_stop.prems show ?case
     by (cases rule: lexes.cases) (use lexes_stop.hyps in blast)+
 next
-  case (lexes_token st s k p st' s' q h ts r)
+  case (lexes_token st s k p st' s' q h ts r st\<^sub>f)
   from lexes_token.prems \<open>step sp st s (Some k, p, st', s')\<close> show ?case
     by (cases rule: lexes.cases)
       (auto dest: step_deterministic[OF \<open>step sp st s (Some k, p, st', s')\<close>] lexes_token.IH)
 next
-  case (lexes_trivia st s p st' s' q h ts r)
+  case (lexes_trivia st s p st' s' q h ts r st\<^sub>f)
   from lexes_trivia.prems \<open>step sp st s (None, p, st', s')\<close> show ?case
     by (cases rule: lexes.cases)
       (auto dest: step_deterministic[OF \<open>step sp st s (None, p, st', s')\<close>] lexes_trivia.IH)
@@ -173,14 +181,15 @@ qed
 text \<open>The driver terminates on every input, whatever the actions do to the stack
   (each step consumes a nonempty lexeme, @{thm [source] step_length_less}):\<close>
 
-theorem lexes_total: \<open>\<exists>l r. lexes sp is_newline st q s l r\<close>
+theorem lexes_total: \<open>\<exists>l r st\<^sub>f. lexes sp is_newline st q s l r st\<^sub>f\<close>
 proof (induct s arbitrary: st q rule: length_induct[case_names len])
   case (len s) show ?case
   proof (cases \<open>\<exists>x. step sp st s x\<close>)
     case True
     then obtain k p st' s' where step: \<open>step sp st s (k, p, st', s')\<close>
       by (metis prod_cases4)
-    with len obtain l r where \<open>lexes sp is_newline st' (advance_list is_newline p q) s' l r\<close>
+    with len obtain l r st\<^sub>f
+      where \<open>lexes sp is_newline st' (advance_list is_newline p q) s' l r st\<^sub>f\<close>
       by (meson step_length_less)
     with step show ?thesis
       by (cases l; cases k; blast intro: lexes_token lexes_trivia)
