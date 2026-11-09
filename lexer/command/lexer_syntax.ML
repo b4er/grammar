@@ -181,16 +181,17 @@ val options =
 
 (* the spec and, unless sketch, the tables and the lexer L_lex on them (in a context where
    the constants of the spec are no longer local) *)
-fun lexer opts (spec: spec) =
+fun lexer opts (spec: spec) lthy =
   let
     val name = #name spec;
     val (sketch, opts') = List.partition (fn (n, _) => n = "sketch") opts;
+    val (positions, lthy) =
+      lthy |> Local_Theory.begin_nested |> snd |> lexer_cmd spec ||> Local_Theory.end_nested;
   in
-    Local_Theory.begin_nested #> snd #> lexer_cmd spec #> Local_Theory.end_nested #>
-    (if null sketch then
+    if null sketch then
       Lexer_Tables.tables_cmd opts' (Binding.suffix_name "_lex" name)
-        (Binding.name_of name, Binding.pos_of name)
-    else I)
+        (Binding.name_of name, Binding.pos_of name) positions lthy
+    else lthy
   end;
 
 val _ =

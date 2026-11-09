@@ -18,7 +18,7 @@ session Lexer = Token +
 session Lexer_Command in "command" = Lexer +
   description "The pattern sublanguage and the lexer command."
   options [document = false, timeout = 300]
-  theories Pattern Rules Lexer_Command
+  theories Pattern Rules Lexer_Command Lexer_Check
   document_files (in "../document") "root.bib"
 
 session Lexer_Tests in "tests" = Lexer_Command +

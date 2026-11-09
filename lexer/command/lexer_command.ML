@@ -18,7 +18,7 @@ sig
      exclusive: Input.source list, final: Input.source list option,
      after: Input.source option, newline: (string * Position.T) option,
      defs: definition list, items: item list}
-  val lexer_cmd: spec -> local_theory -> local_theory
+  val lexer_cmd: spec -> local_theory -> (term * Position.T list) list * local_theory
   val define: binding * term -> local_theory -> (term * thm) * local_theory
   val ctr_sugar: Proof.context -> Position.T -> typ -> Ctr_Sugar.ctr_sugar * typ list
   val case_fun: Proof.context -> typ -> (term -> term) -> typ -> term
@@ -333,7 +333,9 @@ fun lexer_cmd (spec: spec) lthy =
       | NONE => Pattern.class_term [(10, 10)]);
 
     val ctxt = {tokT = tokT, modeT = modeT, values = values, inclusive = inclusive, hook = hook};
-    val rules = map (elab_rule lthy env ctxt) (maps (flatten []) (#items spec));
+    val flat_rules = maps (flatten []) (#items spec);
+    val rules = map (elab_rule lthy env ctxt) flat_rules;
+    val positions = map (pattern_pos o #pattern o snd) flat_rules;
     val unitT = HOLogic.unitT;
     val ruleT = body_type (fastype_of \<^Const>\<open>rule_ext clsT natT modeT tokT unitT\<close>);
     fun rules_of v =
@@ -354,6 +356,9 @@ fun lexer_cmd (spec: spec) lthy =
     val c = Free ("c", natT);
     val (_, lthy) =
       define (qual ("is_newline", pos), Term.lambda c \<^Const>\<open>in_cls natT for newline c\<close>) lthy;
-  in lthy end;
+    fun positions_of v =
+      map_filter (fn ((_, ms), p) => if member (op aconv) ms v then SOME p else NONE)
+        (rules ~~ positions);
+  in (map (fn v => (v, positions_of v)) values, lthy) end;
 
 end;

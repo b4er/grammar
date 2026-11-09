@@ -1,5 +1,5 @@
 theory CaraML_Lexer
-  imports CaraML_Spec Lexer_Command.Lexer_Command
+  imports CaraML_Spec Lexer_Command.Lexer_Check
 begin
 
 section \<open>CaraML's lexer in the surface of the lexer command\<close>
@@ -100,7 +100,8 @@ text \<open>@{command lexer} evaluates ten tables: one for each token mode and o
   keyword rules add a trie of the keywords). Each token table takes 7 to 9 s, the first
   20 s with the setup of the code generator, and the command about 90 s. An evaluation
   of \<^const>\<open>caraml_lex\<close> takes about 40 s, nearly all of it compiling the table
-  literals (about 3.5 s each), so the generated lexers are tested on smaller specs
-  (\<open>Lexer_Table_Tests\<close>).\<close>
+  literals (about 3.5 s each), so its tests use @{command lexer_check}, which compiles
+  them once (\<open>CaraML_Lexer_Tests\<close>). Every rule wins in some state of each of its modes
+  (the command warns of none).\<close>
 
 end

@@ -42,6 +42,12 @@ text \<open>The command @{command lexer} defines a lexer spec from a flex-like s
   \<open>L_lex.index_tables\<close>, which says that the index of each mode holds its tables).
   The option \<open>(sketch)\<close> stops after the spec.
 
+  The command reports each table with the modes that share it, its sizes and the time of
+  its evaluation, and the time of all tables. It warns at a rule that wins in no state of
+  the tables of a mode, naming the modes. Such a rule cannot be matched there (flex's
+  warning of that name), as a rule of higher priority matches each of its lexemes. The
+  option \<open>(no_check)\<close> drops the warning.
+
   The option \<open>(char)\<close> builds the lexer on bytes, \<^const>\<open>char_lexer\<close> on the tables
   of \<^const>\<open>char_spec\<close> \<open>L.spec\<close>, with \<open>L_lex.correct\<close> from
   @{thm [source] char_lexer_iff_lexes}. A class of \<open>L\<close> that reaches above \<open>0xFF\<close> is

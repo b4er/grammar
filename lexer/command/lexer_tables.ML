@@ -1,10 +1,12 @@
 (* the tables of a lexer spec by evaluation, one per distinct rule list, the executable
-   lexer on them and its correctness theorem *)
+   lexer on them and its correctness theorem, and a warning for each rule that wins in no
+   state of a mode *)
 
 signature LEXER_TABLES =
 sig
+  val accepted: term -> int list
   val tables_cmd: (string * Position.T) list -> binding -> string * Position.T ->
-    local_theory -> local_theory
+    (term * Position.T list) list -> local_theory -> local_theory
 end;
 
 structure Lexer_Tables: LEXER_TABLES =
@@ -142,13 +144,13 @@ fun instance pos name =
        newline = fn nl => Abs ("c", \<^typ>\<open>char\<close>, nl $ \<^Const>\<open>of_char natT for \<open>Bound 0\<close>\<close>),
        lexer = Const (\<^const_name>\<open>char_lexer\<close>, dummyT),
        correct = @{thm char_lexer_iff_lexes}, unfolds = @{thms char_spec_def}}
-  | _ => err pos ("unknown option " ^ quote name ^ " (sketch, codepoints or char)"));
+  | _ => err pos ("unknown option " ^ quote name ^ " (sketch, no_check, codepoints or char)"));
 
-fun read_instance opts =
+fun read_instance pos opts =
   (case opts of
-    [] => instance Position.none "codepoints"
-  | [(name, pos)] => instance pos name
-  | _ :: (_, pos) :: _ => err pos "one instance only");
+    [] => instance pos "codepoints"
+  | [(name, pos')] => instance pos' name
+  | _ :: (_, pos') :: _ => err pos' "one instance only");
 
 
 (** the command **)
@@ -168,6 +170,40 @@ fun literal_size lit =
     val rows = HOLogic.dest_list (snd (Term.dest_comb T));
   in [len C, (case rows of r :: _ => len r | [] => 0), length rows] end;
 
+(* the rules that win in some state: the entries of the accept array of a table literal *)
+fun accepted lit =
+  (case HOLogic.strip_tuple lit of
+    _ :: _ :: A :: _ =>
+      HOLogic.dest_list (snd (Term.dest_comb A))
+      |> map_filter (fn Const (\<^const_name>\<open>Some\<close>, _) $ i => SOME (snd (HOLogic.dest_number i))
+           | _ => NONE)
+      |> distinct (op =)
+  | _ => raise TERM ("accepted", [lit]));
+
+(* flex's "rule cannot be matched", per mode: a rule of the group that wins in no state of
+   its table, with the modes of the group *)
+fun unreachable ctxt positions (rules, vs) lit =
+  let
+    val n = length (HOLogic.dest_list rules);
+    val acc = accepted lit;
+    val poss = the_default [] (AList.lookup (op aconv) positions (fst (hd vs)));
+    val modes = map (Pretty.unformatted_string_of o Syntax.pretty_term ctxt o fst) vs;
+  in
+    filter_out (member (op =) acc) (0 upto n - 1)
+    |> map_filter (fn i => try (nth poss) i)
+    |> map (rpair modes)
+  end;
+
+fun warn_unreachable reports =
+  let
+    val by_pos =
+      fold (fn (pos, ms) => AList.map_default (op =) (pos, []) (fn ms' => ms' @ ms)) reports [];
+    fun plural [_] = "mode " | plural _ = "modes ";
+  in
+    List.app (fn (pos, ms) =>
+      warning ("Lexer: rule cannot be matched in " ^ plural ms ^ commas ms ^
+        " (rules of higher priority match each of its lexemes)" ^ Position.here pos)) (rev by_pos)
+  end;
 (* s.tables_k, with the code equation s.tables_k = v for the value v of its definition,
    and a report of its modes, sizes and time *)
 fun define_table s qual (inst: instance) sp k (_, vs) lthy =
@@ -180,7 +216,8 @@ fun define_table s qual (inst: instance) sp k (_, vs) lthy =
     val code_th = @{thm trans} OF [def RS @{thm meta_eq_to_obj_eq}, eq];
     val (_, lthy) =
       Local_Theory.note ((Binding.suffix_name "_code" b, @{attributes [code]}), [code_th]) lthy;
-    val size = literal_size (snd (HOLogic.dest_eq (HOLogic.dest_Trueprop (Thm.prop_of eq))));
+    val lit = snd (HOLogic.dest_eq (HOLogic.dest_Trueprop (Thm.prop_of eq)));
+    val size = literal_size lit;
     val sizes =
       map2 (fn i => fn w => string_of_int i ^ " " ^ w) size ["intervals", "minterms", "states"];
     val _ =
@@ -188,11 +225,10 @@ fun define_table s qual (inst: instance) sp k (_, vs) lthy =
         commas (map (Pretty.unformatted_string_of o Syntax.pretty_term lthy o fst) vs) ^ ": " ^
         commas sizes ^ ", " ^
         Time.fmt 2 (#elapsed time) ^ " s");
-  in ((t, def), lthy) end;
+  in (((t, def), lit), lthy) end;
 
-fun tables_cmd opts b (lname, lpos) lthy =
+fun tables check_rules (inst: instance) b (lname, lpos) positions lthy =
   let
-    val inst = read_instance opts;
     val {spec, simps, start, final, is_newline} = read_lexer lthy (lname, lpos);
     val modeT = domain_type (fastype_of spec);
     val groups = group_modes simps;
@@ -201,6 +237,11 @@ fun tables_cmd opts b (lname, lpos) lthy =
 
     val (tables, lthy) =
       fold_map (fn (k, g) => define_table b qual inst spec k g) (map_index I groups) lthy;
+    val _ =
+      if check_rules then
+        warn_unreachable (flat (map2 (unreachable lthy positions) groups (map snd tables)))
+      else ();
+    val tables = map fst tables;
     val tablesT = #tablesT inst;
     val arrT = Type (\<^type_name>\<open>iarray\<close>, [tablesT]);
     val ((tt, tt_def), lthy) =
@@ -267,6 +308,17 @@ fun tables_cmd opts b (lname, lpos) lthy =
          (("q", 0), Thm.cterm_of lthy start_pos)]
       |> Local_Defs.fold lthy [s_def];
     val lthy = note (qual "correct", [correct]) lthy;
+  in (length groups, lthy) end;
+
+fun tables_cmd opts b (lname, lpos) positions lthy =
+  let
+    val (no_check, opts') = List.partition (fn (n, _) => n = "no_check") opts;
+    val inst = read_instance lpos opts';
+    val (time, (n, lthy)) =
+      Timing.timing (tables (null no_check) inst b (lname, lpos) positions) lthy;
+    val _ =
+      writeln (Binding.name_of b ^ ": " ^ string_of_int n ^ " tables, " ^
+        Time.fmt 2 (#elapsed time) ^ " s in total");
   in lthy end;
 
 end;
