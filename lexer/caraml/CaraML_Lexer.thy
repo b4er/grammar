@@ -1,17 +1,99 @@
 theory CaraML_Lexer
-  imports CaraML_Spec Lexer_Command.Lexer_Check
+  imports Lexer_Command.Lexer_Check
 begin
 
 section \<open>CaraML's lexer in the surface of the lexer command\<close>
 
-text \<open>The prototype \<open>CaraML_Spec\<close> written with @{command lexer}. HOL remains where the
-  judgment is about values: the mode type and its hook \<open>next_mode\<close>,
-  \<^const>\<open>operand_end\<close>, \<^const>\<open>int_ok\<close> and the keyword test of backticked operators.
+text \<open>caraml's token relation (\<open>match_token\<close> in caraml's \<open>parser/Lexer.thy\<close>) and its
+  trivia (\<open>match_trivia\<close> in \<open>parser/Trivia.thy\<close>) as a lexer over codepoints, written
+  with @{command lexer}. The classes are those of caraml's \<open>UnicodeLexer\<close>. HOL remains
+  where the judgment is about values: the token type, the mode type and its hook
+  \<open>next_mode\<close>, \<open>operand_end\<close>, \<open>int_ok\<close> and the keyword test of
+  backticked operators.
+
+  String interpolation departs from caraml. caraml's \<open>StrI\<close> is one token whose holes
+  hold value paths only. Here a hole holds any tokens, braces and strings nested, so a
+  string with holes is a start \<open>StrStart\<close>, middles \<open>StrMid\<close> and an end
+  \<open>StrEnd\<close> with the tokens of the holes between them.
 
   A token mode has a context (outside any hole, directly in a hole, or in a hole before
   its first token) and a kind (after trivia, after an operand, after any other token).
   The hook computes the kind from the token, and a fresh hole becomes a hole at its
   first token.\<close>
+
+abbreviation cp :: \<open>string \<Rightarrow> nat list\<close> where
+  \<open>cp s \<equiv> map of_char s\<close>
+
+text \<open>caraml's tokens, without its unused \<open>Err\<close> and with the three pieces of a string
+  with holes:\<close>
+
+datatype tok
+  = KLet | KWith | KIf | KThen | KElse | KMatch | KHandler | KMask | KReturn | KFinally
+  | KAs | KType | KExtern | KInfixl | KInfixr | KInfix | KEffect | KModule | KSignature
+  | KInstance | KOpen | KInclude
+  | Assign | Colon | Arrow | Bar | Comma | Semi | LP | RP | LB | RB | LC | RC | KWild | KLambda
+  | LId | UId | Op
+  | TSelL | TSelU | TSelN | LSelL | LSelU | LSelN
+  | IntL | FloatL | StrL | StrStart | StrMid | StrEnd | CharL
+
+text \<open>The tokens that end an operand (caraml's \<open>operand_end\<close>). A minus right after one is
+  an operator, and a dot right after one starts a trailing selector:\<close>
+
+definition operand_end :: \<open>tok \<Rightarrow> bool\<close> where
+  \<open>operand_end t \<longleftrightarrow>
+     t \<in> {LId, UId, KWild, IntL, FloatL, StrL, StrEnd, CharL, RP, RB, RC,
+           TSelL, TSelU, TSelN, LSelL, LSelU, LSelN}\<close>
+
+text \<open>The keywords, which a backticked operator must not be (caraml's \<open>is_keyword\<close>):\<close>
+
+definition is_keyword :: \<open>nat list \<Rightarrow> bool\<close> where
+  \<open>is_keyword u \<longleftrightarrow> u \<in> cp ` set
+     [''let'', ''with'', ''if'', ''then'', ''else'', ''match'', ''handler'', ''mask'',
+      ''return'', ''finally'', ''as'', ''type'', ''extern'', ''infixl'', ''infixr'', ''infix'',
+      ''effect'', ''module'', ''signature'', ''instance'', ''open'', ''include'']\<close>
+
+subsection \<open>Integer ranges\<close>
+
+text \<open>A suffixed integer must lie in its type's range (caraml's \<open>in_range\<close>). The
+  guard checks it on the lexeme. A range is regular, but a regex for it (leading zeros
+  and underscores included) would blow up the tables, and it is a judgment about the
+  value, not the form.\<close>
+
+definition digit_val :: \<open>nat \<Rightarrow> nat\<close> where
+  \<open>digit_val c =
+     (if 0x61 \<le> c \<and> c \<le> 0x66 then c - 0x61 + 10
+      else if 0x41 \<le> c \<and> c \<le> 0x46 then c - 0x41 + 10
+      else c - 0x30)\<close>
+
+definition digits_value :: \<open>nat \<Rightarrow> nat list \<Rightarrow> int\<close> where
+  \<open>digits_value b ds =
+     foldl (\<lambda>v c. if c = 0x5F then v else v * int b + int (digit_val c)) 0 ds\<close>
+
+definition suffix_bounds :: \<open>(nat list \<times> int \<times> int) list\<close> where
+  \<open>suffix_bounds =
+     [(cp ''i8'', - 128, 127),
+      (cp ''i16'', - 32768, 32767),
+      (cp ''i32'', - 2147483648, 2147483647),
+      (cp ''i64'', - 9223372036854775808, 9223372036854775807),
+      (cp ''u8'', 0, 255),
+      (cp ''u16'', 0, 65535),
+      (cp ''u32'', 0, 4294967295),
+      (cp ''u64'', 0, 18446744073709551615)]\<close>
+
+definition int_ok :: \<open>nat list \<Rightarrow> bool\<close> where
+  \<open>int_ok u =
+     (let neg = (take 1 u = [0x2D]);
+          v = (if neg then tl u else u);
+          (b, w) = (if take 2 v = [0x30, 0x78] then (16, drop 2 v)
+                    else if take 2 v = [0x30, 0x62] then (2, drop 2 v) else (10, v));
+          is_sfx = (\<lambda>c. c = 0x69 \<or> c = 0x75);
+          n = digits_value b (takeWhile (Not \<circ> is_sfx) w);
+          x = (if neg then - n else n)
+      in case map_of suffix_bounds (dropWhile (Not \<circ> is_sfx) w) of
+           None \<Rightarrow> True
+         | Some (lo, hi) \<Rightarrow> lo \<le> x \<and> x \<le> hi)\<close>
+
+subsection \<open>The lexer\<close>
 
 datatype kind = Spaced | AfterOp | AfterNonop
 
@@ -24,9 +106,6 @@ fun next_mode :: \<open>tok option \<Rightarrow> cmode \<Rightarrow> cmode\<clos
 | \<open>next_mode (Some t) (Tok c _) =
     Tok (if c = Fresh then Hole else c) (if operand_end t then AfterOp else AfterNonop)\<close>
 | \<open>next_mode _ Comment = Comment\<close>
-
-definition is_keyword :: \<open>nat list \<Rightarrow> bool\<close> where
-  \<open>is_keyword u \<longleftrightarrow> u \<in> fst ` set keyword_table\<close>
 
 lexer caraml :: \<open>tok\<close> (* ~90 s *)
   modes \<open>cmode\<close> start \<open>Tok Outer Spaced\<close> exclusive Comment final \<open>Tok Outer _\<close>
@@ -96,12 +175,21 @@ lexer caraml :: \<open>tok\<close> (* ~90 s *)
 text \<open>@{command lexer} evaluates ten tables: one for each token mode and one for
   \<open>Comment\<close>. No two token modes share a table (the selector rules tell the kinds apart,
   the string pieces the contexts). A token table has 96 intervals in its class table, 63
-  minterms and 195 to 216 states, where the prototype's have 98 and 124 states (the
-  keyword rules add a trie of the keywords). Each token table takes 7 to 9 s, the first
+  minterms and 195 to 216 states. The keywords as literal rules cost about 100 of them (a
+  trie of the keywords): with one identifier rule and a keyword lookup in its action, a
+  token table has 82 intervals, 44 minterms and 98 states, 124 in a hole. Each token table takes 7 to 9 s, the first
   20 s with the setup of the code generator, and the command about 90 s. An evaluation
   of \<^const>\<open>caraml_lex\<close> takes about 40 s, nearly all of it compiling the table
   literals (about 3.5 s each), so its tests use @{command lexer_check}, which compiles
   them once (\<open>CaraML_Lexer_Tests\<close>). Every rule wins in some state of each of its modes
   (the command warns of none).\<close>
+
+text \<open>What caraml has to change to adopt this lexer, in its own repository:
+
+  \<^item> \<open>Tok.thy\<close> loses \<open>Err\<close> and gains \<^const>\<open>StrStart\<close>, \<^const>\<open>StrMid\<close> and
+    \<^const>\<open>StrEnd\<close> (in place of \<open>StrI\<close>).
+  \<^item> \<open>parser/Lexing.thy\<close> imports the session \<open>Token\<close> for the token record.
+  \<^item> The grammar's string productions take a string with holes as a start, the hole's
+    tokens, middles and an end, so a hole holds any expression.\<close>
 
 end

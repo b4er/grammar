@@ -18,9 +18,12 @@ and the AFP entry `Regular-Sets`.
 `Lexer`: the pattern sublanguage (`Pattern`), its diagnostic command `pattern` and the
 term syntax `PAT‹…›`.
 
-`Lexer_Tests` (`tests/`) holds the tests of both. It builds on `Lexer_Command` and
-imports the CaraML prototype (`CaraML_Lexer`) to check that the patterns elaborate to
-the prototype's classes and regexes.
+`CaraML_Lexer` (`caraml/`, on `Lexer_Command`) holds caraml's lexer written with the
+`lexer` command.
+
+`Lexer_Tests` (`tests/`) holds the tests of all three, caraml's `Lexer_Test` snippets
+among them. `Pattern_Tests` keeps the hand-written classes and regexes of the former
+CaraML prototype and checks that the patterns elaborate to them.
 
 ## Milestones
 
@@ -65,10 +68,11 @@ Questions `papers/MAP.md` does not settle, with the answer taken.
   cannot import both `Lexer` and `Grammar_Model`. Grammar's switch is a change made in
   that repo (a `ROOTS`/`-d` entry for `token/`, `imports Token.Token`). caraml's
   `Lexing.thy` changes only its import.
-- **CaraML prototype (prompt 03), 2026-11-08.** `tests/CaraML_Spec.thy` writes
-  caraml's token relation and trivia as a spec over codepoints and lexes caraml's
-  `Lexer_Test` snippets with caraml's results (the expected values are copied: the
-  two `Token` theories keep both lexers out of one theory). No rule needs trailing
+- **CaraML prototype (prompt 03), 2026-11-08.** `CaraML_Spec.thy` (removed by prompt
+  10, see "CaraML on the commands") wrote caraml's token relation and trivia as a spec
+  over codepoints and lexed caraml's `Lexer_Test` snippets with caraml's results (the
+  expected values are copied: the two `Token` theories keep both lexers out of one
+  theory). No rule needs trailing
   context (`r/s`), and `Spec.thy` is unchanged.
   - *Direct* (longest match and priority): identifiers and reserved symbols as one
     rule each with the keyword/symbol lookup in the action, delimiters, `{-` against
@@ -88,19 +92,14 @@ Questions `papers/MAP.md` does not settle, with the answer taken.
   - *Does not fit*: CRLF is two line ends for `Token.advance`, and trivia are kept
     as text, not as caraml's classified, spanned list. The end of input, at first
     a sentinel `U+D800`, is settled below.
-  - *Cost*: 82 class-table intervals, 44 minterms and 98 states for each token mode,
-    11, 5 and 7 for `comment`; about 5 s per token mode to generate, 2.5 s for
-    `comment`. Each `by eval` on the lexer takes about 3 s alone, nearly all of it
-    generating and compiling the code of the table constants, so the tests group
-    their checks. The generator (`explore`) is not the bottleneck at this size.
-- **Interpolation by modes, 2026-11-08.** `tests/CaraML_Spec.thy` departs from caraml's
+- **Interpolation by modes, 2026-11-08.** The CaraML prototype departs from caraml's
   `StrI` (one token, holes hold value paths only). A hole `${…}` holds any tokens. A
   string with holes lexes as `StrStart` (`"…${`), `StrMid` (`}…${`) and `StrEnd`
   (`}…"`) with the hole's tokens between them, as in Swift, Kotlin and Scala lexers. The
   token modes get a context (outer, hole, fresh hole), `{` pushes and `}` pops, so
   braces, strings and comments nest in a hole. An empty hole, a `}` in a hole without a
   string piece after it, and the end of the input inside a hole are errors. Cost: two
-  more token tables of 124 states.
+  more token tables of 124 states (now 216, see "CaraML on the commands").
 - **End of input (MAP §8 Q6), 2026-11-09.** `lexes` has a last argument, the final
   stack (`lexes sp nl st q s l r st'`), and the drivers (`drive`, `run_lexer`,
   `char_lexer`, `cp_lexer`) return the triple `(l, r, st')`. `lexes_stop` reports the
@@ -124,3 +123,17 @@ Questions `papers/MAP.md` does not settle, with the answer taken.
   instance (design §9), not done. caraml: no two token modes share a table, so ten
   tables of up to 216 states, about 90 s to generate and about 40 s for an `eval`
   of `caraml_lex` (compiling the literals).
+- **CaraML on the commands (prompt 10), 2026-11-09.** `caraml/CaraML_Lexer.thy` writes
+  caraml's lexer with the `lexer` command and replaces the prototype, whose 144 checks
+  of caraml's `Lexer_Test` snippets pass on it (`tests/CaraML_Lexer_Tests.thy`, by
+  `lexer_check`).
+  - *Cost*: the keywords and reserved symbols are literal rules, not one rule with a
+    lookup in the action. A token table has 96 class-table intervals, 63 minterms and
+    195 to 216 states, where the prototype's had 82, 44 and 98 (124 in a hole). The
+    command evaluates ten tables (no two token modes share one), 7 to 9 s each and
+    about 90 s in all, where the prototype generated five by hand in about 25 s.
+    Compiling the table literals takes about 40 s once per theory chain, after which a
+    `lexer_check` costs little (the prototype's `by eval`s took about 10 min of CPU).
+  - *Departure*: an unmatched `}` at the top level is an error (the pop of the only
+    mode empties the stack, as in flex), where caraml and the prototype read `RC` and
+    keep the stack. The parser rejects it anyway.
