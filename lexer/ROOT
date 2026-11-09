@@ -16,9 +16,9 @@ session Lexer = Token +
   document_files "root.tex" "root.bib"
 
 session Lexer_Command in "command" = Lexer +
-  description "The pattern sublanguage of the lexer commands."
+  description "The pattern sublanguage and the lexer command."
   options [document = false, timeout = 300]
-  theories Pattern
+  theories Pattern Rules Lexer_Command
   document_files (in "../document") "root.bib"
 
 session Lexer_Tests in "tests" = Lexer_Command +
@@ -26,10 +26,11 @@ session Lexer_Tests in "tests" = Lexer_Command +
   options [document = false, timeout = 300]
   sessions "CaraML_Lexer"
   theories Intervals_Tests Tables_Tests Driver_Tests Codepoint_Tests Pattern_Tests
+    Lexer_Command_Tests CaraML_Lexer_Tests
   document_files (in "../document") "root.bib"
 
-session CaraML_Lexer in "caraml" = Lexer +
+session CaraML_Lexer in "caraml" = Lexer_Command +
   description "WIP for CaraML."
   options [document = false, timeout = 300]
-  theories CaraML_Spec
+  theories CaraML_Spec CaraML_Lexer
   document_files (in "../document") "root.bib"
