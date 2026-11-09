@@ -30,7 +30,7 @@ session Lexer_Tests in "tests" = Lexer_Command +
   document_files (in "../document") "root.bib"
 
 session CaraML_Lexer in "caraml" = Lexer_Command +
-  description "WIP for CaraML."
+  description "CaraML's lexer on the lexer command."
   options [document = false, timeout = 600]
-  theories CaraML_Spec CaraML_Lexer
+  theories CaraML_Lexer
   document_files (in "../document") "root.bib"

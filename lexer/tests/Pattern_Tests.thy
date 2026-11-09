@@ -1,15 +1,137 @@
 theory Pattern_Tests
-  imports Lexer_Command.Pattern CaraML_Lexer.CaraML_Spec "Regular-Sets.Equivalence_Checking"
+  imports Lexer_Command.Pattern "Regular-Sets.Equivalence_Checking"
 begin
 
 section \<open>Tests of the pattern sublanguage\<close>
 
-text \<open>Every class and regex of the CaraML prototype, written as a pattern over the
-  prototype's names, elaborates to the prototype's definition. Classes agree in normal
-  form. Regexes agree as regexes over their normalized classes, read as letters, by the
-  equivalence checker of \<open>Regular-Sets\<close> (two regexes with the same letter language have
-  the same symbolic language). Associativity and units are not compared, as the
-  prototype nests concatenations differently.\<close>
+text \<open>Every class and regex of a hand-written lexer spec of caraml (the prototype of
+  \<open>CaraML_Lexer\<close>), written as a pattern over the prototype's names, elaborates to the
+  prototype's definition. Classes agree in normal form. Regexes agree as regexes over
+  their normalized classes, read as letters, by the equivalence checker of
+  \<open>Regular-Sets\<close> (two regexes with the same letter language have the same symbolic
+  language). Associativity and units are not compared, as the prototype nests
+  concatenations differently.\<close>
+
+subsection \<open>The prototype's classes and regexes\<close>
+
+abbreviation cp :: \<open>string \<Rightarrow> nat list\<close> where
+  \<open>cp s \<equiv> map of_char s\<close>
+
+definition ch :: \<open>nat \<Rightarrow> nat cls\<close> where
+  \<open>ch c = [(c, c)]\<close>
+
+definition chs :: \<open>nat list \<Rightarrow> nat cls\<close> where
+  \<open>chs cs = map (\<lambda>c. (c, c)) cs\<close>
+
+definition \<open>lower = [(0x61, 0x7A), (0x3B1, 0x3BA), (0x3BC, 0x3C9)]\<close>
+definition \<open>upper = [(0x41, 0x5A), (0x391, 0x3A1), (0x3A3, 0x3A9)]\<close>
+definition \<open>digit = [(0x30, 0x39)]\<close>
+definition \<open>hexdigit = [(0x30, 0x39), (0x41, 0x46), (0x61, 0x66)]\<close>
+definition \<open>bindigit = [(0x30, 0x31)]\<close>
+
+definition \<open>idstart = lower @ upper\<close>
+definition \<open>idchar = lower @ upper @ digit @ chs [0x5F, 0x27]\<close>
+
+definition \<open>symchar = chs
+  [0x21, 0x23, 0x24, 0x25, 0x26, 0x2A, 0x2B, 0x2D, 0x2F, 0x3A,
+   0x3C, 0x3D, 0x3E, 0x3F, 0x40, 0x5C, 0x5E, 0x7C, 0x7E] @
+  [(0x2190, 0x22FF)]\<close>
+
+definition \<open>whitespace =
+  [(0x0A, 0x0D), (0x20, 0x20), (0x85, 0x85), (0x200E, 0x200F), (0x2028, 0x2029)]\<close>
+definition \<open>newline = [(0x0A, 0x0D), (0x85, 0x85), (0x2028, 0x2029)]\<close>
+
+definition \<open>bidi = [(0x202A, 0x202E), (0x2066, 0x2069)]\<close>
+
+definition \<open>line_char = cp_neg (newline @ bidi)\<close>
+definition \<open>line_start = cp_neg (symchar @ newline @ bidi)\<close>
+definition \<open>cmt_char = cp_neg (chs [0x7B, 0x2D] @ bidi)\<close>
+definition \<open>str_char = cp_neg (chs [0x22, 0x5C, 0x24] @ newline @ bidi)\<close>
+definition \<open>str_char_nobrace = cp_neg (chs [0x22, 0x5C, 0x24, 0x7B] @ newline @ bidi)\<close>
+definition \<open>char_char = cp_neg (chs [0x27, 0x5C] @ newline @ bidi)\<close>
+
+definition many :: \<open>'p \<Rightarrow> 'p rexp\<close> where
+  \<open>many p = Times (Pred p) (Star (Pred p))\<close>
+
+definition opt :: \<open>'p rexp \<Rightarrow> 'p rexp\<close> where
+  \<open>opt r = Plus One r\<close>
+
+definition alts :: \<open>'p rexp list \<Rightarrow> 'p rexp\<close> where
+  \<open>alts rs = foldr Plus (butlast rs) (last rs)\<close>
+
+definition seq :: \<open>'p rexp list \<Rightarrow> 'p rexp\<close> where
+  \<open>seq rs = foldr Times (butlast rs) (last rs)\<close>
+
+definition word :: \<open>nat list \<Rightarrow> nat cls rexp\<close> where
+  \<open>word cs = seq (map (Pred \<circ> ch) cs)\<close>
+
+text \<open>Digit runs \<open>D ("_"? D)*\<close>, the integers and floats of \<open>grammar.md\<close> \<section>1:\<close>
+
+definition run :: \<open>nat cls \<Rightarrow> nat cls rexp\<close> where
+  \<open>run d = Times (Pred d) (Star (Times (opt (Pred (ch 0x5F))) (Pred d)))\<close>
+
+definition \<open>suffix_re = alts (map (word \<circ> cp)
+  [''i8'', ''i16'', ''i32'', ''i64'', ''u8'', ''u16'', ''u32'', ''u64''])\<close>
+
+definition \<open>int_re = Times
+  (alts [run digit,
+         Times (word (cp ''0x'')) (run hexdigit),
+         Times (word (cp ''0b'')) (run bindigit)])
+  (opt suffix_re)\<close>
+
+definition \<open>frac_re = Times (Pred (ch 0x2E)) (run digit)\<close>
+definition \<open>exp_re = seq [Pred (chs [0x65, 0x45]), opt (Pred (ch 0x2D)), run digit]\<close>
+definition \<open>float_re = Times (run digit) (Plus (Times frac_re (opt exp_re)) exp_re)\<close>
+
+text \<open>An escape \<open>\u{h\<dots>}\<close> takes one to six hexadecimal digits denoting a Unicode scalar
+  value: at most \<open>10FFFF\<close> and no surrogate \<open>D800 .. DFFF\<close>. By number of digits:\<close>
+
+definition \<open>hex = Pred hexdigit\<close>
+
+definition \<open>hex_cp4 = Plus
+  (seq [Pred (cp_neg ([(0, 0x2F), (0x3A, 0x40), (0x47, 0x60)] @ chs [0x44, 0x64])), hex, hex, hex])
+  (seq [Pred (chs [0x44, 0x64]), Pred [(0x30, 0x37)], hex, hex])\<close>
+
+definition \<open>hex_cp5 = Plus
+  (seq [Pred [(0x31, 0x39), (0x41, 0x46), (0x61, 0x66)], hex, hex, hex, hex])
+  (Times (Pred (ch 0x30)) hex_cp4)\<close>
+
+definition \<open>hex_cp6 = Plus
+  (Times (Pred (ch 0x30)) hex_cp5)
+  (seq [Pred (ch 0x31), Pred (ch 0x30), hex, hex, hex, hex])\<close>
+
+definition \<open>escape_re = Times (Pred (ch 0x5C)) (Plus
+  (Pred (chs [0x30, 0x74, 0x6E, 0x72, 0x22, 0x27, 0x5C, 0x24]))
+  (seq [word (cp ''u{''), alts [hex, seq [hex, hex], seq [hex, hex, hex], hex_cp4, hex_cp5,
+    hex_cp6], Pred (ch 0x7D)]))\<close>
+
+text \<open>The text of a string: characters, escapes, and runs of \<open>$\<close> before a character
+  other than \<open>{\<close> or before an escape. A string without holes is text between quotes. A
+  string with holes is a start \<open>"\<dots>${\<close>, middles \<open>}\<dots>${\<close> and an end \<open>}\<dots>"\<close>, with the tokens
+  of the holes between them. A run of \<open>$\<close> may stand before \<open>${\<close> and the closing quote:\<close>
+
+definition \<open>dollars = many (ch 0x24)\<close>
+
+definition \<open>str_text = Star (alts [Pred str_char, escape_re,
+  Times dollars (alts [Pred str_char_nobrace, escape_re])])\<close>
+
+definition \<open>str_open = Times str_text (Times (Star (Pred (ch 0x24))) (word (cp ''${'')))\<close>
+definition \<open>str_close = Times str_text (Times (opt dollars) (Pred (ch 0x22)))\<close>
+
+definition \<open>str_re = Times (Pred (ch 0x22)) str_close\<close>
+definition \<open>str_start_re = Times (Pred (ch 0x22)) str_open\<close>
+definition \<open>str_mid_re = Times (Pred (ch 0x7D)) str_open\<close>
+definition \<open>str_end_re = Times (Pred (ch 0x7D)) str_close\<close>
+
+definition \<open>char_re = seq [Pred (ch 0x27), Plus (Pred char_char) escape_re, Pred (ch 0x27)]\<close>
+
+text \<open>A line comment is a run of at least two dashes that no symbol character extends,
+  then the rest of the line:\<close>
+
+definition \<open>line_comment_re = seq [word (cp ''--''), Star (Pred (ch 0x2D)),
+  opt (Times (Pred line_start) (Star (Pred line_char)))]\<close>
+
+subsection \<open>Comparison\<close>
 
 fun atom_list :: \<open>'a rexp \<Rightarrow> 'a list\<close> where
   \<open>atom_list (Atom a) = [a]\<close>
