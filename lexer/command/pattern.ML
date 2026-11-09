@@ -51,6 +51,10 @@ sig
   val elaborate: env -> ast -> kind * term
   val template: env -> (string * Position.T) list -> ast -> entry
   val read: Proof.context -> env -> Input.source -> kind * term
+  val regex_of: kind * term -> term
+  val literal: int list -> term
+  val class_term: (int * int) list -> term
+  val codepoint: Symbol_Pos.T -> int
   val empty_env: env
   val const_env: Proof.context -> env
   val pattern_tr: Proof.context -> term list -> term
@@ -389,6 +393,10 @@ fun template env params ast =
   in {kind = kind, params = kinds, term = fold_rev Term.lambda frees body} end;
 
 fun read ctxt env source = elaborate env (parse ctxt source);
+
+val regex_of = lift;
+val class_term = mk_cls;
+val codepoint = cp_of;
 
 fun empty_env (n, pos) = err pos ("undefined name " ^ quote n);
 
