@@ -6,7 +6,8 @@ section \<open>The driver\<close>
 
 text \<open>The driver lexes a whole input. It steps the runner of the mode on top of the
   stack, applies the action of the winning rule and stops when no step applies: the
-  stack is empty, no rule matches, or the action returns the empty stack
+  stack is empty, no rule matches, or the action returns the empty stack. It returns
+  the lexed source, the residue and the stack it stops in
   \<^cite>\<open>\<open>Sect. 10\<close> in "paxson2026-flex-manual"\<close>
   \<^cite>\<open>\<open>Fig. 4, Tokens\<close> in "egolf2021-verbatim-verified-lexer"\<close>. Trivia go into the
   header or the trailing trivia of the token before them, spans come from
@@ -19,24 +20,25 @@ text \<open>The driver lexes a whole input. It steps the runner of the mode on t
 
 fun drive ::
   \<open>('m \<Rightarrow> 'ch list \<Rightarrow> (nat \<times> 'ch list \<times> 'ch list) option) \<Rightarrow> ('k, 'p, 'ch, 'm) lexer_spec \<Rightarrow>
-    ('ch \<Rightarrow> bool) \<Rightarrow> 'm list \<Rightarrow> pos \<Rightarrow> 'ch list \<Rightarrow> ('k, 'ch) lexed \<times> 'ch list\<close>
+    ('ch \<Rightarrow> bool) \<Rightarrow> 'm list \<Rightarrow> pos \<Rightarrow> 'ch list \<Rightarrow> ('k, 'ch) lexed \<times> 'ch list \<times> 'm list\<close>
 where
-  \<open>drive R sp is_newline [] q s = (Lexed [] [], s)\<close>
-| \<open>drive R sp is_newline (m # st) q [] = (Lexed [] [], [])\<close>
+  \<open>drive R sp is_newline [] q s = (Lexed [] [], s, [])\<close>
+| \<open>drive R sp is_newline (m # st) q [] = (Lexed [] [], [], m # st)\<close>
 | \<open>drive R sp is_newline (m # st) q (c # v) =
     (case R m (c # v) of
-      None \<Rightarrow> (Lexed [] [], c # v)
+      None \<Rightarrow> (Lexed [] [], c # v, m # st)
     | Some (i, p, _) \<Rightarrow>
         (case act (sp m ! i) p (m # st) of
           (k, st') \<Rightarrow>
-            if p = [] \<or> st' = [] then (Lexed [] [], c # v)
+            if p = [] \<or> st' = [] then (Lexed [] [], c # v, m # st)
             else
               (case drive R sp is_newline st' (advance_list is_newline p q)
                   (drop (length p) (c # v)) of
-                (Lexed h ts, r) \<Rightarrow>
+                (Lexed h ts, r, st\<^sub>f) \<Rightarrow>
                   (case k of
-                    None \<Rightarrow> (Lexed (p @ h) ts, r)
-                  | Some k \<Rightarrow> (Lexed [] (\<lparr>tok = k, span = span_at q p, trivia = h\<rparr> # ts), r)))))\<close>
+                    None \<Rightarrow> (Lexed (p @ h) ts, r, st\<^sub>f)
+                  | Some k \<Rightarrow>
+                      (Lexed [] (\<lparr>tok = k, span = span_at q p, trivia = h\<rparr> # ts), r, st\<^sub>f)))))\<close>
 
 text \<open>A spec whose modes are the numbers below the length of a list, with no rules in
   the other modes. Tables for such a spec are an array indexed by the mode, so the
@@ -68,8 +70,8 @@ lemma step_iff_mode_runner:
 
 lemma lexes_drive:
   assumes \<open>mode_runner sp R\<close>
-  shows \<open>lexes sp is_newline st q s (fst (drive R sp is_newline st q s))
-    (snd (drive R sp is_newline st q s))\<close>
+  shows \<open>case drive R sp is_newline st q s of
+    (l, r, st\<^sub>f) \<Rightarrow> lexes sp is_newline st q s l r st\<^sub>f\<close>
   using assms
 proof (induction R sp is_newline st q s rule: drive.induct)
   case (1 R sp is_newline q s)
@@ -114,9 +116,10 @@ next
         using runner by auto
       let ?d = \<open>drive R sp is_newline st' (advance_list is_newline p q) rest\<close>
       from "3.IH"[OF R refl refl act[symmetric]] False \<open>p \<noteq> []\<close> \<open>mode_runner sp R\<close> rest
-      have IH: \<open>lexes sp is_newline st' (advance_list is_newline p q) rest (fst ?d) (snd ?d)\<close>
+      have IH: \<open>case ?d of (l, r, st\<^sub>f) \<Rightarrow>
+        lexes sp is_newline st' (advance_list is_newline p q) rest l r st\<^sub>f\<close>
         by simp
-      obtain h ts r where d: \<open>?d = (Lexed h ts, r)\<close>
+      obtain h ts r st\<^sub>f where d: \<open>?d = (Lexed h ts, r, st\<^sub>f)\<close>
         by (metis lexed.exhaust prod.exhaust)
       from IH d step R act False \<open>p \<noteq> []\<close> rest show ?thesis
         by (cases k) (auto intro: lexes_token lexes_trivia)
@@ -126,15 +129,16 @@ qed
 
 theorem drive_iff_lexes:
   assumes \<open>mode_runner sp R\<close>
-  shows \<open>drive R sp is_newline st q s = (l, r) \<longleftrightarrow> lexes sp is_newline st q s l r\<close>
+  shows \<open>drive R sp is_newline st q s = (l, r, st\<^sub>f) \<longleftrightarrow> lexes sp is_newline st q s l r st\<^sub>f\<close>
 proof
-  assume \<open>drive R sp is_newline st q s = (l, r)\<close>
-  with lexes_drive[OF assms, of is_newline st q s] show \<open>lexes sp is_newline st q s l r\<close>
+  assume \<open>drive R sp is_newline st q s = (l, r, st\<^sub>f)\<close>
+  with lexes_drive[OF assms, of is_newline st q s] show \<open>lexes sp is_newline st q s l r st\<^sub>f\<close>
     by simp
 next
-  assume \<open>lexes sp is_newline st q s l r\<close>
-  with lexes_drive[OF assms, of is_newline st q s] show \<open>drive R sp is_newline st q s = (l, r)\<close>
-    by (metis lexes_deterministic prod.collapse)
+  assume \<open>lexes sp is_newline st q s l r st\<^sub>f\<close>
+  with lexes_drive[OF assms, of is_newline st q s]
+  show \<open>drive R sp is_newline st q s = (l, r, st\<^sub>f)\<close>
+    by (auto split: prod.splits dest: lexes_deterministic)
 qed
 
 end
@@ -146,7 +150,7 @@ text \<open>The driver over the DFA runner of each mode, with a classifier for e
 
 definition run_lexer ::
   \<open>('k, 'p, 'ch, 'm) lexer_spec \<Rightarrow> ('m \<Rightarrow> 'ch \<Rightarrow> nat) \<Rightarrow> ('ch \<Rightarrow> bool) \<Rightarrow> 'm list \<Rightarrow> pos \<Rightarrow>
-    'ch list \<Rightarrow> ('k, 'ch) lexed \<times> 'ch list\<close>
+    'ch list \<Rightarrow> ('k, 'ch) lexed \<times> 'ch list \<times> 'm list\<close>
 where
   \<open>run_lexer sp cls = drive (\<lambda>m. run_dfa (sp m) (cls m)) sp\<close>
 
@@ -158,11 +162,12 @@ lemma mode_runner_run_dfa:
 section \<open>Surface theorems\<close>
 
 text \<open>With a classifier into the minterms of each mode, the driver returns exactly the
-  lexed source and the residue of \<^const>\<open>lexes\<close>:\<close>
+  lexed source, the residue and the final stack of \<^const>\<open>lexes\<close>:\<close>
 
 theorem run_lexer_iff_lexes:
   assumes \<open>\<And>m. minterm_classifier (sp m) (cls m)\<close>
-  shows \<open>run_lexer sp cls is_newline st q s = (l, r) \<longleftrightarrow> lexes sp is_newline st q s l r\<close>
+  shows \<open>run_lexer sp cls is_newline st q s = (l, r, st\<^sub>f) \<longleftrightarrow>
+    lexes sp is_newline st q s l r st\<^sub>f\<close>
   unfolding run_lexer_def by (rule drive_iff_lexes[OF mode_runner_run_dfa[OF assms]])
 
 end

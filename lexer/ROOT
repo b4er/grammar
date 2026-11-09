@@ -20,3 +20,9 @@ session Lexer_Tests in "tests" = Lexer +
   options [document = false, timeout = 300]
   theories Intervals_Tests Tables_Tests Driver_Tests Codepoint_Tests
   document_files (in "../document") "root.bib"
+
+session CaraML_Lexer in "caraml" = Lexer +
+  description "WIP for CaraML."
+  options [document = false, timeout = 300]
+  theories CaraML_Spec
+  document_files (in "../document") "root.bib"
