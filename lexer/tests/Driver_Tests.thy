@@ -8,7 +8,7 @@ text \<open>A two-mode spec on bytes with nested comments. Mode \<open>0\<close>
   skips whitespace, and \<open>(*\<close> pushes mode \<open>1\<close>. In mode \<open>1\<close>, \<open>(*\<close> pushes mode \<open>1\<close> again,
   \<open>*)\<close> pops it, and every other character is trivia (a single \<open>(\<close> or \<open>*\<close> loses to
   \<open>(*\<close> and \<open>*)\<close> by length). The theorem about the lexer is an instance of
-  @{thm [source] char_lexer_iff_lexes}.\<close>
+  @{thm [source] char_lexer_list_iff_lexes}.\<close>
 
 datatype tok = IDENT
 
@@ -45,14 +45,14 @@ definition \<open>is_lf c \<longleftrightarrow> c = CHR 0x0A\<close>
 
 definition \<open>start = \<lparr>line = 0, col = 0, off = 0\<rparr>\<close>
 
-definition \<open>comment_lex st = char_lexer comment_tables comment_rules is_lf st start\<close>
+definition \<open>comment_lex st = char_lexer comment_tables id (list_spec comment_rules) is_lf st start\<close>
 
 text \<open>The lexer on the tables is the driver of the spec:\<close>
 
 theorem comment_lex_iff_lexes:
   \<open>comment_lex st s = (l, r, st\<^sub>f) \<longleftrightarrow>
     char_cls.lexes (list_spec comment_rules) is_lf st start s l r st\<^sub>f\<close>
-  by (simp add: comment_lex_def comment_tables_def char_lexer_iff_lexes)
+  by (simp add: comment_lex_def comment_tables_def char_lexer_list_iff_lexes)
 
 text \<open>A nested comment across a newline is the trailing trivia of \<open>ab\<close>. The span of
   \<open>xy\<close> is on line \<open>1\<close>, column \<open>4\<close>, offset \<open>22\<close>:\<close>

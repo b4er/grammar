@@ -110,3 +110,17 @@ Questions `papers/MAP.md` does not settle, with the answer taken.
   `lexer` command is to declare the final modes. flex's per-mode `<<EOF>>` actions
   (flex §12) are out: no consumer needs a token at the end, and a post-pass on the
   final stack can add one later.
+- **The generated lexer and the byte instance (prompt 08), 2026-11-09.** `cp_lexer` and
+  `char_lexer` take a mode index `ix :: 'm ⇒ nat` into the table array, and their
+  theorems assume that each mode finds its tables there. The `lexer` command
+  builds the lexer `L_lex` along with the spec (`lexer (sketch)` stops after the spec),
+  and gives modes with the same rule list (`aconv`) one index, and the old `nat` form is
+  the instance `ix = id` with `list_spec`. `lexer (char)` lexes bytes with
+  `char_spec L.spec`, which reads each codepoint class on bytes as its part below
+  `0x100`, and `L_lex.correct` is stated against that spec. A class that reaches above
+  `0xFF` is an error, except one that reaches `0x10FFFF`: the elaboration turns `_`
+  and `[^…]` into such complements, and on bytes they mean the remaining bytes.
+  Relating the byte lexer to `L.spec` on codepoints is the theorem of the `utf8`
+  instance (design §9), not done. caraml: no two token modes share a table, so ten
+  tables of up to 216 states, about 90 s to generate and about 40 s for an `eval`
+  of `caraml_lex` (compiling the literals).

@@ -430,10 +430,6 @@ declare hole_spaced_tables_code[code]
 text \<open>The sizes: minterm intervals of the class table, minterms (DFA columns) and
   states of each mode.\<close>
 
-definition table_size :: \<open>cp_tables \<Rightarrow> nat \<times> nat \<times> nat\<close> where
-  \<open>table_size t = (case t of (C, T, A, d) \<Rightarrow>
-     (IArray.length C, IArray.length (T !! 0), IArray.length T))\<close>
-
 lemma \<open>map table_size
          [spaced_tables, after_op_tables, hole_spaced_tables, hole_after_op_tables,
           comment_tables]
@@ -463,7 +459,7 @@ definition start :: pos where
   \<open>start = \<lparr>line = 0, col = 0, off = 0\<rparr>\<close>
 
 definition caraml_lex :: \<open>nat list \<Rightarrow> (tok, nat) lexed \<times> nat list \<times> nat list\<close> where
-  \<open>caraml_lex s = cp_lexer caraml_tables caraml_rules is_nl [spaced] start s\<close>
+  \<open>caraml_lex s = cp_lexer caraml_tables id (list_spec caraml_rules) is_nl [spaced] start s\<close>
 
 text \<open>On an input in range, the prototype is the driver of the spec:\<close>
 
@@ -472,7 +468,7 @@ theorem caraml_lex_iff_lexes:
   shows \<open>caraml_lex s = (l, r, st\<^sub>f) \<longleftrightarrow>
     symbolic.lexes in_cls (list_spec caraml_rules) is_nl [spaced] start s l r st\<^sub>f\<close>
   unfolding caraml_lex_def caraml_tables_eq
-  by (rule cp_lexer_iff_lexes_in_range) (use assms in auto)
+  by (rule cp_lexer_list_iff_lexes_in_range) (use assms in auto)
 
 subsection \<open>How caraml's rules map\<close>
 

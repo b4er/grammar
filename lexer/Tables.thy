@@ -382,65 +382,75 @@ lemma run_char_tables:
   by (simp add: fun_eq_iff char_tables_def char_mode_minterms_eq char_mode_dfa_eq
       char_dead_state_eq char_cls.run_tables_ia_eq_run_dfa char_cls.minterm_classifier_class_of)
 
-text \<open>The lexer on bytes takes a spec as a list of modes (\<^const>\<open>list_spec\<close>) and the
-  tables of all modes as one array indexed by the mode, so one evaluation produces all
-  of them. A mode outside the array has no rules:\<close>
+text \<open>The lexer on bytes takes the tables of all modes as one array and an index \<open>ix\<close>
+  into it for each mode, so modes with the same rules share their tables and the driver
+  never compares modes. A mode whose index is outside the array has no rules:\<close>
+
+definition char_lexer ::
+  \<open>char_tables iarray \<Rightarrow> ('m \<Rightarrow> nat) \<Rightarrow> ('k, char cls, char, 'm) lexer_spec \<Rightarrow>
+    (char \<Rightarrow> bool) \<Rightarrow> 'm list \<Rightarrow> pos \<Rightarrow> char list \<Rightarrow> ('k, char) lexed \<times> char list \<times> 'm list\<close>
+where
+  \<open>char_lexer TT ix =
+    drive (\<lambda>m. if ix m < IArray.length TT then run_char (TT !! ix m) else (\<lambda>_. None))\<close>
+
+text \<open>The runner of \<^const>\<open>char_lexer\<close> runs the modes of \<open>sp\<close> if the index of each
+  mode holds its tables or is outside the array for a mode without rules:\<close>
+
+lemma mode_runner_char_lexer:
+  assumes \<open>\<And>m. if ix m < IArray.length TT then TT !! ix m = char_tables (sp m) else sp m = []\<close>
+  shows \<open>char_cls.mode_runner sp
+    (\<lambda>m. if ix m < IArray.length TT then run_char (TT !! ix m) else (\<lambda>_. None))\<close>
+  unfolding char_cls.mode_runner_def
+proof (intro allI)
+  fix m s i p rest
+  show \<open>(if ix m < IArray.length TT then run_char (TT !! ix m) else (\<lambda>_. None)) s =
+      Some (i, p, rest) \<longleftrightarrow> char_cls.first_token (sp m) i p s \<and> s = p @ rest\<close>
+    using assms[of m]
+    by (auto simp: run_char_tables char_cls.run_dfa_Some_iff char_cls.minterm_classifier_class_of
+        char_cls.first_token.simps split: if_splits)
+qed
+
+text \<open>If the index of each mode holds its tables, the lexer on bytes is
+  \<^const>\<open>char_cls.lexes\<close>:\<close>
+
+theorem char_lexer_iff_lexes:
+  assumes \<open>\<forall>m. ix m < IArray.length TT \<and> TT !! ix m = char_tables (sp m)\<close>
+  shows \<open>char_lexer TT ix sp is_newline st q s = (l, r, st\<^sub>f) \<longleftrightarrow>
+    char_cls.lexes sp is_newline st q s l r st\<^sub>f\<close>
+  unfolding char_lexer_def
+  by (rule char_cls.drive_iff_lexes[OF mode_runner_char_lexer]) (use assms in auto)
+
+text \<open>The tables of a spec on the modes \<open>0, \<dots>, n - 1\<close> (\<^const>\<open>list_spec\<close>), with the
+  identity as index:\<close>
 
 definition char_lexer_tables :: \<open>('k, char cls, char, nat) rule list list \<Rightarrow> char_tables iarray\<close>
 where
   \<open>char_lexer_tables sps = IArray (map char_tables sps)\<close>
 
-definition char_lexer ::
-  \<open>char_tables iarray \<Rightarrow> ('k, char cls, char, nat) rule list list \<Rightarrow> (char \<Rightarrow> bool) \<Rightarrow>
-    nat list \<Rightarrow> pos \<Rightarrow> char list \<Rightarrow> ('k, char) lexed \<times> char list \<times> nat list\<close>
-where
-  \<open>char_lexer TT sps =
-    drive (\<lambda>m. if m < IArray.length TT then run_char (TT !! m) else (\<lambda>_. None)) (list_spec sps)\<close>
-
-text \<open>On the tables of its spec, the lexer on bytes is \<^const>\<open>char_cls.lexes\<close>:\<close>
-
-theorem char_lexer_iff_lexes:
-  \<open>char_lexer (char_lexer_tables sps) sps is_newline st q s = (l, r, st\<^sub>f) \<longleftrightarrow>
+theorem char_lexer_list_iff_lexes:
+  \<open>char_lexer (char_lexer_tables sps) id (list_spec sps) is_newline st q s = (l, r, st\<^sub>f) \<longleftrightarrow>
     char_cls.lexes (list_spec sps) is_newline st q s l r st\<^sub>f\<close>
-proof -
-  have \<open>char_cls.mode_runner (list_spec sps)
-    (\<lambda>m. if m < IArray.length (char_lexer_tables sps) then run_char (char_lexer_tables sps !! m)
-      else (\<lambda>_. None))\<close>
-    unfolding char_cls.mode_runner_def
-  proof (intro allI)
-    fix m s i p rest
-    show \<open>(if m < IArray.length (char_lexer_tables sps) then run_char (char_lexer_tables sps !! m)
-        else (\<lambda>_. None)) s = Some (i, p, rest) \<longleftrightarrow>
-      char_cls.first_token (list_spec sps m) i p s \<and> s = p @ rest\<close>
-    proof (cases \<open>m < length sps\<close>)
-      case True
-      then show ?thesis
-        by (simp add: char_lexer_tables_def list_spec_def run_char_tables
-            char_cls.run_dfa_Some_iff char_cls.minterm_classifier_class_of)
-    next
-      case False
-      then show ?thesis
-        by (auto simp: char_lexer_tables_def list_spec_def char_cls.first_token.simps)
-    qed
-  qed
-  then show ?thesis
-    unfolding char_lexer_def by (rule char_cls.drive_iff_lexes)
-qed
+  unfolding char_lexer_def
+  by (rule char_cls.drive_iff_lexes[OF mode_runner_char_lexer])
+    (simp add: char_lexer_tables_def list_spec_def)
 
 subsection \<open>Code equations by evaluation\<close>
 
-text \<open>\<open>eval_table b t\<close> evaluates the closed term \<open>t\<close> (a nullary constant) to a value \<open>v\<close>,
-  proves \<open>t = v\<close> by \<open>eval\<close> and notes it as \<open>b\<close>. Declared \<open>[code]\<close>, the equation
-  replaces the definition in generated code:\<close>
+text \<open>\<open>eval_eq ctxt t\<close> evaluates the closed term \<open>t\<close> to a value \<open>v\<close> and proves \<open>t = v\<close>
+  by \<open>eval\<close>. \<open>eval_table b t\<close> notes this equation as \<open>b\<close> for a nullary constant \<open>t\<close>.
+  Declared \<open>[code]\<close>, the equation replaces the definition in generated code:\<close>
 
 ML \<open>
-fun eval_table (b, t) lthy =
+fun eval_eq ctxt t =
   let
-    val v = Value_Command.value lthy t
+    val v = Value_Command.value ctxt t
     val eqn = HOLogic.mk_Trueprop (HOLogic.mk_eq (t, v))
-    val thm = Goal.prove lthy [] [] eqn (fn {context = ctxt, ...} =>
+  in
+    Goal.prove ctxt [] [] eqn (fn {context = ctxt, ...} =>
       CONVERSION (Code_Runtime.dynamic_holds_conv ctxt) 1 THEN resolve_tac ctxt [TrueI] 1)
-  in snd (Local_Theory.note ((b, []), [thm]) lthy) end
+  end
+
+fun eval_table (b, t) lthy = snd (Local_Theory.note ((b, []), [eval_eq lthy t]) lthy)
 \<close>
 
 end
