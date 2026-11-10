@@ -1,5 +1,5 @@
 theory Prec_Surface_Tests
-  imports LR_Parser.LR_Prec_Parse Parser_Check
+  imports TIGER_LR.LR_Prec_Parse Parser_Check
 begin
 
 section \<open>Precedence declarations in \<^theory_text>\<open>grammar\<close>\<close>

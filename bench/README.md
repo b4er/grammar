@@ -20,7 +20,7 @@ the table (`table.awk`) and the report against a baseline (`report.py`).
 
 ## Running
 
-Each `thys/` is a session on top of `LR_Parser`, listed in `../ROOTS`. Its theory exports
+Each `thys/` is a session on top of `TIGER_LR`, listed in `../ROOTS`. Its theory exports
 the parser's code to `<bench>/isabelle/`. With the repository root as working directory:
 
 ```shell

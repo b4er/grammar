@@ -1,8 +1,8 @@
 theory Prec_Tests
-  imports LR_Parser.LR_Prec_Parse Parser_Check
+  imports TIGER_LR.LR_Prec_Parse Parser_Check
 begin
 
-text \<open>The theorems of \<^theory>\<open>LR_Parser.LR_Prec_Parse\<close> relate \<^const>\<open>restrict\<close> to
+text \<open>The theorems of \<^theory>\<open>TIGER_LR.LR_Prec_Parse\<close> relate \<^const>\<open>restrict\<close> to
   \<^const>\<open>prec_ok\<close>. What they cannot say is that \<^const>\<open>prec_ok\<close> of a level table means what
   a reader expects, and that \<^const>\<open>restrict\<close> computes. Both are checked here on small
   grammars by enumerating every tree of every short word.\<close>

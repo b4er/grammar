@@ -1,5 +1,5 @@
 theory Grammar_Command
-  imports Grammar_Model.Grammar_Base
+  imports TIGER_Grammar.Grammar_Base
   keywords "grammar" :: thy_decl
     and "tokens" "terminals" "productions"
     and "^=" "^>=" "^>" "*"
@@ -13,11 +13,11 @@ section \<open>Overview\<close>
 text \<open>
   The package defines grammars and parsers for indentation-sensitive context-free
   grammars in the sense of Adams~\cite{adams2013}. A grammar is a value of type
-  \<^typ>\<open>('n, 'tok) is_cfg\<close> (\<^file>\<open>../Indentation_Sensitive.thy\<close>):
+  \<^typ>\<open>('n, 'tok) is_cfg\<close> (\<^file>\<open>model/Indentation_Sensitive.thy\<close>):
   a list of productions over non-terminals \<open>'n\<close> and token classes \<open>'tok\<close>, in
   which every right-hand-side symbol carries an indentation relation
   \<^typ>\<open>irel\<close>. Parser input is a list of token records
-  \<^typ>\<open>('tok, 'ch, 'm) token_scheme\<close> (\<^file>\<open>../Token.thy\<close>);
+  \<^typ>\<open>('tok, 'ch, 'm) token_scheme\<close> (\<^file>\<open>../token/Token.thy\<close>);
   the token class \<^const>\<open>tok\<close> and the column \<^const>\<open>s_col\<close> of the
   \<^const>\<open>span\<close> are all the parser reads, the remaining fields and any record
   extension \<open>'m\<close> pass through to the semantic actions.
@@ -310,7 +310,7 @@ text \<open>
   The declarations belong to the grammar, the restriction to the parser: each parser
   of a declaring grammar defines \<open>p_prec\<close> and \<open>p_gram = restricted G p_prec\<close> and is built
   from \<open>p_gram\<close>, from its own start; a grammar without declarations is not touched.
-  Such a theory imports \<^verbatim>\<open>LR_Parser.LR_Prec_Parse\<close>. \<open>p.sound\<close> and \<open>p.complete\<close> are
+  Such a theory imports \<^verbatim>\<open>TIGER_LR.LR_Prec_Parse\<close>. \<open>p.sound\<close> and \<open>p.complete\<close> are
   stated against \<open>G\<close> and \<open>prec_ok\<close>, on trees of \<open>G\<close>; \<open>p.sound_lang\<close> and
   \<open>p.complete_lang\<close> against \<open>prec_lang\<close>. With \<^theory_text>\<open>grammar (relation)\<close> the relation
   family is defined as usual but does not read the declarations, so no theorem is
@@ -357,9 +357,9 @@ text \<open>
   is skipped, as the simplifier rewrites it to \<open>Suc 0\<close>). The constants, relations,
   decoders and parsers are the same otherwise, and messages still show the names. The
   generated proofs then compare numerals instead of strings, which pays for long
-  qualified names such as \<open>caraml_exprs.Atom\<close>. A grammar with \<open>precedence\<close> of its own,
+  qualified names such as \<open>exprs.Atom\<close>. A grammar with \<open>precedence\<close> of its own,
   or that copies nonterminals of one with \<open>precedence\<close>, keeps its names, since the
-  restriction of \<^file>\<open>../lr/LR_Restrict.thy\<close> works on strings.
+  restriction of \<^file>\<open>lr/LR_Restrict.thy\<close> works on strings.
 \<close>
 
 
@@ -504,7 +504,7 @@ subsection \<open>Constants of a parser\<close>
 text \<open>
   The definition of \<open>p\<close> is \<open>p w = Option.bind (dparse G Shn w) G__dec_S\<close>
   (for an entry \<open>(A)\<close>, \<open>dparse (G\<lparr>istart := ''A''\<rparr>) Shn w\<close> and \<open>G__dec_A\<close>):
-  \<^text>\<open>dparse\<close> is the verified driver of \<^file>\<open>../lr/LR_Driver.thy\<close>, an
+  \<^text>\<open>dparse\<close> is the verified driver of \<^file>\<open>lr/LR_Driver.thy\<close>, an
   LALR(1)-style parser over the LR(0) automaton whose lookahead cells carry
   the layout constraints, \<open>Shn\<close> a
   fresh name for the augmented start symbol, and \<open>G__dec_S\<close> the decoder of
@@ -588,7 +588,7 @@ text \<open>
   diagnostics side, unless \<^theory_text>\<open>parser (no_diagnostics)\<close> turns it off (the
   option \<open>diagnostics\<close> states the default; \<open>p\<close> and its tables are the same either way):
   \<open>p_diag w\<close> is \<open>Inr x\<close> exactly when \<open>p w = Some x\<close>, and otherwise \<open>Inl e\<close> with
-  \<open>e\<close> a record \<open>perr\<close> (\<^file>\<open>../lr/LR_Diag.thy\<close>): the index and token at which the
+  \<open>e\<close> a record \<open>perr\<close> (\<^file>\<open>lr/LR_Diag.thy\<close>): the index and token at which the
   word failed (\<open>None\<close> at the end of the input), the state, the kind (no action, a
   cycle of reductions, a token offside or misaligned), the expected terminals and,
   under layout, their columns, the anchor, the stack with its spans, and any
@@ -649,7 +649,7 @@ text \<open>
   inserted and deleted at the least cost, then kept, ranked by how far parsing goes
   on. The repair is in \<open>pe_repair\<close> of the report and in its message. A budget of
   nodes for the whole word bounds the search, as HOL has no clock (\<open>rnodes\<close>, in
-  \<^file>\<open>../lr/LR_Recover.thy\<close>), and compatible nodes are merged; past it, the search gives
+  \<^file>\<open>lr/LR_Recover.thy\<close>), and compatible nodes are merged; past it, the search gives
   up, \<open>e\<close> is tried, and otherwise the report stands.
   An inserted terminal is a neighbour token with its terminal and an empty span. For
   tokens whose text a decoder reads, \<^theory_text>\<open>repair token f\<close> supplies them, with
@@ -712,7 +712,7 @@ text \<open>
   For code generation the LR tables are constants \<open>p_states\<close>,
   \<open>p_gtab\<close>, \<open>p_redtab\<close>, \<open>p_i0\<close> and, for the driver, \<open>p_stab\<close>,
   \<open>p_vtab\<close>, \<open>p_vktab\<close>, \<open>p_sinit\<close> and \<open>p_sclos\<close> (the state-indexed tables of
-  \<^file>\<open>../lr/LR_Vec.thy\<close>, the sparse closures of \<^file>\<open>../lr/LR_Sparse.thy\<close>; \<open>p_xinit\<close> and \<open>p_xclos\<close> for a grammar with an
+  \<^file>\<open>lr/LR_Vec.thy\<close>, the sparse closures of \<^file>\<open>lr/LR_Sparse.thy\<close>; \<open>p_xinit\<close> and \<open>p_xclos\<close> for a grammar with an
   \<open>\<epsilon>\<close>-cycle), each defined by its term over the ones before it
   (\<open>p_gtab = la_gtab G p_states\<close>); generated code computes each once when it
   loads. The code equation of \<open>p\<close> refers to those constants, so neither
@@ -725,7 +725,7 @@ text \<open>
   has no layout annotations, the static determinism check is empty and no
   lookahead cell of a reduce constrains the width of its token, the code
   equation instead runs the
-  simple driver of \<^file>\<open>../lr/LR_Simple.thy\<close>, using the precise LR(0)
+  simple driver of \<^file>\<open>lr/LR_Simple.thy\<close>, using the precise LR(0)
   automaton as well (tables \<open>p_psts\<close>, \<open>p_pgt\<close>, \<open>p_pcomps\<close>, \<open>p_pfins\<close>,
   \<open>p_p0\<close>). It keeps a stack of state indices and computes no closures at run
   time; \<^text>\<open>dparse_eq_sparse\<close> proves that it computes the same result as
@@ -733,31 +733,31 @@ text \<open>
   \<open>p_ltabs\<close>: productions and nonterminals are numbered, goto rows are keyed
   by terminal or by nonterminal number, and the reduces licensed at a state
   are tabulated by lookahead (\<^text>\<open>isctl_eq\<close>). These tables are then stored
-  as binary tries keyed by the bits of the index (\<^file>\<open>../lr/LR_Trie.thy\<close>,
+  as binary tries keyed by the bits of the index (\<^file>\<open>lr/LR_Trie.thy\<close>,
   \<^text>\<open>jctl_eq\<close>): they are static data, and with binary naturals a lookup
   involves no arithmetic, once the code equations \<^text>\<open>tlookup_binary\<close> are
   declared next to \<^verbatim>\<open>Code_Binary_Nat\<close>. The input word is numbered once,
-  pairing each token with its number in the tables (\<^file>\<open>../lr/LR_Tok.thy\<close>,
+  pairing each token with its number in the tables (\<^file>\<open>lr/LR_Tok.thy\<close>,
   \<^text>\<open>xrun_jctl2\<close>). Finally, the reachable pairs of states of the two
   automata are numbered, \<open>p_kpairs\<close>, and the tables of the code, \<open>p_ktabs\<close>,
   are those of this product automaton, with one number per stack entry and
-  the candidate reduces tabulated by lookahead (\<^file>\<open>../lr/LR_Prod.thy\<close>,
+  the candidate reduces tabulated by lookahead (\<^file>\<open>lr/LR_Prod.thy\<close>,
   \<^text>\<open>xrun_kctl\<close>); the closure of \<open>p_kpairs\<close> under shifts and gotos is
   checked by evaluation (\<^text>\<open>kok\<close>). If the check fails, the code runs on
   the tries \<open>p_jtabs\<close>. On the product automaton the run detects loops of
   reductions by comparing with one saved stack instead of all stacks since the
-  last shift (\<^file>\<open>../lr/LR_Loop.thy\<close>, \<^text>\<open>xrun_hist_brun\<close>), and a
+  last shift (\<^file>\<open>lr/LR_Loop.thy\<close>, \<^text>\<open>xrun_hist_brun\<close>), and a
   step looks up one action table, \<open>p_ptabs\<close>, by pair number and
   lookahead: the shift target, or else the reduces with their productions
-  (\<^file>\<open>../lr/LR_Plain.thy\<close>, \<^text>\<open>pctl_eq\<close>). If the token type is a
+  (\<^file>\<open>lr/LR_Plain.thy\<close>, \<^text>\<open>pctl_eq\<close>). If the token type is a
   datatype whose constructors have no arguments, the number of a token is
   computed by a case distinction, \<open>p_tnum\<close>, instead of a search in the list
   of terminals; \<open>pnum p_ptabs = p_tnum\<close> is proved constructor by
   constructor. With
   \<^theory_text>\<open>declare [[parser_int_tables]]\<close> the tables are instead arrays with
   integer indices, \<open>p_ztabs\<close>, computed when the code is loaded
-  (\<^file>\<open>../lr/LR_Int.thy\<close>, \<^text>\<open>zrun_eq\<close>). For OCaml,
-  \<^file>\<open>../lr/LR_Simple.thy\<close> implements immutable arrays (\<^verbatim>\<open>iarray\<close>) by
+  (\<^file>\<open>lr/LR_Int.thy\<close>, \<^text>\<open>zrun_eq\<close>). For OCaml,
+  \<^file>\<open>lr/LR_Simple.thy\<close> implements immutable arrays (\<^verbatim>\<open>iarray\<close>) by
   OCaml arrays.
 \<close>
 
@@ -831,7 +831,7 @@ parser py_parse for py\<close>}
 lemma \<open>py_parse [tu 1 While, tu 7 Id, tu 8 Colon, tu 3 Id, tu 4 Id] = None\<close>
   by eval\<close>}
 
-  Further examples can be found in \<^file>\<open>../tests/Regression_Tests.thy\<close>.
+  Further examples can be found in \<^file>\<open>tests/Regression_Tests.thy\<close>.
 \<close>
 
 end

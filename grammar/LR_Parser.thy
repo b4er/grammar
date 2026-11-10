@@ -1,5 +1,5 @@
 theory LR_Parser
-  imports LR_Core.LR_Plain LR_Core.LR_Sparse LR_Core.LR_Vec LR_Core.LR_Diag LR_Core.LR_Recover Grammar_Command
+  imports TIGER_LR.LR_Plain TIGER_LR.LR_Sparse TIGER_LR.LR_Vec TIGER_LR.LR_Diag TIGER_LR.LR_Recover Grammar_Command
   keywords "parser_error_states" :: diag
 begin
 

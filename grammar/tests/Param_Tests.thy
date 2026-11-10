@@ -1,11 +1,11 @@
 theory Param_Tests
-  imports LR_Parser.LR_Prec_Parse Parser_Check
+  imports TIGER_LR.LR_Prec_Parse Parser_Check
 begin
 
 section \<open>Templates and operators\<close>
 
 text \<open>Templates \<open>P(X, \<dots>)\<close> and the operators \<open>* + ?\<close> desugar to ordinary nonterminals
-  before elaboration (\<^file>\<open>../command/grammar_expand.ML\<close>): nothing new in HOL. The tests
+  before elaboration (\<^file>\<open>../grammar_expand.ML\<close>): nothing new in HOL. The tests
   compare each against the grammar written by hand.\<close>
 
 fun toks :: \<open>nat \<Rightarrow> 'tok list \<Rightarrow> ('tok, unit) token list\<close> where
@@ -109,8 +109,8 @@ parser_check \<open>ppair_parse (toks 0 [PId, PSemi, PKw, PKw, PSemi, PId]) = So
 
 subsection \<open>Templates\<close>
 
-text \<open>The braces-or-aligned block of the CaraML client, once as a template and once by
-  hand (\<open>File\<close>/\<open>Decls\<close>/\<open>DItems\<close> of \<^file>\<open>../../caraml/parser/Grammar.thy\<close>).\<close>
+text \<open>A block in braces or aligned, once as a template and once by hand
+  (\<open>File\<close>/\<open>Decls\<close>/\<open>DItems\<close>).\<close>
 
 grammar (relation) pblk =
   tokens \<open>p_tok\<close>

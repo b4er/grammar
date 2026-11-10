@@ -1,5 +1,5 @@
 theory Recover_Tests
-  imports Grammar_Tests.Diag_Tests Grammar_Tests.Parser_Check
+  imports TIGER_Tests.Diag_Tests TIGER_Tests.Parser_Check
 begin
 
 section \<open>Recovery from rejected words\<close>

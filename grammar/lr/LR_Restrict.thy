@@ -1,5 +1,5 @@
 theory LR_Restrict
-  imports Grammar_Model.Grammar_Base "HOL-Library.While_Combinator"
+  imports TIGER_Grammar.Grammar_Base "HOL-Library.While_Combinator"
 begin
 
 type_synonym ('n, 't) alt = \<open>'n \<times> ('n, 't) rhs\<close>

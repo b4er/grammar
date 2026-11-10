@@ -1,5 +1,5 @@
 theory LR_Prec_Parse
-  imports LR_Parser LR_Core.LR_Prec
+  imports LR_Parser TIGER_LR.LR_Prec
 begin
 
 text \<open>The parser of the restricted grammar, stated against the grammar the user

@@ -1,8 +1,8 @@
-# The `grammar` and `parser` commands
+# TIGER: Tokenization, Indentation-sensitive Grammars & Executable Recognizers
 
-A definitional package for indentation-sensitive context-free grammars in
-Isabelle/HOL, after Adams, *Principled Parsing for Indentation-Sensitive
-Languages* (POPL 2013).
+Definitional packages for lexers and for indentation-sensitive context-free
+grammars in Isabelle/HOL. The grammars follow Adams,
+*Principled Parsing for Indentation-Sensitive Languages* (POPL 2013).
 
 ## Surface
 
@@ -26,12 +26,21 @@ Languages* (POPL 2013).
 
 ## What is defined
 
+- `lexer` defines a lexing judgement in the style of flex: regular expressions,
+  longest match, and a stack of modes.
 - `grammar` defines a grammar constant `G` and one decoder per nonterminal.
 - `grammar (relation)` also defines an inductive relation between words and values.
 - `parser` defines the parser `p`. For a grammar with precedence declarations it also
   defines the restricted grammar `p_gram` that the parser is built from.
 
 ## Theorems
+
+The lexer is specified by a judgement (maximal prefix and first match) under a
+stack of modes:
+
+- FIXME
+
+For grammars and parsers:
 
 - `p.sound` and `p.complete` relate `p` to the language of `G`, or to the relation of
   the start symbol under `(relation)`.
@@ -61,16 +70,16 @@ what `p` accepts.
 ## Backend
 
 The tables are constants of their own, computed once when the code is loaded. A
-grammar without layout annotations and without conflicts runs on the simple driver; the
-others run on the state-indexed driver. The documentation describes the drivers and the options for
-exported code (`parser_literal_tables`, `parser_int_tables`).
+grammar without layout annotations and without conflicts runs on the simple driver;
+the others run on the state-indexed driver. The documentation describes the drivers
+and the options for exported code (`parser_literal_tables`, `parser_int_tables`).
 
 ## Documentation
 
 The documentation is the generated PDF, `output/document.pdf`:
 
 ```shell
-isabelle build -o document=pdf -d . LR_Parser
+isabelle build -o document=pdf -d . TIGER_LR
 ```
 
 ## Sessions
@@ -79,14 +88,14 @@ The sessions are defined in `ROOT`, and each depends on the one before it:
 
 | session | directory | contents |
 |---|---|---|
-| `Grammar_Model` | `.` | tokens, the model `Indentation_Sensitive.thy`, `Grammar_Base.thy` |
-| `LR_Core` | `lr/` | the LR tables, drivers and static condition, proofs only |
-| `LR_Parser` | `command/` | the `grammar` and `parser` commands, their ML, the backend, the document |
-| `Grammar_Tests` | `tests/` | one theory per feature, a few minutes in batch |
-| `Grammar_Tests_Slow` | `tests/slow/` | recovery and repair (`Recover_Tests`, `Repair_Tests`, `Repair_Code_Tests`) |
+| `TIGER_Token` | `token/` | source spans and the token record |
+| `TIGER_Grammar` | `grammar/model/` | the model `Indentation_Sensitive.thy`, `Grammar_Base.thy` |
+| `TIGER_LR` | `grammar/`, `grammar/lr/` | the LR tables, drivers and static condition (`lr/`, proofs only); the `grammar` and `parser` commands, their ML, the backend, the document |
+| `TIGER_Tests` | `grammar/tests/` | one theory per feature, a few minutes in batch |
+| `TIGER_Tests_Slow` | `grammar/tests/slow/` | recovery and repair (`Recover_Tests`, `Repair_Tests`, `Repair_Code_Tests`) |
 
 The tests are split by cost: the parsers with recovery and repair are in
-`Grammar_Tests_Slow`, which runs once per change of the error path. `Grammar_Tests`
+`TIGER_Tests_Slow`, which runs once per change of the error path. `TIGER_Tests`
 is the gate for every edit of the commands:
 
 - `Regression_Tests`, `Diag_Tests`, `Reach_Tests`: the commands, the diagnostics and
@@ -96,16 +105,16 @@ is the gate for every edit of the commands:
 - `Span_Tests`: `@span`.
 - `Ast_Tests`: `parser (ast)`.
 - `Same_Terms`: the facts emitted for a few grammars of `Regression_Tests` and
-  `Prec_Surface_Tests`, as hashes of their terms, against `tests/same_terms.txt`.
+  `Prec_Surface_Tests`, as hashes of their terms, against `grammar/tests/same_terms.txt`.
 
-A test evaluates its words with `parser_check ‹t›` (`tests/Parser_Check.thy`), not
+A test evaluates its words with `parser_check ‹t›` (`grammar/tests/Parser_Check.thy`), not
 `lemma ‹t› by eval`: the command proves nothing, compiles the code of a constant once
 per theory chain instead of once per check, and on a failed equation shows the
 value of its left-hand side. `by eval` remains where a test needs the theorem.
 
 ```shell
-isabelle build -d . Grammar_Tests          # the fast tests
-isabelle build -d . Grammar_Tests_Slow     # and the slow ones
+isabelle build -d . TIGER_Tests         # the fast tests
+isabelle build -d . TIGER_Tests_Slow    # and the slow ones
 ```
 
 `ROOTS` lists the benchmark sessions in `bench/*/thys`; see `bench/README.md`.

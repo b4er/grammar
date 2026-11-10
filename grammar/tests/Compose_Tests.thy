@@ -1,5 +1,5 @@
 theory Compose_Tests
-  imports LR_Parser.LR_Prec_Parse Parser_Check
+  imports TIGER_LR.LR_Prec_Parse Parser_Check
 begin
 
 section \<open>Composition by reference\<close>

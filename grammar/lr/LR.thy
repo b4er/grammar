@@ -1,5 +1,5 @@
 theory LR
-  imports Grammar_Model.Indentation_Sensitive "HOL-Library.While_Combinator" "HOL-Library.RBT"
+  imports TIGER_Grammar.Indentation_Sensitive "HOL-Library.While_Combinator" "HOL-Library.RBT"
     "HOL-Library.IArray"
 begin
 

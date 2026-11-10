@@ -1,5 +1,5 @@
 theory Diag_Tests
-  imports LR_Parser.LR_Parser Parser_Check
+  imports TIGER_LR.LR_Parser Parser_Check
 begin
 
 section \<open>Diagnostics of rejected words\<close>

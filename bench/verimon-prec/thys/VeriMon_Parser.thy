@@ -1,5 +1,5 @@
 theory VeriMon_Parser
-  imports LR_Parser.LR_Prec_Parse
+  imports TIGER_LR.LR_Prec_Parse
 begin
 
 section \<open>MonPoly's formula grammar (VeriMon, 2020)\<close>

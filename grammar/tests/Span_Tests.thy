@@ -1,5 +1,5 @@
 theory Span_Tests
-  imports LR_Parser.LR_Prec_Parse Parser_Check
+  imports TIGER_LR.LR_Prec_Parse Parser_Check
 begin
 
 section \<open>The span of a yield: \<open>@span\<close>\<close>

@@ -1,6 +1,6 @@
 chapter OCaml
 
-session OCaml_Bench = LR_Parser +
+session OCaml_Bench = TIGER_LR +
   options [document = false]
   theories
     OCaml_Parser
