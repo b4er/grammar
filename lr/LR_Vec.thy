@@ -1,5 +1,5 @@
 theory LR_Vec
-  imports LR_Parser.LR_Sparse
+  imports LR_Sparse
 begin
 
 section \<open>A state-indexed driver with precomputed closures\<close>
@@ -298,8 +298,8 @@ lemma ele_refl [simp]: \<open>ele e e\<close>
 lemma ele_trans: \<open>ele e f \<Longrightarrow> ele f g \<Longrightarrow> ele e g\<close>
   by (cases e; cases f; cases g) (auto intro: ole_trans)
 
-lemma ele_join1: \<open>ele e (ejoin e f)\<close> and ele_join2: \<open>ele f (ejoin e f)\<close>
-  by (cases e; cases f; simp add: ole_omin1 ole_omin2)+
+lemma ele_join2: \<open>ele f (ejoin e f)\<close>
+  by (cases e; cases f; simp add: ole_omin2)
 
 lemma ele_fold_ejoin: \<open>ele a (fold ejoin xs a)\<close>
 proof -
@@ -781,9 +781,6 @@ fun imin :: \<open>indrep \<Rightarrow> nat\<close> where
 lemma fold_min_le_iff: \<open>fold min ys a \<le> i \<longleftrightarrow> a \<le> i \<or> (\<exists>y \<in> set ys. y \<le> i)\<close> for ys :: \<open>nat list\<close>
   using Min.set_eq_fold[of a ys, symmetric] by (simp add: Min_le_iff)
 
-lemma fold_min_mem: \<open>fold min ys a \<in> insert a (set ys)\<close> for ys :: \<open>nat list\<close>
-  using Min.set_eq_fold[of a ys, symmetric] Min_in[of \<open>insert a (set ys)\<close>] by simp
-
 lemma imin_le_iff: \<open>irep_set R \<noteq> {} \<Longrightarrow> imin R \<le> i \<longleftrightarrow> (\<exists>j \<in> irep_set R. j \<le> i)\<close>
 proof (cases R)
   case (FinRep xs)
@@ -975,22 +972,9 @@ fun vpick :: \<open>('n, 't) vtab \<Rightarrow> vframes \<times> ('t \<times> na
 type_synonym ('m, 'ch, 'n, 't) vst =
   \<open>vframes \<times> ('t \<times> nat) list \<times> ('m, 'ch, 't) tword \<times> ('m, 'ch, 'n, 't) ast list\<close>
 
-definition vstep :: \<open>('n, 't) vtab \<Rightarrow> ('m, 'ch, 'n, 't) vst \<Rightarrow> ('m, 'ch, 'n, 't) vst option\<close> where
-  \<open>vstep V st = (case st of (fs, w, v, tstk) \<Rightarrow> (case fs of [] \<Rightarrow> None | (j, av) # _ \<Rightarrow>
-     (case vpick V (fs, w) (vcands V j av w) of None \<Rightarrow> None
-      | Some (act, fs', w') \<Rightarrow> (case tstep (vdec act) (v, tstk) of (v', tstk') \<Rightarrow> Some (fs', w', v', tstk')))))\<close>
-
 definition vfinal :: \<open>('n, 't) vtab \<Rightarrow> ('m, 'ch, 'n, 't) vst \<Rightarrow> bool\<close> where
   \<open>vfinal V st = (case st of (fs, w, v, tstk) \<Rightarrow> w = [] \<and> (case fs of [] \<Rightarrow> False
      | (j, av) # _ \<Rightarrow> irep_mem (v_ind0 V) (getR av (iget (v_fin V) j 0))))\<close>
-
-partial_function (option) vrun :: \<open>('n, 't) vtab \<Rightarrow> ('m, 'ch, 'n, 't) vst \<Rightarrow> ('m, 'ch, 'n, 't) ast option\<close>
-  where
-  \<open>vrun V st = (case st of (fs, w, v, tstk) \<Rightarrow>
-     if vfinal V st then (case tstk of t # _ \<Rightarrow> Some t | [] \<Rightarrow> None)
-     else Option.bind (vstep V st) (vrun V))\<close>
-
-lemmas vrun_simps [code] = vrun.simps
 
 text \<open>The tables of a grammar.\<close>
 
@@ -1048,16 +1032,6 @@ lemma aset_red: \<open>irep_set (red_set CL pr) = aset CL (pr, length (snd pr))\
 
 lemma aset_ne_lcore: \<open>aset xs it \<noteq> {} \<longleftrightarrow> it \<in> lcore xs\<close>
   by (cases it) (auto simp: aset_def lcore_def)
-
-lemma aset_coh:
-  assumes c: \<open>coh xs\<close> and mem: \<open>(p, m, R) \<in> set xs\<close>
-  shows \<open>aset xs (p, m) = irep_set R\<close>
-proof -
-  have e: \<open>irep_set R' = irep_set R\<close> if \<open>(p, m, R') \<in> set xs\<close> for R'
-    using c[unfolded coh_def, rule_format, OF that mem] .
-  have \<open>{irep_set R' |R'. (p, m, R') \<in> set xs} = {irep_set R}\<close> using mem e by blast
-  then show ?thesis by (simp add: aset_def)
-qed
 
 lemma aset_notin: \<open>it \<notin> lcore xs \<Longrightarrow> aset xs it = {}\<close>
   using aset_ne_lcore by blast
@@ -2046,12 +2020,6 @@ qed
 
 subsection \<open>One step\<close>
 
-lemma vpick_SomeD: \<open>vpick V fw acts = Some (act, r) \<Longrightarrow> act \<in> set acts \<and> vmstep V fw act = Some r\<close>
-  by (induction acts) (auto split: option.splits)
-
-lemma vpick_NoneD: \<open>vpick V fw acts = None \<Longrightarrow> act \<in> set acts \<Longrightarrow> vmstep V fw act = None\<close>
-  by (induction acts) (auto split: option.splits)
-
 text \<open>A vector state stands for a reachable dense one with the same input,
   tree stack and frames.\<close>
 
@@ -2060,103 +2028,6 @@ definition vst_rel :: \<open>('n, 't) is_cfg \<Rightarrow> 'n \<Rightarrow> ('n,
   \<open>vst_rel G Shn sts gt st vs \<longleftrightarrow> (case st of ((Xs, w), cstk, istk, v, tstk) \<Rightarrow>
      vs = (fst vs, w, v, tstk) \<and> vrel G sts Xs istk (fst vs) \<and>
      imreach G Shn gt sts ((Xs, w), istk) \<and> dfollow_ok G sts st)\<close>
-
-lemma vstep_dstep:
-  assumes T: \<open>T = mk_stab G Shn gt sts redtab\<close> and V: \<open>V = mk_vtab G Shn T sts gt redtab\<close>
-    and stc: \<open>sts = pr0_states G Shn\<close> and gtc: \<open>gt = pgtab G sts\<close>
-    and rt: \<open>redtab = red_buckets G Shn (length sts)\<close> and det: \<open>mdet G Shn\<close>
-    and rel: \<open>vst_rel G Shn sts gt st vs\<close>
-  shows \<open>case dstep G gt sts redtab st of None \<Rightarrow> vstep V vs = None
-     | Some st' \<Rightarrow> \<exists>vs'. vstep V vs = Some vs' \<and> vst_rel G Shn sts gt st' vs'\<close>
-proof -
-  let ?L = \<open>la_fix G Shn\<close>
-  have tab: \<open>tables_ok G Shn sts gt ?L\<close> using tables_ok_concrete[of G Shn] stc gtc by simp
-  obtain Xs w cstk istk v tstk where st: \<open>st = ((Xs, w), cstk, istk, v, tstk)\<close>
-    by (metis prod.exhaust)
-  obtain fs where vs: \<open>vs = (fs, w, v, tstk)\<close> and r: \<open>vrel G sts Xs istk fs\<close>
-    and ir: \<open>imreach G Shn gt sts ((Xs, w), istk)\<close> and inv: \<open>dfollow_ok G sts st\<close>
-    using rel by (cases vs) (auto simp: vst_rel_def st)
-  obtain j av fs\<^sub>0 where fs: \<open>fs = (j, av) # fs\<^sub>0\<close> and hj: \<open>hd istk = j\<close> and ne: \<open>Xs \<noteq> []\<close>
-    and j: \<open>j < length sts\<close>
-    and cov: \<open>lcore (xclosure_auto G (hd Xs)) \<subseteq> set (vits G sts j)\<close>
-    and fr: \<open>vfr (xclosure_auto G (hd Xs)) (vits G sts j) av\<close> and ok: \<open>didx_ok G sts Xs istk\<close>
-    by (rule vrel_head[OF tab ir r])
-  have cs: \<open>cstk = map (xclosure_auto G) Xs\<close> using inv by (simp add: st dfollow_ok_def)
-  have jr: \<open>j < length redtab\<close> using j by (simp add: rt)
-  obtain istk\<^sub>0 where ist: \<open>istk = j # istk\<^sub>0\<close>
-    using hj ok ne by (cases istk) (auto simp: didx_ok_def)
-  obtain X\<^sub>0 Xs\<^sub>0 where Xs: \<open>Xs = X\<^sub>0 # Xs\<^sub>0\<close> using ne by (cases Xs) auto
-  let ?CL = \<open>xclosure_auto G (hd Xs)\<close>
-  let ?A = \<open>vcands V j av w\<close> and ?D = \<open>dcands G j (redtab ! j) ?CL (Xs, w)\<close>
-  have AD: \<open>vdec ` set ?A = set ?D\<close> by (rule vcands_dcands[OF V j jr fr cov ne])
-  have dsN: \<open>dstep G gt sts redtab st = None \<longleftrightarrow> dpick G cstk (Xs, w) ?D = None\<close>
-    by (simp add: dstep_def st ist cs Xs jr split: option.splits dact.splits)
-  have vsE: \<open>vstep V vs = (case vpick V (fs, w) ?A of None \<Rightarrow> None
-      | Some (act, fs', w') \<Rightarrow> (case tstep (vdec act) (v, tstk) of (v', tstk') \<Rightarrow> Some (fs', w', v', tstk')))\<close>
-    by (simp add: vstep_def vs fs)
-  have mc: \<open>mstep_cached G cstk (Xs, w) a = mstep G (Xs, w) a\<close> for a by (simp add: mstep_def cs)
-  have vm: \<open>case vmstep V (fs, w) act of
-      None \<Rightarrow> (\<forall>ic'. imstep G gt sts ((Xs, w), istk) (vdec act) = Some ic' \<longrightarrow> \<not> dlive (fst ic'))
-    | Some (fs', w') \<Rightarrow> \<exists>Xs' istk'. imstep G gt sts ((Xs, w), istk) (vdec act) = Some ((Xs', w'), istk') \<and>
-        dlive (Xs', w') \<and> vrel G sts Xs' istk' fs'\<close> if act: \<open>act \<in> set ?A\<close> for act
-  proof (cases act)
-    case VShift
-    show ?thesis using vmstep_shift[OF T V tab ir r] unfolding VShift vdec.simps .
-  next
-    case (VReduce s b pr)
-    from act have c: \<open>(s, b, pr) \<in> set (vcomps G Shn (vits G sts (hd istk)))\<close>
-      and nz: \<open>irep_nonempty (getR (snd (hd fs)) s)\<close>
-      by (auto simp: vcands_def VReduce v_cp_mk[OF V j] Let_def hj fs split: list.splits)
-    show ?thesis using vmstep_reduce[OF T V tab ir r c nz] unfolding VReduce vdec.simps .
-  qed
-  show ?thesis
-  proof (cases \<open>vpick V (fs, w) ?A\<close>)
-    case None
-    have \<open>dpick G cstk (Xs, w) ?D = None\<close>
-    proof (rule ccontr)
-      assume \<open>dpick G cstk (Xs, w) ?D \<noteq> None\<close>
-      then obtain a gc' where \<open>dpick G cstk (Xs, w) ?D = Some (a, gc')\<close> by auto
-      from dpick_sound[OF this] have a: \<open>a \<in> set ?D\<close> and m: \<open>mstep G (Xs, w) a = Some gc'\<close>
-        and lv: \<open>dlive gc'\<close> by (simp_all add: mc)
-      from a AD obtain act where act: \<open>act \<in> set ?A\<close> and aa: \<open>a = vdec act\<close> by blast
-      have \<open>vmstep V (fs, w) act = None\<close> by (rule vpick_NoneD[OF None act])
-      with vm[OF act] have \<open>\<forall>ic'. imstep G gt sts ((Xs, w), istk) a = Some ic' \<longrightarrow> \<not> dlive (fst ic')\<close>
-        by (simp add: aa)
-      with m lv show False by (simp add: imstep_def)
-    qed
-    with dsN None show ?thesis by (simp add: vsE)
-  next
-    case (Some x)
-    then obtain act fs' w' where vp: \<open>vpick V (fs, w) ?A = Some (act, fs', w')\<close>
-      by (metis prod.exhaust)
-    from vpick_SomeD[OF vp] have act: \<open>act \<in> set ?A\<close> and vms: \<open>vmstep V (fs, w) act = Some (fs', w')\<close>
-      by simp_all
-    from vm[OF act] vms obtain Xs' istk' where
-      im: \<open>imstep G gt sts ((Xs, w), istk) (vdec act) = Some ((Xs', w'), istk')\<close>
-      and lv: \<open>dlive (Xs', w')\<close> and r': \<open>vrel G sts Xs' istk' fs'\<close> by auto
-    have lic: \<open>\<forall>pr. vdec act = DReduce pr \<longrightarrow> lic_at G ?L sts ((Xs, w), istk) pr\<close>
-    proof (intro allI impI)
-      fix pr assume \<open>vdec act = DReduce pr\<close>
-      with act AD have \<open>DReduce pr \<in> set ?D\<close> by force
-      from dcands_reduceD[OF this] have \<open>dlic j (redtab ! j) w pr (red_set ?CL pr)\<close> by simp
-      then have \<open>dlic_L j ?L w pr (red_set ?CL pr)\<close>
-        using dlic_buckets[of j \<open>length sts\<close> ?L] j by (simp add: rt red_buckets_def)
-      then show \<open>lic_at G ?L sts ((Xs, w), istk) pr\<close> using j by (simp add: lic_at_def hj)
-    qed
-    from dstep_of_imstep_exact[OF tab stc gtc refl rt det ir inv[unfolded st] im lv lic, unfolded fst_conv]
-    obtain v' tstk' where tp: \<open>(v', tstk') = tstep (vdec act) (v, tstk)\<close>
-      and ds: \<open>dstep G gt sts redtab ((Xs, w), cstk, istk, v, tstk)
-          = Some ((Xs', w'), map (xclosure_auto G) Xs', istk', v', tstk')\<close>
-      and inv': \<open>dfollow_ok G sts ((Xs', w'), map (xclosure_auto G) Xs', istk', v', tstk')\<close>
-      by blast
-    have ir': \<open>imreach G Shn gt sts ((Xs', w'), istk')\<close> using imreach_step[OF ir im] lv by simp
-    have \<open>vstep V vs = Some (fs', w', v', tstk')\<close> using vsE vp tp[symmetric] by simp
-    moreover have \<open>vst_rel G Shn sts gt ((Xs', w'), map (xclosure_auto G) Xs', istk', v', tstk')
-        (fs', w', v', tstk')\<close> using r' ir' inv' by (simp add: vst_rel_def)
-    ultimately show ?thesis using ds by (simp add: st)
-  qed
-qed
-
 
 subsection \<open>Acceptance\<close>
 
@@ -2197,118 +2068,6 @@ proof -
   show ?thesis using A E ne by (simp add: vfinal_def gfinal_def fs v_ind0_mk[OF V])
 qed
 
-subsection \<open>The run\<close>
-
-text \<open>The concrete tables, bundled so that the run inductions can carry them.\<close>
-
-definition vctx :: \<open>('n, 't) is_cfg \<Rightarrow> 'n \<Rightarrow> (('n, 't) sym \<times> nat) list list \<Rightarrow> ('n, 't) citem list list \<Rightarrow>
-    ('n, 't) lacell list list \<Rightarrow> ('n, 't) vtab \<Rightarrow> bool\<close> where
-  \<open>vctx G Shn gt sts redtab V \<longleftrightarrow> V = mk_vtab G Shn (mk_stab G Shn gt sts redtab) sts gt redtab \<and>
-     sts = pr0_states G Shn \<and> gt = pgtab G sts \<and> redtab = red_buckets G Shn (length sts) \<and>
-     mdet G Shn \<and> fresh_name G Shn\<close>
-
-lemma vctx_step:
-  assumes c: \<open>vctx G Shn gt sts redtab V\<close> and r: \<open>vst_rel G Shn sts gt st vs\<close>
-  shows \<open>case dstep G gt sts redtab st of None \<Rightarrow> vstep V vs = None
-     | Some st' \<Rightarrow> \<exists>vs'. vstep V vs = Some vs' \<and> vst_rel G Shn sts gt st' vs'\<close>
-  using c vstep_dstep[OF refl _ _ _ _ _ r] by (simp add: vctx_def)
-
-lemma vctx_final:
-  assumes c: \<open>vctx G Shn gt sts redtab V\<close> and r: \<open>vst_rel G Shn sts gt st vs\<close>
-  obtains gc cstk istk v tstk fs where \<open>st = (gc, cstk, istk, v, tstk)\<close> \<open>vs = (fs, snd gc, v, tstk)\<close>
-    \<open>vfinal V vs \<longleftrightarrow> gfinal G Shn gc\<close>
-proof -
-  obtain Xs w cstk istk v tstk where st: \<open>st = ((Xs, w), cstk, istk, v, tstk)\<close>
-    by (metis prod.exhaust)
-  obtain fs where vs: \<open>vs = (fs, w, v, tstk)\<close> and rr: \<open>vrel G sts Xs istk fs\<close>
-    and ir: \<open>imreach G Shn gt sts ((Xs, w), istk)\<close>
-    using r by (cases vs) (auto simp: vst_rel_def st)
-  have tab: \<open>tables_ok G Shn sts gt (la_fix G Shn)\<close>
-    using c tables_ok_concrete[of G Shn] by (simp add: vctx_def)
-  have V: \<open>V = mk_vtab G Shn (mk_stab G Shn gt sts redtab) sts gt redtab\<close>
-    and fn: \<open>fresh_name G Shn\<close> using c by (simp_all add: vctx_def)
-  have \<open>vfinal V vs \<longleftrightarrow> gfinal G Shn (Xs, w)\<close>
-    unfolding vs by (rule vfinal_gfinal[OF refl V tab fn ir rr])
-  then show thesis using that[of \<open>(Xs, w)\<close> cstk istk v tstk fs] st vs by simp
-qed
-
-lemma drun_nh_imp_v:
-  assumes run: \<open>drun_nh G Shn gt sts redtab st = Some t\<close>
-  shows \<open>\<forall>V vs. vctx G Shn gt sts redtab V \<longrightarrow> vst_rel G Shn sts gt st vs \<longrightarrow> vrun V vs = Some t\<close>
-proof (rule drun_nh.raw_induct[OF _ run], goal_cases)
-  case (1 f G Shn gt sts redtab st t)
-  show ?case
-  proof (intro impI allI)
-    fix V vs assume c: \<open>vctx G Shn gt sts redtab V\<close> and r: \<open>vst_rel G Shn sts gt st vs\<close>
-    obtain gc cstk istk v tstk fs where st: \<open>st = (gc, cstk, istk, v, tstk)\<close>
-      and vs: \<open>vs = (fs, snd gc, v, tstk)\<close> and gf: \<open>vfinal V vs \<longleftrightarrow> gfinal G Shn gc\<close>
-      by (rule vctx_final[OF c r])
-    show \<open>vrun V vs = Some t\<close>
-    proof (cases \<open>gfinal G Shn gc\<close>)
-      case True
-      with "1"(2) gf show ?thesis unfolding st vs by (subst vrun.simps) simp
-    next
-      case False
-      with "1"(2) obtain st\<^sub>1 where sp: \<open>dstep G gt sts redtab st = Some st\<^sub>1\<close>
-        and rec: \<open>f G Shn gt sts redtab st\<^sub>1 = Some t\<close>
-        unfolding st by (auto simp: bind_eq_Some_conv)
-      from vctx_step[OF c r] sp obtain vs\<^sub>1 where
-        sp': \<open>vstep V vs = Some vs\<^sub>1\<close> and r1: \<open>vst_rel G Shn sts gt st\<^sub>1 vs\<^sub>1\<close>
-        by auto
-      from "1"(1)[OF rec] c r1 have \<open>vrun V vs\<^sub>1 = Some t\<close> by blast
-      with False gf sp' show ?thesis unfolding vs by (subst vrun.simps) (simp add: vs[symmetric])
-    qed
-  qed
-qed
-
-lemma vrun_imp_nh:
-  assumes run: \<open>vrun V vs = Some t\<close>
-  shows \<open>\<forall>G Shn gt sts redtab st. vctx G Shn gt sts redtab V \<longrightarrow> vst_rel G Shn sts gt st vs \<longrightarrow>
-    drun_nh G Shn gt sts redtab st = Some t\<close>
-proof (rule vrun.raw_induct[OF _ run], goal_cases)
-  case (1 f V vs t)
-  show ?case
-  proof (intro impI allI)
-    fix G Shn gt sts redtab st
-    assume c: \<open>vctx G Shn gt sts redtab V\<close> and r: \<open>vst_rel G Shn sts gt st vs\<close>
-    obtain gc cstk istk v tstk fs where st: \<open>st = (gc, cstk, istk, v, tstk)\<close>
-      and vs: \<open>vs = (fs, snd gc, v, tstk)\<close> and gf: \<open>vfinal V vs \<longleftrightarrow> gfinal G Shn gc\<close>
-      by (rule vctx_final[OF c r])
-    show \<open>drun_nh G Shn gt sts redtab st = Some t\<close>
-    proof (cases \<open>vfinal V vs\<close>)
-      case True
-      with "1"(2) gf show ?thesis unfolding st vs by (subst drun_nh.simps) simp
-    next
-      case False
-      with "1"(2) obtain vs\<^sub>1 where sp': \<open>vstep V vs = Some vs\<^sub>1\<close>
-        and rec: \<open>f V vs\<^sub>1 = Some t\<close>
-        unfolding vs by (auto simp: bind_eq_Some_conv vs[symmetric])
-      from vctx_step[OF c r] sp' obtain st\<^sub>1 where
-        sp: \<open>dstep G gt sts redtab st = Some st\<^sub>1\<close> and r1: \<open>vst_rel G Shn sts gt st\<^sub>1 vs\<^sub>1\<close>
-        by (cases \<open>dstep G gt sts redtab st\<close>) auto
-      from "1"(1)[OF rec] c r1 have \<open>drun_nh G Shn gt sts redtab st\<^sub>1 = Some t\<close> by blast
-      with False gf sp show ?thesis unfolding st by (subst drun_nh.simps) simp
-    qed
-  qed
-qed
-
-lemma drun_nh_eq_v:
-  assumes c: \<open>vctx G Shn gt sts redtab V\<close> and r: \<open>vst_rel G Shn sts gt st vs\<close>
-  shows \<open>drun_nh G Shn gt sts redtab st = vrun V vs\<close>
-proof (cases \<open>drun_nh G Shn gt sts redtab st\<close>)
-  case None
-  show ?thesis
-  proof (rule ccontr)
-    assume \<open>drun_nh G Shn gt sts redtab st \<noteq> vrun V vs\<close>
-    with None obtain t where \<open>vrun V vs = Some t\<close> by (cases \<open>vrun V vs\<close>) auto
-    from vrun_imp_nh[OF this, rule_format, OF c r] None show False by simp
-  qed
-next
-  case (Some t)
-  from drun_nh_imp_v[OF this, rule_format, OF c r] Some show ?thesis by simp
-qed
-
-
 subsection \<open>The initial frame\<close>
 
 lemma vinit_vrel:
@@ -2342,209 +2101,12 @@ proof -
   then show ?thesis by (simp add: vrel_def vinit_frame_def Let_def)
 qed
 
-subsection \<open>Correctness\<close>
-
-text \<open>On a grammar without LALR conflicts the vector driver computes the parse of the
-  dense driver, and hence of the specification.\<close>
-
-theorem vrun_dparse:
-  assumes fn: \<open>fresh_name G Shn\<close> and det: \<open>mdet G Shn\<close>
-    and sts: \<open>sts = pr0_states G Shn\<close> and gt: \<open>gt = pgtab G sts\<close>
-    and rt: \<open>redtab = red_buckets G Shn (length sts)\<close>
-    and V: \<open>V = mk_vtab G Shn (mk_stab G Shn gt sts redtab) sts gt redtab\<close>
-  shows \<open>vrun V ([v_av0 V], tcols w, w, []) = dparse G Shn w\<close>
-proof -
-  have c: \<open>vctx G Shn gt sts redtab V\<close> using assms by (simp add: vctx_def)
-  have tab: \<open>tables_ok G Shn sts gt (la_fix G Shn)\<close> using tables_ok_concrete[of G Shn] sts gt by simp
-  have \<open>vst_rel G Shn sts gt (dinit G Shn sts w) ([v_av0 V], tcols w, w, [])\<close>
-    using vinit_vrel[OF refl tab fn] imreach_init[of G Shn gt sts \<open>tcols w\<close>]
-      dfollow_ok_dinit[of G Shn w]
-    by (simp add: vst_rel_def dinit_def v_av0_mk[OF V] sts)
-  then have \<open>drun_nh G Shn gt sts redtab (dinit G Shn sts w) = vrun V ([v_av0 V], tcols w, w, [])\<close>
-    by (rule drun_nh_eq_v[OF c])
-  moreover have \<open>dparse G Shn w = drun_nh G Shn gt sts redtab (dinit G Shn sts w)\<close>
-    using dparse_via_tables_nh[OF sts[symmetric] gt[symmetric] rt[symmetric] refl refl refl]
-    by (simp add: dinit_def)
-  ultimately show ?thesis by simp
-qed
-
-
-text \<open>The parser over the vector driver, for the code generator: the tables as
-  constants; the generator obtains \<^const>\<open>mdet\<close> from the evaluated
-  \<open>rlalr_conflicts G Shn = []\<close> (\<open>rlalr_sufficient\<close>).\<close>
-
-lemma dparse_via_tables_v:
-  assumes st: \<open>pr0_states G Shn = sts\<close>
-    and gt: \<open>pgtab G sts = gtab\<close>
-    and rt: \<open>red_buckets G Shn (length sts) = redtab\<close>
-    and fr: \<open>fresh_name G Shn\<close>
-    and det: \<open>mdet G Shn\<close>
-    and tb: \<open>mk_stab G Shn gtab sts redtab = stb\<close>
-    and vt: \<open>mk_vtab G Shn stb sts gtab redtab = vtb\<close>
-  shows \<open>dparse G Shn w = vrun vtb ([v_av0 vtb], tcols w, w, [])\<close>
-  using vrun_dparse[OF fr det st[symmetric] gt[symmetric] rt[symmetric], of vtb w]
-    tb vt by simp
-
-
 section \<open>Runtime determinism\<close>
 
 text \<open>The vector driver orders its reductions by table position, the dense one by
   closure order.  Without \<^const>\<open>mdet\<close> the two agree on a step when a shift is
   live (both try it first) or when exactly one action is live; the vector driver
   checks this at run time and reports a conflict otherwise.\<close>
-
-subsection \<open>The dense step from its pick\<close>
-
-text \<open>\<^text>\<open>dstep_of_imstep_exact\<close> with the pick as a premise instead of
-  \<^const>\<open>mdet\<close>.\<close>
-
-lemma dstep_of_dpick:
-  assumes tab: \<open>tables_ok G Shn sts gt L\<close>
-    and stc: \<open>sts = pr0_states G Shn\<close>
-    and gtc: \<open>gt = pgtab G sts\<close>
-    and Lc: \<open>L = la_fix G Shn\<close>
-    and rt: \<open>redtab = red_buckets G Shn (length sts)\<close>
-    and ireach: \<open>imreach G Shn gt sts ((Xs, w), istk)\<close>
-    and inv: \<open>dfollow_ok G sts ((Xs, w), cstk, istk, v, tstk)\<close>
-    and step: \<open>imstep G gt sts ((Xs, w), istk) act = Some (gc', istk')\<close>
-    and live: \<open>dlive gc'\<close>
-    and lic: \<open>\<forall>pr. act = DReduce pr \<longrightarrow> lic_at G L sts ((Xs, w), istk) pr\<close>
-    and pick_of: \<open>act \<in> set (dcands G (hd istk) (redtab ! hd istk) (xclosure_auto G (hd Xs)) (Xs, w)) \<Longrightarrow>
-      dpick G cstk (Xs, w) (dcands G (hd istk) (redtab ! hd istk) (xclosure_auto G (hd Xs)) (Xs, w))
-        = Some (act, gc')\<close>
-  shows \<open>act \<in> set (dcands G (hd istk) (redtab ! hd istk) (xclosure_auto G (hd Xs)) (Xs, w)) \<and>
-         (\<exists>v' tstk'. (v', tstk') = tstep act (v, tstk) \<and>
-            dstep G gt sts redtab ((Xs, w), cstk, istk, v, tstk)
-              = Some (gc', map (xclosure_auto G) (fst gc'), istk', v', tstk') \<and>
-            dfollow_ok G sts (gc', map (xclosure_auto G) (fst gc'), istk', v', tstk'))\<close>
-proof -
-  from inv have cstk_eq: \<open>cstk = map (xclosure_auto G) Xs\<close>
-    and ok: \<open>didx_ok G sts Xs istk\<close> and vw: \<open>w = tcols v\<close>
-    and lens: \<open>Suc (length tstk) = length Xs\<close>
-    unfolding dfollow_ok_def by auto
-  have len_i: \<open>length istk = length Xs\<close> by (rule didx_ok_len[OF ok])
-  have ms: \<open>mstep G (Xs, w) act = Some gc'\<close>
-    using imstep_mstep[of G gt sts \<open>((Xs, w), istk)\<close> act \<open>(gc', istk')\<close>] step by simp
-  have msc: \<open>mstep_cached G cstk (Xs, w) act = Some gc'\<close>
-    using ms unfolding mstep_def cstk_eq by simp
-  have Xs_ne: \<open>Xs \<noteq> []\<close>
-    using msc unfolding mstep_cached_def
-    by (auto split: dact.splits list.splits if_splits)
-  then have istk_ne: \<open>istk \<noteq> []\<close> using len_i by auto
-  have hd_cstk: \<open>hd cstk = xclosure_auto G (hd Xs)\<close>
-    using cstk_eq Xs_ne by (simp add: hd_map)
-  have i_lt: \<open>hd istk < length sts\<close>
-    using didx_ok_hd_lt[OF ok] imreach_dlive[OF ireach] by simp
-  have gc'_ne: \<open>fst gc' \<noteq> []\<close> and gc'_live: \<open>live (hd (fst gc'))\<close>
-    using live unfolding dlive_def by (cases gc'; simp)+
-  let ?i = \<open>hd istk\<close> and ?CL = \<open>xclosure_auto G (hd Xs)\<close>
-  let ?cells = \<open>cell_buckets L (length sts) ! ?i\<close>
-  have rt': \<open>redtab = cell_buckets L (length sts)\<close>
-    unfolding rt Lc stc by (rule cell_buckets_red_buckets[symmetric])
-  have req: \<open>?cells = red_buckets G Shn (length (pr0_states G Shn)) ! ?i\<close>
-    unfolding Lc stc by (simp add: cell_buckets_red_buckets)
-  have ireach': \<open>imreach G Shn (pgtab G (pr0_states G Shn)) (pr0_states G Shn) ((Xs, w), istk)\<close>
-    using ireach unfolding gtc stc .
-  have cells_eq: \<open>(if ?i < length redtab then redtab ! ?i else []) = ?cells\<close>
-    using i_lt rt' by simp
-  have CL_eq: \<open>(case cstk of [] \<Rightarrow> [] | c # _ \<Rightarrow> c) = ?CL\<close>
-    using cstk_eq Xs_ne hd_cstk by (cases cstk) auto
-  have i_eq: \<open>(case istk of [] \<Rightarrow> length sts | j # _ \<Rightarrow> j) = ?i\<close>
-    using istk_ne by (cases istk) auto
-  have cstk_eq': \<open>cstk = map (xclosure_auto G) (fst (Xs, w))\<close> using cstk_eq by simp
-  have cells_rt: \<open>redtab ! ?i = ?cells\<close> using rt' by simp
-  show ?thesis
-  proof (cases act)
-    case DShift
-    have sh: \<open>mstep_cached G cstk (Xs, w) DShift = Some gc'\<close> using msc DShift by simp
-    obtain a c w' where w_eq: \<open>w = (a, c) # w'\<close>
-      and gc'_eq: \<open>gc' = (lgoto (hd cstk) (Tm a) (FinRep [c]) # Xs, w')\<close>
-      using sh unfolding mstep_cached_def by (auto split: list.splits if_splits)
-    have v_ne: \<open>v \<noteq> []\<close> using vw w_eq by auto
-    then obtain t\<^sub>0 v\<^sub>0 where v_eq: \<open>v = t\<^sub>0 # v\<^sub>0\<close> by (cases v) auto
-    have a_eq: \<open>a = tok t\<^sub>0\<close> and w'_eq: \<open>w' = tcols v\<^sub>0\<close>
-      using vw w_eq v_eq unfolding tcols_def by auto
-    have offered: \<open>DShift \<in> set (dcands G ?i ?cells ?CL (Xs, w))\<close>
-      by (rule dcands_shift) (use Xs_ne w_eq in auto)
-    have pick: \<open>dpick G cstk (Xs, w) (dcands G ?i ?cells ?CL (Xs, w)) = Some (DShift, gc')\<close>
-      using pick_of offered DShift cells_rt by simp
-    have dstep_eq: \<open>dstep G gt sts redtab ((Xs, w), cstk, istk, v, tstk) =
-        Some (gc', xclosure_auto G (hd (fst gc')) # cstk,
-              dnext gt sts ?i (Tm (tok (hd v))) # istk, tl v, Leaf (hd v) # tstk)\<close>
-      unfolding dstep_def rt' by (simp add: Let_def i_eq CL_eq i_lt pick)
-    have istk'_eq: \<open>istk' = dnext gt sts ?i (Tm a) # istk\<close>
-      using step ms unfolding imstep_def DShift by (simp add: w_eq)
-    have cstk'_eq: \<open>xclosure_auto G (hd (fst gc')) # cstk = map (xclosure_auto G) (fst gc')\<close>
-      using gc'_eq cstk_eq by simp
-    have i\<^sub>0: \<open>istk ! 0 = hd istk\<close> using istk_ne by (simp add: hd_conv_nth)
-    have x\<^sub>0: \<open>Xs ! 0 = hd Xs\<close> using Xs_ne by (simp add: hd_conv_nth)
-    have push: \<open>didx_ok G sts (fst gc') istk'\<close>
-      using didx_ok_push[OF tab ok, of 0 \<open>Tm a\<close> \<open>FinRep [c]\<close>] Xs_ne
-        gc'_live[unfolded gc'_eq] gc'_eq istk'_eq
-      by (simp add: i\<^sub>0 x\<^sub>0 hd_cstk live_nonempty)
-    show ?thesis
-    proof (intro conjI exI)
-      show \<open>act \<in> set (dcands G ?i (redtab ! ?i) ?CL (Xs, w))\<close>
-        using offered unfolding DShift cells_rt .
-      show \<open>(tl v, Leaf (hd v) # tstk) = tstep act (v, tstk)\<close>
-        unfolding DShift by simp
-      show \<open>dstep G gt sts redtab ((Xs, w), cstk, istk, v, tstk) =
-          Some (gc', map (xclosure_auto G) (fst gc'), istk', tl v, Leaf (hd v) # tstk)\<close>
-        unfolding dstep_eq cstk'_eq istk'_eq using a_eq v_eq by simp
-      show \<open>dfollow_ok G sts (gc', map (xclosure_auto G) (fst gc'), istk',
-              tl v, Leaf (hd v) # tstk)\<close>
-        unfolding dfollow_ok_def using push gc'_eq w'_eq v_eq lens by simp
-    qed
-  next
-    case (DReduce pr)
-    let ?k = \<open>length (snd pr)\<close>
-    have red: \<open>mstep_cached G cstk (Xs, w) (DReduce pr) = Some gc'\<close> using msc DReduce by simp
-    have k_lt: \<open>?k < length Xs\<close> and RS_ne: \<open>irep_nonempty (red_set (hd cstk) pr)\<close>
-      and gc'_eq: \<open>gc' = (lgoto (cstk ! ?k) (Nt (fst pr)) (red_set (hd cstk) pr) # drop ?k Xs, w)\<close>
-      using red unfolding mstep_cached_def by (auto simp: Let_def split: if_splits)
-    have RS_ne': \<open>irep_nonempty (red_set ?CL pr)\<close> using RS_ne hd_cstk by simp
-    obtain R where compR: \<open>(pr, ?k, R) \<in> set ?CL\<close>
-      using RS_ne' unfolding red_set_nonempty_iff by auto
-    have dlicL: \<open>dlic_L ?i L w pr (red_set ?CL pr)\<close>
-      using lic DReduce unfolding lic_at_def by simp
-    have dlic': \<open>dlic ?i ?cells w pr (red_set ?CL pr)\<close>
-      by (rule dlic_buckets[OF i_lt, THEN iffD2, OF dlicL])
-    have offered: \<open>DReduce pr \<in> set (dcands G ?i ?cells ?CL (Xs, w))\<close>
-      by (rule dcands_reduceI[OF _ compR RS_ne']) (use Xs_ne dlic' in auto)
-    have pick: \<open>dpick G cstk (Xs, w) (dcands G ?i ?cells ?CL (Xs, w)) = Some (DReduce pr, gc')\<close>
-      using pick_of offered DReduce cells_rt by simp
-    have dstep_eq: \<open>dstep G gt sts redtab ((Xs, w), cstk, istk, v, tstk) =
-        Some (gc', xclosure_auto G (hd (fst gc')) # drop ?k cstk,
-              dnext gt sts (istk ! ?k) (Nt (fst pr)) # drop ?k istk, v,
-              Node (fst pr) (rev (take ?k tstk)) # drop ?k tstk)\<close>
-      unfolding dstep_def rt' by (simp add: Let_def i_eq CL_eq i_lt pick)
-    have istk'_eq: \<open>istk' = dnext gt sts (istk ! ?k) (Nt (fst pr)) # drop ?k istk\<close>
-      using step ms unfolding imstep_def DReduce by simp
-    have cstk'_eq: \<open>xclosure_auto G (hd (fst gc')) # drop ?k cstk =
-        map (xclosure_auto G) (fst gc')\<close>
-      using gc'_eq cstk_eq by (simp add: drop_map)
-    have cstk_k: \<open>cstk ! ?k = xclosure_auto G (Xs ! ?k)\<close> using cstk_eq k_lt by simp
-    have push: \<open>didx_ok G sts (fst gc') istk'\<close>
-      using didx_ok_push[OF tab ok k_lt, of \<open>Nt (fst pr)\<close> \<open>red_set (hd cstk) pr\<close>]
-        gc'_live[unfolded gc'_eq] gc'_eq istk'_eq cstk_k
-      by (simp add: live_nonempty)
-    show ?thesis
-    proof (intro conjI exI)
-      show \<open>act \<in> set (dcands G ?i (redtab ! ?i) ?CL (Xs, w))\<close>
-        using offered unfolding DReduce cells_rt .
-      show \<open>(v, Node (fst pr) (rev (take ?k tstk)) # drop ?k tstk) = tstep act (v, tstk)\<close>
-        unfolding DReduce by simp
-      show \<open>dstep G gt sts redtab ((Xs, w), cstk, istk, v, tstk) =
-          Some (gc', map (xclosure_auto G) (fst gc'), istk', v,
-                Node (fst pr) (rev (take ?k tstk)) # drop ?k tstk)\<close>
-        unfolding dstep_eq cstk'_eq istk'_eq by simp
-      show \<open>dfollow_ok G sts (gc', map (xclosure_auto G) (fst gc'), istk', v,
-              Node (fst pr) (rev (take ?k tstk)) # drop ?k tstk)\<close>
-        unfolding dfollow_ok_def using push gc'_eq vw lens k_lt by simp
-    qed
-  qed
-qed
-
 
 subsection \<open>The checked driver\<close>
 
@@ -2999,6 +2561,30 @@ proof -
     by (induction kav Rs cts rule: vfill_go.induct) (simp_all add: vfill_row_fold)
   then show ?thesis by (simp add: vfill_def)
 qed
+
+text \<open>The plain successor \<^const>\<open>vgo\<close> pads its kernel to every item of the target, so
+  each contribution read from it by \<^const>\<open>getR\<close> walks down a list as long as the state:
+  quadratic in its items per transition. The diagnostics and the recovery run it; the code
+  reads the padded kernel from an array instead.\<close>
+
+fun vfill_row_a :: \<open>indrep iarray \<Rightarrow> (nat \<times> eff) list \<Rightarrow> indrep \<Rightarrow> indrep\<close> where
+  \<open>vfill_row_a A [] acc = acc\<close>
+| \<open>vfill_row_a A ((kk, e) # cs) acc = vfill_row_a A cs (let R = iget A kk (FinRep []) in
+     if irep_nonempty R then cunion acc (eapp e R)
+     else (case acc of FinRep _ \<Rightarrow> acc | UpRep _ _ \<Rightarrow> cunion acc (FinRep [])))\<close>
+
+fun vfill_go_a :: \<open>indrep iarray \<Rightarrow> indrep list \<Rightarrow> (nat \<times> eff) list list \<Rightarrow> indrep list\<close> where
+  \<open>vfill_go_a A (R # Rs) (cs # css) = vfill_row_a A cs R # vfill_go_a A Rs css\<close>
+| \<open>vfill_go_a A _ _ = []\<close>
+
+lemma vfill_row_a: \<open>vfill_row_a (IArray kav) cs R = vfill_row kav cs R\<close>
+proof (induction cs arbitrary: R)
+  case (Cons c cs)
+  then show ?case by (cases c) (simp add: iget_def getR_def)
+qed simp
+
+lemma vfill_go_code [code]: \<open>vfill_go kav Rs css = vfill_go_a (IArray kav) Rs css\<close>
+  by (induction kav Rs css rule: vfill_go.induct) (simp_all add: vfill_row_a)
 
 subsection \<open>Numbered lookahead\<close>
 

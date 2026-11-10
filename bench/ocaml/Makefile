@@ -9,6 +9,7 @@
 #   make inputs     regenerate input/random_*.ml with _build/gen
 
 B := _build
+SESSION ?= OCaml_Bench
 OCAMLFIND ?= ocamlfind
 OCAMLOPTFLAGS ?= -g
 MENHIR ?= menhir
@@ -22,7 +23,7 @@ MODS := ocaml_tabs ocaml_parser names ocaml_subset lex isa show ref main
 all: $(B)/ocaml
 
 export:
-	isabelle build -d ../.. -e OCaml_Bench
+	isabelle build -d ../.. -e $(SESSION)
 
 $(B):
 	mkdir -p $@

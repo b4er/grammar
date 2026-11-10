@@ -75,6 +75,14 @@ definition cell_buckets :: \<open>('n, 't) lacell list \<Rightarrow> nat \<Right
 definition red_buckets :: \<open>('n, 't) is_cfg \<Rightarrow> 'n \<Rightarrow> nat \<Rightarrow> ('n, 't) lacell list list\<close> where
   \<open>red_buckets G Shn n = cell_buckets (la_fix G Shn) n\<close>
 
+text \<open>The \<open>parser\<close> command defines the reduce table over its constants for the
+  automaton and the goto table, which \<^const>\<open>la_fix\<close> would build again.\<close>
+
+lemma red_buckets_tables:
+  assumes \<open>pr0_states G Shn = sts\<close> and \<open>pgtab G sts = gt\<close>
+  shows \<open>red_buckets G Shn (length sts) = cell_buckets (la_fix_gen G Shn gt sts) (length sts)\<close>
+  using assms unfolding red_buckets_def la_fix_def by simp
+
 
 text \<open>Auxiliary reasoning about \<^const>\<open>xclosure_auto\<close> and \<^const>\<open>xgoto\<close>.
   The closure only adds slot items (dot at \<open>0\<close>), so a kernel item found
@@ -230,10 +238,6 @@ lemma lgoto_memI:
   assumes \<open>((pr, m, R)) \<in> set xs\<close> and \<open>m < length (snd pr)\<close> and \<open>fst (snd pr ! m) = X\<close>
   shows \<open>((pr, Suc m, irep_inter R (irep_pre (snd (snd pr ! m)) RA))) \<in> set (lgoto xs X RA)\<close>
   using assms unfolding lgoto_def by force
-
-lemma set_ccore_lgoto:
-  \<open>set (ccore (lgoto xs X RA)) = set (cgoto (ccore xs) X)\<close>
-  unfolding ccore_def cgoto_def lgoto_def by force
 
 text \<open>The anchor set of a reduce: the union over the completed items of the
   production in the closure (there is one, but the union needs no
@@ -1751,61 +1755,6 @@ proof -
   then show ?thesis using assms(1) unfolding tables_ok_def by blast
 qed
 
-subsection \<open>Frames of the set-anchored machine stay tabulated\<close>
-
-text \<open>The \<^text>\<open>grun_cores\<close> argument transfers to \<^const>\<open>mrun\<close> verbatim:
-  \<^text>\<open>set_ccore_lgoto\<close> says the set-valued goto has the same core as
-  \<^const>\<open>cgoto\<close>, as \<^text>\<open>set_ccore_xgoto\<close> does for \<^const>\<open>xgoto\<close>.
-  So every reachable frame's core is one of \<^const>\<open>lr0_states\<close>, which lets
-  the driver's index stack track the frames.\<close>
-
-lemma mstep_cores:
-  assumes step: \<open>mstep G (Xs, w) act = Some (Xs', w')\<close>
-    and ok: \<open>\<forall>f \<in> set Xs. cores_ok G Shn f\<close>
-  shows \<open>\<forall>f \<in> set Xs'. cores_ok G Shn f\<close>
-proof (cases act)
-  case DShift
-  from mstep_shift_shape[OF step[unfolded mstep_def DShift, simplified]]
-  obtain a c w'' where w: \<open>w = (a, c) # w''\<close> and ne: \<open>Xs \<noteq> []\<close>
-    and Xs': \<open>(Xs', w') = (lgoto (hd (map (xclosure_auto G) Xs)) (Tm a) (FinRep [c]) # Xs, w'')\<close>
-    using step unfolding mstep_def DShift by (metis prod.inject)
-  have hd_map: \<open>hd (map (xclosure_auto G) Xs) = xclosure_auto G (hd Xs)\<close>
-    using ne by (simp add: hd_map)
-  have hd_ok: \<open>cores_ok G Shn (hd Xs)\<close> using ok ne by simp
-  have \<open>cores_ok G Shn (lgoto (xclosure_auto G (hd Xs)) (Tm a) (FinRep [c]))\<close>
-    by (rule cores_ok_goto[OF hd_ok _ set_ccore_lgoto]) (simp add: set_ccore_xclosure_auto)
-  then show ?thesis using ok Xs' hd_map by auto
-next
-  case (DReduce pr)
-  let ?k = \<open>length (snd pr)\<close>
-  from step[unfolded mstep_def DReduce]
-  have k_lt: \<open>?k < length Xs\<close>
-    and Xs': \<open>Xs' = lgoto (map (xclosure_auto G) Xs ! ?k) (Nt (fst pr))
-                     (red_set (hd (map (xclosure_auto G) Xs)) pr) # drop ?k Xs\<close>
-    unfolding mstep_cached_def by (auto simp: Let_def split: if_splits)
-  have nth_map: \<open>map (xclosure_auto G) Xs ! ?k = xclosure_auto G (Xs ! ?k)\<close>
-    using k_lt by simp
-  have nth_ok: \<open>cores_ok G Shn (Xs ! ?k)\<close> using ok k_lt by simp
-  have \<open>cores_ok G Shn (lgoto (xclosure_auto G (Xs ! ?k)) (Nt (fst pr))
-           (red_set (hd (map (xclosure_auto G) Xs)) pr))\<close>
-    by (rule cores_ok_goto[OF nth_ok _ set_ccore_lgoto]) (simp add: set_ccore_xclosure_auto)
-  then show ?thesis using ok Xs' nth_map by (auto dest: in_set_dropD)
-qed
-
-lemma mreach_cores:
-  \<open>mreach G Shn gc \<Longrightarrow> \<forall>f \<in> set (fst gc). cores_ok G Shn f\<close>
-proof (induction rule: mreach.induct)
-  case (mreach_init w)
-  obtain t where \<open>t \<in> set (lr0_states G Shn)\<close> and \<open>set t = set (ccore (xinit G Shn))\<close>
-    using lr0_states_start[of G Shn] by blast
-  then show ?case unfolding cores_ok_def by auto
-next
-  case (mreach_step gc act gc')
-  show ?case
-    using mstep_cores[of G \<open>fst gc\<close> \<open>snd gc\<close> act \<open>fst gc'\<close> \<open>snd gc'\<close> Shn]
-      mreach_step.hyps(2) mreach_step.IH by simp
-qed
-
 subsection \<open>The driver's index stack tracks the frames\<close>
 
 text \<open>A non-empty set-valued goto witnesses a dotted occurrence of the goto
@@ -1813,19 +1762,6 @@ text \<open>A non-empty set-valued goto witnesses a dotted occurrence of the got
   \<^const>\<open>dpick\<close> only commits to \<^const>\<open>dlive\<close> successors, and
   \<^const>\<open>dlive\<close> forces the new frame non-empty, so every driver step supplies
   that witness.\<close>
-
-lemma lgoto_ne_sym:
-  assumes \<open>lgoto xs X RA \<noteq> []\<close>
-  obtains pr m where \<open>(pr, m) \<in> set (ccore xs)\<close>
-    and \<open>m < length (snd pr)\<close> and \<open>fst (snd pr ! m) = X\<close>
-proof -
-  from assms obtain y where y: \<open>y \<in> set (lgoto xs X RA)\<close> by (cases \<open>lgoto xs X RA\<close>) auto
-  from y obtain pr m R where mem: \<open>(pr, m, R) \<in> set xs\<close>
-    and lt: \<open>m < length (snd pr)\<close> and Xeq: \<open>fst (snd pr ! m) = X\<close>
-    unfolding lgoto_def by auto
-  have \<open>(pr, m) \<in> set (ccore xs)\<close> using mem unfolding ccore_def by force
-  from that[OF this lt Xeq] show ?thesis .
-qed
 
 definition didx_ok :: \<open>('n, 't) is_cfg \<Rightarrow> ('n, 't) citem list list \<Rightarrow>
     ('n, 't) xitem list list \<Rightarrow> nat list \<Rightarrow> bool\<close> where
@@ -2046,9 +1982,6 @@ inductive imreach :: \<open>('n, 't) is_cfg \<Rightarrow> 'n \<Rightarrow> (('n,
   imreach_init: \<open>imreach G Shn gt sts (([xinit G Shn], w), [st_find sts (lr0_start G Shn)])\<close>
 | imreach_step: \<open>imreach G Shn gt sts ic \<Longrightarrow> imstep G gt sts ic act = Some ic' \<Longrightarrow>
     dlive (fst ic') \<Longrightarrow> imreach G Shn gt sts ic'\<close>
-
-lemma imreach_mreach: \<open>imreach G Shn gt sts ic \<Longrightarrow> mreach G Shn (fst ic)\<close>
-  by (induction rule: imreach.induct) (auto intro: mreach_init mreach_step dest: imstep_mstep)
 
 lemma imreach_dlive: \<open>imreach G Shn gt sts ic \<Longrightarrow> dlive (fst ic)\<close>
   by (induction rule: imreach.induct)
@@ -2439,24 +2372,12 @@ proof -
   then show ?thesis unfolding cell_ok_def by auto
 qed
 
-subsection \<open>Semantics of a lookahead cell\<close>
-
-text \<open>A cell \<open>(i, (pr, m), t, \<tau>)\<close> says: in state \<open>i\<close>, when the item \<open>(pr, m)\<close>
-  is on top, the token that follows the item's completion is \<open>t\<close>, and its
-  column relates to the item's own left-hand-side anchor \<open>j\<close> by \<open>\<tau>\<close>.
-  \<^const>\<open>dlic\<close> tests this against the reduce's anchor set.\<close>
-
-definition cell_sat :: \<open>('n, 't) lacell \<Rightarrow> nat \<Rightarrow> ('t \<times> nat) list \<Rightarrow> nat \<Rightarrow> bool\<close> where
-  \<open>cell_sat c i w j \<longleftrightarrow> (case c of (i', (pr, m), t, \<tau>) \<Rightarrow> i' = i \<and>
-     (case w of [] \<Rightarrow> t = None | (a, cl) # _ \<Rightarrow> t = Some a \<and> wsat \<tau> cl j))\<close>
-
 subsection \<open>A driveable action list\<close>
 
 text \<open>Everything the deterministic driver needs of a machine action list,
   bundled into one predicate: at every position the index-carrying machine
   steps, the successor is \<^const>\<open>dlive\<close>, and a reduce is licensed by the cell
-  table. Existence of the run follows (\<open>mdrive_imrun\<close>), so this is the only
-  hypothesis the bridge below takes about the trace.\<close>
+  table. It is the only hypothesis the bridge below takes about the trace.\<close>
 
 definition mdrive :: \<open>('n, 't) is_cfg \<Rightarrow> (('n, 't) sym \<times> nat) list list \<Rightarrow>
     ('n, 't) citem list list \<Rightarrow> ('n, 't) lacell list \<Rightarrow> ('n, 't) dact list \<Rightarrow>
@@ -2531,16 +2452,6 @@ proof (intro allI impI)
   qed
 qed
 
-lemma mdrive_imrun: \<open>mdrive G gt sts L acts ic \<Longrightarrow> \<exists>ic'. imrun G gt sts acts ic = Some ic'\<close>
-proof (induction acts arbitrary: ic)
-  case Nil then show ?case by simp
-next
-  case (Cons act acts)
-  from mdrive_ConsD[OF Cons.prems] obtain ic\<^sub>1 where
-      st: \<open>imstep G gt sts ic act = Some ic\<^sub>1\<close> and rest: \<open>mdrive G gt sts L acts ic\<^sub>1\<close> by blast
-  from Cons.IH[OF rest] show ?case using st by simp
-qed
-
 lemma mdrive_append:
   assumes as: \<open>mdrive G gt sts L as ic\<close>
     and run: \<open>imrun G gt sts as ic = Some ic'\<close>
@@ -2592,20 +2503,23 @@ fun tstep :: \<open>('n, 't) dact \<Rightarrow> ('m, 'ch, 't) tword \<times> ('m
      (v, Node (fst pr) (rev (take (length (snd pr)) tstk)) # drop (length (snd pr)) tstk)\<close>
 
 text \<open>The driver takes the trace's action: it is among the candidates, and
-  \<^const>\<open>dpick\<close> commits to it.  The new state is explicit.\<close>
+  \<^const>\<open>dpick\<close> commits to it.  The new state is explicit.  The pick is a premise of
+  \<^text>\<open>dstep_of_dpick\<close>; under \<^const>\<open>mdet\<close> it is forced (\<^text>\<open>dpick_forced\<close>).\<close>
 
-lemma dstep_of_imstep_exact:
+lemma dstep_of_dpick:
   assumes tab: \<open>tables_ok G Shn sts gt L\<close>
     and stc: \<open>sts = pr0_states G Shn\<close>
     and gtc: \<open>gt = pgtab G sts\<close>
     and Lc: \<open>L = la_fix G Shn\<close>
     and rt: \<open>redtab = red_buckets G Shn (length sts)\<close>
-    and det: \<open>mdet G Shn\<close>
     and ireach: \<open>imreach G Shn gt sts ((Xs, w), istk)\<close>
     and inv: \<open>dfollow_ok G sts ((Xs, w), cstk, istk, v, tstk)\<close>
     and step: \<open>imstep G gt sts ((Xs, w), istk) act = Some (gc', istk')\<close>
     and live: \<open>dlive gc'\<close>
     and lic: \<open>\<forall>pr. act = DReduce pr \<longrightarrow> lic_at G L sts ((Xs, w), istk) pr\<close>
+    and pick_of: \<open>act \<in> set (dcands G (hd istk) (redtab ! hd istk) (xclosure_auto G (hd Xs)) (Xs, w)) \<Longrightarrow>
+      dpick G cstk (Xs, w) (dcands G (hd istk) (redtab ! hd istk) (xclosure_auto G (hd Xs)) (Xs, w))
+        = Some (act, gc')\<close>
   shows \<open>act \<in> set (dcands G (hd istk) (redtab ! hd istk) (xclosure_auto G (hd Xs)) (Xs, w)) \<and>
          (\<exists>v' tstk'. (v', tstk') = tstep act (v, tstk) \<and>
             dstep G gt sts redtab ((Xs, w), cstk, istk, v, tstk)
@@ -2661,8 +2575,7 @@ proof -
     have offered: \<open>DShift \<in> set (dcands G ?i ?cells ?CL (Xs, w))\<close>
       by (rule dcands_shift) (use Xs_ne w_eq in auto)
     have pick: \<open>dpick G cstk (Xs, w) (dcands G ?i ?cells ?CL (Xs, w)) = Some (DShift, gc')\<close>
-      by (rule dpick_forced[OF det ireach' refl req _ cstk_eq' offered _ live])
-         (use ms DShift in simp_all)
+      using pick_of offered DShift cells_rt by simp
     have dstep_eq: \<open>dstep G gt sts redtab ((Xs, w), cstk, istk, v, tstk) =
         Some (gc', xclosure_auto G (hd (fst gc')) # cstk,
               dnext gt sts ?i (Tm (tok (hd v))) # istk, tl v, Leaf (hd v) # tstk)\<close>
@@ -2707,8 +2620,7 @@ proof -
     have offered: \<open>DReduce pr \<in> set (dcands G ?i ?cells ?CL (Xs, w))\<close>
       by (rule dcands_reduceI[OF _ compR RS_ne']) (use Xs_ne dlic' in auto)
     have pick: \<open>dpick G cstk (Xs, w) (dcands G ?i ?cells ?CL (Xs, w)) = Some (DReduce pr, gc')\<close>
-      by (rule dpick_forced[OF det ireach' refl req _ cstk_eq' offered _ live])
-         (use ms DReduce in simp_all)
+      using pick_of offered DReduce cells_rt by simp
     have dstep_eq: \<open>dstep G gt sts redtab ((Xs, w), cstk, istk, v, tstk) =
         Some (gc', xclosure_auto G (hd (fst gc')) # drop ?k cstk,
               dnext gt sts (istk ! ?k) (Nt (fst pr)) # drop ?k istk, v,
@@ -2739,6 +2651,36 @@ proof -
         unfolding dfollow_ok_def using push gc'_eq vw lens k_lt by simp
     qed
   qed
+qed
+
+lemma dstep_of_imstep_exact:
+  assumes tab: \<open>tables_ok G Shn sts gt L\<close>
+    and stc: \<open>sts = pr0_states G Shn\<close>
+    and gtc: \<open>gt = pgtab G sts\<close>
+    and Lc: \<open>L = la_fix G Shn\<close>
+    and rt: \<open>redtab = red_buckets G Shn (length sts)\<close>
+    and det: \<open>mdet G Shn\<close>
+    and ireach: \<open>imreach G Shn gt sts ((Xs, w), istk)\<close>
+    and inv: \<open>dfollow_ok G sts ((Xs, w), cstk, istk, v, tstk)\<close>
+    and step: \<open>imstep G gt sts ((Xs, w), istk) act = Some (gc', istk')\<close>
+    and live: \<open>dlive gc'\<close>
+    and lic: \<open>\<forall>pr. act = DReduce pr \<longrightarrow> lic_at G L sts ((Xs, w), istk) pr\<close>
+  shows \<open>act \<in> set (dcands G (hd istk) (redtab ! hd istk) (xclosure_auto G (hd Xs)) (Xs, w)) \<and>
+         (\<exists>v' tstk'. (v', tstk') = tstep act (v, tstk) \<and>
+            dstep G gt sts redtab ((Xs, w), cstk, istk, v, tstk)
+              = Some (gc', map (xclosure_auto G) (fst gc'), istk', v', tstk') \<and>
+            dfollow_ok G sts (gc', map (xclosure_auto G) (fst gc'), istk', v', tstk'))\<close>
+proof -
+  have \<open>cstk = map (xclosure_auto G) (fst (Xs, w))\<close> using inv unfolding dfollow_ok_def by auto
+  moreover have \<open>mstep G (Xs, w) act = Some gc'\<close>
+    using imstep_mstep[of G gt sts \<open>((Xs, w), istk)\<close> act \<open>(gc', istk')\<close>] step by simp
+  moreover have \<open>imreach G Shn (pgtab G (pr0_states G Shn)) (pr0_states G Shn) ((Xs, w), istk)\<close>
+    using ireach unfolding gtc stc .
+  moreover have \<open>redtab ! hd istk = red_buckets G Shn (length (pr0_states G Shn)) ! hd istk\<close>
+    unfolding rt stc ..
+  ultimately show ?thesis
+    by (intro dstep_of_dpick[OF tab stc gtc Lc rt ireach inv step live lic] dpick_forced[OF det _ refl])
+       (simp_all add: live)
 qed
 
 lemma dstep_of_imstep:
@@ -2916,12 +2858,12 @@ section \<open>The licensing recursion\<close>
 subsection \<open>A subtree list derives its yield\<close>
 
 text \<open>\<^const>\<open>anntree\<close> turns a \<^const>\<open>wf_ptree\<close> into a \<^const>\<open>parse_tree\<close> of
-  \<^const>\<open>infG\<close>, so \<^text>\<open>fringe_steps_if_parse_tree\<close> gives the derivation of
+  \<^const>\<open>infG\<close>, so \<^text>\<open>derives_fringe_if_parse_tree\<close> gives the derivation of
   its yield; \<^text>\<open>derives_concat\<close> lifts that to a list of siblings.\<close>
 
 lemma wf_ptree_derives:
   \<open>wf_ptree G pt \<Longrightarrow> infG G \<turnstile> [annsym (proot pt)] \<Rightarrow>* map Tm (tcols (pyield pt))\<close>
-  using fringe_steps_if_parse_tree[of \<open>infG G\<close> \<open>anntree pt\<close>] by simp
+  using derives_fringe_if_parse_tree[of \<open>infG G\<close> \<open>anntree pt\<close>] by simp
 
 lemma wf_ptree_list_derives:
   assumes \<open>\<forall>pt \<in> set pts. wf_ptree G pt\<close>

@@ -19,30 +19,41 @@ sig
      entry's and its gram_t \<open>G\<lparr>istart := ''A''\<rparr>\<close> (see entry_grammar);
      options: the names in \<open>parser (\<dots>)\<close> other than the generator's, e.g.
      "diagnostics";
-     errors: the entry's \<open>errors\<close> block *)
+     errors: the entry's \<open>errors\<close> block;
+     recover: the error token named by the entry's \<open>recover\<close>;
+     repair: the entry's \<open>repair\<close>: its token function and the terminals to avoid;
+     on_error_reduce: the nonterminals named by the entry's \<open>on_error_reduce\<close>;
+     token_info: the term of the entry's \<open>token_info\<close> *)
   datatype sentence =
     Symbols of (string * int option) list
   | Word of string
   datatype msg_key = By_State | By_Token | By_Shift
   type error_message = {sentence: sentence, key: msg_key, text: string}
+  type repair = {token: string option, avoid: string list}
 
   type build_input =
    {gram: Grammar_Common.grammar,
     parse_bind: binding,
     shn: string,
     options: string list,
-    errors: error_message list}
+    errors: error_message list,
+    recover: string option,
+    repair: repair option,
+    on_error_reduce: string list,
+    token_info: string option}
 
   type post_input =
    {parse_const: term,
     parse_def_th: thm}
 
   (* checks: the equations `check G Shn = value` the backend evaluated while
-     building, handed back to its discharge_tac *)
+     building, handed back to its discharge_tac;
+     recover: the binding of the parser with recovery and its error token *)
   type build_output =
    {parse_body: term,
     post: post_input -> local_theory -> local_theory,
-    checks: thm list}
+    checks: thm list,
+    recover: (binding * term) option}
 
   (* gram: as in build_input, the entry's record *)
   type discharge_input =
@@ -51,16 +62,43 @@ sig
     shn: string,
     checks: thm list}
 
+  (* the theorems of \<open>parser (ast)\<close>, whose decoder is \<open>Some\<close>: completeness against the
+     language, soundness and exact completeness against the trees, and the tree of a
+     word without the error token *)
+  type ast_thms = {complete_lang: thm, sound: thm, complete: thm, no_error: thm}
+
   (* discharge_tac: SOME on a premise the backend claims (a failing tactic
      warns), NONE on premises left as assumptions; rel_sound_thm /
-     rel_complete_thm: stated against a relation P of the start symbol *)
+     rel_complete_thm: stated against a relation P of the start symbol;
+     ast_thms: for \<open>parser (ast)\<close>, NONE if the backend has no such mode *)
   type parser_generator =
    {build_parse:   build_input -> local_theory -> build_output * local_theory,
     sound_thm:     thm,
     complete_thm:  thm,
     rel_sound_thm:    thm option,
     rel_complete_thm: thm option,
+    no_error_thm:     thm option,
+    ast_thms:         ast_thms option,
     discharge_tac: discharge_input -> Proof.context -> term -> (int -> tactic) option}
+
+  (* precedence declarations, from LR_Prec_Parse: `prepare parse_b shn gr` defines the
+     restricted grammar of the entry gr; gram replaces gr for the backend, inst fixes the
+     grammar and the declarations in the theorems below, whose premises discharge
+     claims first *)
+  type prec_output =
+   {gram: Grammar_Common.grammar,
+    inst: Proof.context -> thm -> thm,
+    discharge: Proof.context -> term -> (int -> tactic) option}
+
+  type prec_hook =
+   {prepare: binding -> string -> Grammar_Common.grammar -> local_theory ->
+      prec_output * local_theory,
+    sound_lang: thm,
+    complete_lang: thm,
+    sound: thm,
+    complete: thm,
+    no_error: thm,
+    ast: ast_thms}
 
   type result =
    {parse_const: term,
@@ -71,6 +109,7 @@ sig
     complete_lang: thm}
 
   val register: string -> parser_generator -> theory -> theory
+  val set_prec_hook: prec_hook -> theory -> theory
   val set_default: string -> theory -> theory
   val default: theory -> string option
 
@@ -81,21 +120,10 @@ sig
     -> result * local_theory
   val define_entries: string option -> entry list -> local_theory
     -> result list * local_theory
-  (* the options known to the command; any other name in \<open>parser (\<dots>)\<close> is the
-     generator *)
-  val known_options: string list
-  val define_entries_options: string option -> string list ->
-    (string * error_message list) list -> entry list -> local_theory
-    -> result list * local_theory
   val define_cmd: string option -> entry list -> local_theory -> local_theory
-  (* `parser (N1, ..., Nk)`: the names split into the options and at most one generator *)
-  val define_names_cmd: string list -> (string * error_message list) list -> entry list ->
-    local_theory -> local_theory
 
   (** helpers reusable by backends **)
-  val pick_fresh_shn: Grammar_Common.grammar -> string
   val eval_tac: Proof.context -> int -> tactic
-  val discharge_by_lemma: Proof.context -> thm -> thm -> thm
 end;
 
 structure Parser_Generators: PARSER_GENERATORS =
@@ -113,12 +141,18 @@ datatype msg_key = By_State | By_Token | By_Shift;
 
 type error_message = {sentence: sentence, key: msg_key, text: string};
 
+type repair = {token: string option, avoid: string list};
+
 type build_input =
  {gram: Grammar_Common.grammar,
   parse_bind: binding,
   shn: string,
   options: string list,
-  errors: error_message list};
+  errors: error_message list,
+  recover: string option,
+  repair: repair option,
+  on_error_reduce: string list,
+  token_info: string option};
 
 type post_input =
  {parse_const: term,
@@ -127,7 +161,8 @@ type post_input =
 type build_output =
  {parse_body: term,
   post: post_input -> local_theory -> local_theory,
-  checks: thm list};
+  checks: thm list,
+  recover: (binding * term) option};
 
 type discharge_input =
  {gram: Grammar_Common.grammar,
@@ -135,13 +170,32 @@ type discharge_input =
   shn: string,
   checks: thm list};
 
+type ast_thms = {complete_lang: thm, sound: thm, complete: thm, no_error: thm};
+
 type parser_generator =
  {build_parse:   build_input -> local_theory -> build_output * local_theory,
   sound_thm:     thm,
   complete_thm:  thm,
   rel_sound_thm:    thm option,
   rel_complete_thm: thm option,
+  no_error_thm:     thm option,
+  ast_thms:         ast_thms option,
   discharge_tac: discharge_input -> Proof.context -> term -> (int -> tactic) option};
+
+type prec_output =
+ {gram: Grammar_Common.grammar,
+  inst: Proof.context -> thm -> thm,
+  discharge: Proof.context -> term -> (int -> tactic) option};
+
+type prec_hook =
+ {prepare: binding -> string -> Grammar_Common.grammar -> local_theory ->
+    prec_output * local_theory,
+  sound_lang: thm,
+  complete_lang: thm,
+  sound: thm,
+  complete: thm,
+  no_error: thm,
+  ast: ast_thms};
 
 type result =
  {parse_const: term,
@@ -153,17 +207,22 @@ type result =
 
 structure Data = Theory_Data
 (
-  type T = {gens: parser_generator Symtab.table, default: string option};
-  val empty: T = {gens = Symtab.empty, default = NONE};
-  fun merge ({gens = g1, default = d1}, {gens = g2, default = d2}): T =
+  type T =
+    {gens: parser_generator Symtab.table, default: string option, prec: prec_hook option};
+  val empty: T = {gens = Symtab.empty, default = NONE, prec = NONE};
+  fun merge ({gens = g1, default = d1, prec = p1}, {gens = g2, default = d2, prec = p2}): T =
     {gens = Symtab.merge (K true) (g1, g2),
-     default = (case d2 of NONE => d1 | _ => d2)};
+     default = (case d2 of NONE => d1 | _ => d2),
+     prec = (case p2 of NONE => p1 | _ => p2)};
 );
 
 (* registering a backend does not change the default *)
 fun register nm gen =
-  Data.map (fn {gens, default} =>
-    {gens = Symtab.update (nm, gen) gens, default = default});
+  Data.map (fn {gens, default, prec} =>
+    {gens = Symtab.update (nm, gen) gens, default = default, prec = prec});
+
+fun set_prec_hook hook =
+  Data.map (fn {gens, default, ...} => {gens = gens, default = default, prec = SOME hook});
 
 fun registered thy = Symtab.keys (#gens (Data.get thy));
 fun default thy = #default (Data.get thy);
@@ -172,7 +231,7 @@ fun set_default nm thy =
   (if Symtab.defined (#gens (Data.get thy)) nm then ()
    else error ("Unknown parser generator " ^ quote nm ^
      "; registered: " ^ commas_quote (registered thy));
-   Data.map (fn {gens, ...} => {gens = gens, default = SOME nm}) thy);
+   Data.map (fn {gens, prec, ...} => {gens = gens, default = SOME nm, prec = prec}) thy);
 
 fun get thy nm =
   (case Symtab.lookup (#gens (Data.get thy)) nm of
@@ -379,12 +438,13 @@ fun check_entries lthy (entries: entry list) =
    premises about G, where G's decoder and bridge lemmas discharge them *)
 fun entry_grammar (gr: Grammar_Common.grammar) A ctxt =
   let
-    val {gram_t, gram_def, decs, rel} = Grammar_Common.artifacts_of gr;
+    val {gram_t, gram_def, decs, rel, ...} = Grammar_Common.artifacts_of gr;
     val {isgT, ...} = Grammar_Common.get_desc gr;
     val upd_c =
       Const (\<^const_name>\<open>is_cfg.istart_update\<close>,
-        (HOLogic.stringT --> HOLogic.stringT) --> isgT --> isgT);
-    val eg_t = upd_c $ Term.absdummy HOLogic.stringT (HOLogic.mk_string A) $ gram_t;
+        (Grammar_Common.name_typ gr --> Grammar_Common.name_typ gr) --> isgT --> isgT);
+    val eg_t =
+      upd_c $ Term.absdummy (Grammar_Common.name_typ gr) (Grammar_Common.name_term gr A) $ gram_t;
 
     fun prove ctxt' prop =
       Goal.prove_sorry ctxt [] [] (HOLogic.mk_Trueprop prop)
@@ -396,10 +456,10 @@ fun entry_grammar (gr: Grammar_Common.grammar) A ctxt =
       | _ => raise Fail "entry_grammar: grammar definition");
     val zero = \<^term>\<open>0 :: nat\<close>;
     val make_eq =
-      prove (basic addsimps (gram_def :: @{thms is_cfg.make_def is_cfg.update_convs refl}))
-        (HOLogic.mk_eq (eg_t, make_c $ ps $ HOLogic.mk_string A $ zero));
+      prove (basic |> Simplifier.add_simps (gram_def :: @{thms is_cfg.make_def is_cfg.update_convs refl}))
+        (HOLogic.mk_eq (eg_t, make_c $ ps $ Grammar_Common.name_term gr A $ zero));
     fun sel c T t = Const (c, isgT --> T) $ t;
-    val sel_ctxt = basic addsimps (make_eq :: @{thms is_cfg.make_def is_cfg.select_convs});
+    val sel_ctxt = basic |> Simplifier.add_simps (make_eq :: @{thms is_cfg.make_def is_cfg.select_convs});
     val iprodsT = fastype_of ps;
     val iprods_eq =
       prove ctxt
@@ -407,24 +467,31 @@ fun entry_grammar (gr: Grammar_Common.grammar) A ctxt =
           (sel \<^const_name>\<open>iprods\<close> iprodsT eg_t, sel \<^const_name>\<open>iprods\<close> iprodsT gram_t));
     val istart_eq =
       prove sel_ctxt
-        (HOLogic.mk_eq (sel \<^const_name>\<open>istart\<close> HOLogic.stringT eg_t, HOLogic.mk_string A));
+        (HOLogic.mk_eq (sel \<^const_name>\<open>istart\<close> (Grammar_Common.name_typ gr) eg_t,
+          Grammar_Common.name_term gr A));
     val istart_ind_eq =
       prove sel_ctxt (HOLogic.mk_eq (sel \<^const_name>\<open>istart_ind\<close> HOLogic.natT eg_t, zero));
     val transport_ss =
-      simpset_of (basic addsimps
+      simpset_of (basic |> Simplifier.add_simps
         [@{thm wf_ptree_iprods_cong} OF [iprods_eq], @{thm ast_of_iprods_cong} OF [iprods_eq],
          istart_eq, istart_ind_eq]);
     fun transport ctxt' =
       Conv.fconv_rule
         (Conv.prems_conv ~1 (Simplifier.full_rewrite (put_simpset transport_ss ctxt')));
+    (* the conclusion of an (ast) soundness theorem: a tree of A in G *)
+    fun transport_concl ctxt' =
+      Conv.fconv_rule
+        (Conv.concl_conv ~1 (Simplifier.full_rewrite (put_simpset transport_ss ctxt')));
 
-    val {name, tokT, tokenT, terminals, lit_names, nonterms, prods, ...} = gr;
+    val {name, tokT, tokenT, nat_labels, terminals, lit_names, nonterms, prods, prec, ...} = gr;
     val egr: Grammar_Common.grammar =
-      {name = name, tokT = tokT, tokenT = tokenT, start = A, terminals = terminals,
-       lit_names = lit_names, nonterms = nonterms, prods = prods,
+      {name = name, tokT = tokT, tokenT = tokenT, start = A, nat_labels = nat_labels,
+       terminals = terminals,
+       lit_names = lit_names, nonterms = nonterms, prods = prods, prec = prec,
        artifacts =
-        SOME {gram_t = eg_t, gram_def = mk_meta_eq make_eq, decs = decs, rel = rel}};
-  in (egr, transport) end;
+        SOME {gram_t = eg_t, gram_def = mk_meta_eq make_eq, decs = decs, rel = rel,
+              restricted = NONE}};
+  in (egr, (transport, transport_concl)) end;
 
 (* the decoder and bridge lemmas of the grammar, for any start, proved on first
    demand and shared by the entries of the command *)
@@ -433,22 +500,55 @@ type shared =
   bridge: (Grammar_Common.rel_info * (string -> Parser_Rel_Bridge.bridge) lazy) option};
 
 fun shared_lemmas lthy gr : shared =
-  {dec_total = Lazy.lazy (fn () => Parser_Dec_Total.prover lthy gr),
-   bridge =
-    Option.map (fn ri => (ri, Lazy.lazy (fn () => Parser_Rel_Bridge.prover lthy gr ri)))
-      (Grammar_Defs.lookup_rel lthy gr)};
+  let val dec_nones = Lazy.lazy (fn () => Parser_Dec_Total.dec_nones lthy gr) in
+    {dec_total = Lazy.lazy (fn () => Parser_Dec_Total.prover lthy gr (Lazy.force dec_nones)),
+     bridge =
+      Option.map (fn ri =>
+          (ri, Lazy.lazy (fn () => Parser_Rel_Bridge.prover lthy gr ri (Lazy.force dec_nones))))
+        (Grammar_Defs.lookup_rel lthy gr)}
+  end;
+
+(* \<open>parser (ast)\<close>: every decoder of the grammar is \<open>Some\<close> at its tree type, so the
+   parser returns the tree of dparse; an entry and a restriction read the decoders from
+   here, the latter composes them with plain_ast *)
+fun ast_grammar (gr: Grammar_Common.grammar) =
+  let
+    val {gram_t, gram_def, decs, rel, restricted} = Grammar_Common.artifacts_of gr;
+    val {astT, ...} = Grammar_Common.get_desc gr;
+    val some = Const (\<^const_name>\<open>Some\<close>, astT --> Grammar_Common.mk_optionT astT);
+  in
+    Grammar_Common.put_artifacts
+      {gram_t = gram_t, gram_def = gram_def, decs = map (fn (A, _) => (A, some)) decs,
+       rel = rel, restricted = restricted} gr
+  end;
 
 (* one entry: as a command of its own, but for the shared lemmas *)
 fun define_entry options all_errors (gen_name, gen) (shared: shared) (parse_b, gr, start) lthy =
   let
     val gram_name = Binding.name_of (#name gr);
-    val errors = the_default [] (AList.lookup (op =) all_errors (Binding.name_of parse_b));
+    val ast = member (op =) options "ast";
+    val gr = if ast then ast_grammar gr else gr;
+    val ((recover, repair), (on_error_reduce, (token_info, errors))) =
+      the_default ((NONE, NONE), ([], (NONE, [])))
+        (AList.lookup (op =) all_errors (Binding.name_of parse_b));
+    val _ =
+      if not (null on_error_reduce) andalso not (member (op =) options "diagnostics") then
+        warning ("parser: \<open>on_error_reduce\<close> of \<open>" ^ Binding.name_of parse_b ^
+          "\<close> needs diagnostics, off by \<open>no_diagnostics\<close>; it is ignored")
+      else ();
     val _ =
       if not (null errors) andalso not (member (op =) options "diagnostics") then
         warning ("parser: the \<open>errors\<close> block of \<open>" ^ Binding.name_of parse_b ^
-          "\<close> needs \<open>parser (diagnostics)\<close>; it is ignored")
+          "\<close> needs diagnostics, off by \<open>no_diagnostics\<close>; it is ignored")
       else ();
+    val _ =
+      if (is_some recover orelse is_some repair) andalso not (member (op =) options "diagnostics") then
+        warning ("parser: \<open>recover\<close> or \<open>repair\<close> of \<open>" ^ Binding.name_of parse_b ^
+          "\<close> needs diagnostics, off by \<open>no_diagnostics\<close>; it is ignored")
+      else ();
+    (* (ast): no decoder, no totality premise *)
     val dec_names =
+      if ast then [] else
       Grammar_Common.nonterms_list gr
       |> map_filter (fn (A, _) =>
           (case Term.head_of (Grammar_Defs.decoder_of lthy gr A) of
@@ -457,15 +557,71 @@ fun define_entry options all_errors (gen_name, gen) (shared: shared) (parse_b, g
     fun timed label f x = Grammar_Common.timed lthy "parser" label f x;
 
     (* 0. the entry's grammar; the start of G is G itself *)
-    val (egr, transport) =
-      if start = #start gr then (gr, K I)
+    val (egr, (transport, transport_concl)) =
+      if start = #start gr then (gr, (K I, K I))
       else timed "0 entry grammar" (entry_grammar gr start) lthy;
     val shn_name = pick_fresh_shn gr;
+
+    (* with declarations: the backend builds from the restricted grammar *)
+    val prec_hook =
+      (case #prec gr of
+        NONE => NONE
+      | SOME _ =>
+          (case #prec (Data.get (Proof_Context.theory_of lthy)) of
+            SOME hook => SOME hook
+          | NONE =>
+              error ("parser " ^ quote (Binding.name_of parse_b) ^ ": grammar " ^ quote gram_name ^
+                " has precedence declarations; import LR_Parser.LR_Prec_Parse")));
+    val (prec_out, lthy) =
+      (case prec_hook of
+        NONE => (NONE, lthy)
+      | SOME hook =>
+          timed "0 restrict" (#prepare hook parse_b shn_name egr) lthy |>> SOME);
+    val (egr, inst, gen) =
+      (case (prec_hook, prec_out) of
+        (SOME hook, SOME {gram, inst, discharge}) =>
+          (gram, inst,
+           {build_parse = #build_parse gen,
+            sound_thm = #sound_lang hook,
+            complete_thm = #complete_lang hook,
+            rel_sound_thm = NONE,
+            rel_complete_thm = NONE,
+            no_error_thm = SOME (#no_error hook),
+            ast_thms = SOME (#ast hook),
+            discharge_tac = fn dinp => fn ctxt => fn prem =>
+              (case discharge ctxt prem of
+                SOME tac => SOME tac
+              | NONE => #discharge_tac gen dinp ctxt prem)})
+      | _ => (egr, K I, gen));
+    (* (ast): the tree forms in place of the decoder's *)
+    val ast_thms =
+      if not ast then NONE
+      else
+        (case #ast_thms gen of
+          SOME a => SOME a
+        | NONE =>
+            error ("parser " ^ quote (Binding.name_of parse_b) ^ ": backend " ^ quote gen_name ^
+              " has no option ast"));
+    val gen =
+      (case ast_thms of
+        NONE => gen
+      | SOME a =>
+          {build_parse = #build_parse gen,
+           sound_thm = #sound_thm gen,
+           complete_thm = #complete_lang a,
+           rel_sound_thm = NONE,
+           rel_complete_thm = NONE,
+           no_error_thm = SOME (#no_error a),
+           ast_thms = SOME a,
+           discharge_tac = #discharge_tac gen});
     val binp = {gram = egr, parse_bind = parse_b, shn = shn_name, options = options,
-                errors = errors};
+                errors = errors, recover = recover, repair = repair,
+                on_error_reduce = on_error_reduce,
+                token_info = token_info};
 
     (* 1. the backend builds the parse body (may define auxiliary constants) *)
-    val ({parse_body, post, checks}, lthy) = timed "1 build_parse" (#build_parse gen binp) lthy;
+    val ({parse_body, post, checks, recover = recovered}, lthy) =
+      timed "1 build_parse" (#build_parse gen binp) lthy;
 
     (* 2. the parse constant *)
     val ((parse_c, parse_def_th), lthy) =
@@ -483,7 +639,7 @@ fun define_entry options all_errors (gen_name, gen) (shared: shared) (parse_b, g
     val proof_for = discharge_prover lthy (#discharge_tac gen dinp lthy);
 
     fun discharge th =
-      (hol_parse_eq RS th)
+      (hol_parse_eq RS inst lthy th)
       |> transport lthy
       |> discharge_dec_total lthy gram_name dec_names dec_total
       |> discharge_via_tac proof_for;
@@ -495,6 +651,7 @@ fun define_entry options all_errors (gen_name, gen) (shared: shared) (parse_b, g
           symbol, the bridge premises by Parser_Rel_Bridge; when the bridges
           fail the language forms are kept under the plain names *)
     val rel_forms =
+      if ast then NONE else
       (case (#bridge shared, #rel_sound_thm gen, #rel_complete_thm gen) of
         (SOME (_, bridges), SOME rel_sound, SOME rel_complete) =>
           (case Exn.result (fn () =>
@@ -518,6 +675,12 @@ fun define_entry options all_errors (gen_name, gen) (shared: shared) (parse_b, g
                    "; .sound/.complete are stated against the language");
                  NONE))
       | (SOME _, _, _) =>
+          if is_some prec_hook then
+            (warning ("parser: \<open>" ^ Binding.name_of parse_b ^ "\<close> is stated against \<open>" ^
+               gram_name ^ "\<close> and its precedence declarations: the relation family \
+               \does not read them");
+             NONE)
+          else
           (warning ("parser: backend \<open>" ^ gen_name ^ "\<close> has no relational \
              \theorems; .sound/.complete of \<open>" ^ Binding.name_of parse_b ^
              "\<close> are the language forms although grammar \<open>" ^ gram_name ^
@@ -525,8 +688,28 @@ fun define_entry options all_errors (gen_name, gen) (shared: shared) (parse_b, g
            NONE)
       | _ => NONE);
 
+    (* declarations: the tree forms, against G and prec_ok *)
     val (sound_final, complete_final) =
-      (case rel_forms of SOME forms => forms | NONE => (sound_lang, complete_lang));
+      (case (ast_thms, prec_hook, rel_forms) of
+        (SOME a, _, _) =>
+          (discharge (#sound a) |> transport_concl lthy, discharge (#complete a))
+      | (NONE, SOME hook, _) =>
+          let
+            (* no totality here: the decoder premise of a tree form is its statement *)
+            fun discharge_tree th =
+              (hol_parse_eq RS inst lthy th) |> transport lthy |> discharge_via_tac proof_for;
+          in (discharge_tree (#sound hook), discharge_tree (#complete hook)) end
+      | (NONE, _, SOME forms) => forms
+      | _ => (sound_lang, complete_lang));
+
+    (* the tree of a word without the error token has no error node; before the
+       notes, since discharge belongs to this context *)
+    val no_error =
+      (case (recovered, #no_error_thm gen) of
+        (SOME (b, e), SOME th) =>
+          [((Grammar_Common.qualify_bind b "no_error", []),
+            [([discharge (Drule.infer_instantiate lthy [(("e", 0), Thm.cterm_of lthy e)] th)], [])])]
+      | _ => []);
 
     val (noted, lthy) =
       timed "6 notes" (Local_Theory.notes
@@ -535,6 +718,7 @@ fun define_entry options all_errors (gen_name, gen) (shared: shared) (parse_b, g
          ((Grammar_Common.qualify_bind parse_b "sound_lang",    []), [([sound_lang],    [])]),
          ((Grammar_Common.qualify_bind parse_b "complete_lang", []), [([complete_lang], [])])])
       lthy;
+    val lthy = lthy |> Local_Theory.notes no_error |> #2;
     val result: result =
       (case map (the_single o #2) noted of
         [s, c, sl, cl] =>
@@ -561,11 +745,20 @@ fun define parser_name_opt parse_b gram_ref lthy =
 fun define_cmd parser_name_opt entries lthy =
   #2 (define_entries parser_name_opt entries lthy);
 
-val known_options = ["diagnostics"];
+val known_options = ["diagnostics", "no_diagnostics", "ast"];
 
 fun define_names_cmd names errors entries lthy =
   let
-    val (options, gens) = List.partition (member (op =) known_options) names;
+    val (given, gens) = List.partition (member (op =) known_options) names;
+    val off = member (op =) given "no_diagnostics";
+    val _ =
+      if off andalso member (op =) given "diagnostics" then
+        error "parser: both diagnostics and no_diagnostics named"
+      else ();
+    (* diagnostics are on unless \<open>no_diagnostics\<close> is named *)
+    val options =
+      (if off then [] else ["diagnostics"]) @
+      (if member (op =) given "ast" then ["ast"] else []);
     val gen_opt =
       (case gens of
         [] => NONE
@@ -573,7 +766,7 @@ fun define_names_cmd names errors entries lthy =
       | _ =>
           error ("parser: more than one generator named: " ^ commas_quote gens ^
             "; known options: " ^ commas_quote known_options));
-  in #2 (define_entries_options gen_opt (distinct (op =) options) errors entries lthy) end;
+  in #2 (define_entries_options gen_opt options errors entries lthy) end;
 
 
 (** outer syntax **)
@@ -593,6 +786,17 @@ val parse_error_message =
   parse_sentence -- parse_msg_key --| (\<^keyword>\<open>\<Rightarrow>\<close> || \<^keyword>\<open>=>\<close>) -- Parse.embedded
   >> (fn ((sentence, key), text) => {sentence = sentence, key = key, text = text});
 
+val entry_name =
+  Scan.unless (Parse.reserved "token_info" || Parse.reserved "errors") Parse.name;
+
+val parse_repair =
+  Parse.reserved "repair"
+  |-- Scan.option (Parse.reserved "token" |-- Parse.term)
+  -- Scan.optional
+       (Parse.reserved "avoid"
+        |-- Scan.repeat1 (Scan.unless (Parse.reserved "on_error_reduce") entry_name)) []
+  >> (fn (token, avoid) => {token = token, avoid = avoid});
+
 val _ =
   Outer_Syntax.local_theory \<^command_keyword>\<open>parser\<close>
     "emit an executable, verified parser from a grammar spec"
@@ -601,8 +805,13 @@ val _ =
           (Parse.binding
            -- (Scan.option \<^keyword>\<open>for\<close> |-- Parse.name_position)
            -- Scan.option (\<^keyword>\<open>(\<close> |-- Parse.name_position --| \<^keyword>\<open>)\<close>)
+           -- Scan.option (Parse.reserved "recover" |-- Parse.name)
+           -- Scan.option parse_repair
+           -- Scan.optional (Parse.reserved "on_error_reduce" |-- Scan.repeat1 entry_name) []
+           -- Scan.option (Parse.reserved "token_info" |-- Parse.inner_syntax Parse.cartouche)
            -- Scan.optional (Parse.reserved "errors" |-- Parse.enum1 "|" parse_error_message) []
-           >> (fn (((b, g), a), errors) => ((b, g, a), (Binding.name_of b, errors))))
+           >> (fn (((((((b, g), a), recover), repair), reduce), info), errors) =>
+                ((b, g, a), (Binding.name_of b, ((recover, repair), (reduce, (info, errors)))))))
      >> (fn (names, entries) =>
           define_names_cmd names (map #2 entries) (map #1 entries)));
 

@@ -47,7 +47,7 @@ lemma anch_set_union:
 
 lemma anch_set_img:
   \<open>anch_set i0 R \<Longrightarrow> r = Any \<or> r = Eq \<Longrightarrow> anch_set i0 (irep_img r R)\<close>
-  unfolding anch_set_def by (auto simp: irel_sat.simps)
+  unfolding anch_set_def by auto
 
 lemma anch_set_fold_xcontrib:
   assumes \<open>anch_set i0 acc\<close>
@@ -1221,12 +1221,6 @@ definition snext :: \<open>(('n, 't) sym \<times> nat) list list \<Rightarrow> (
   \<open>snext gt sts redtab pc pf c d \<longleftrightarrow>
      \<not> sfinal pf c \<and> (\<exists>a. sctl gt sts redtab pc c = Some (a, d))\<close>
 
-lemma sstep_sctl:
-  \<open>sstep gt sts redtab pc st = Some st' \<longleftrightarrow>
-     (\<exists>a. sctl gt sts redtab pc (sctrl st) = Some (a, sctrl st') \<and>
-        snd (snd st') = stree a (fst (snd st)) (snd (snd st)))\<close>
-  unfolding sstep_def sctrl_def by (cases st; cases st') (auto split: prod.splits)
-
 lemma sctl_reduce_v:
   \<open>sctl gt sts redtab pc (stk, v) = Some (DReduce pr, stk', v') \<Longrightarrow> v' = v\<close>
   unfolding sctl_def by (auto simp: Let_def split: list.splits option.splits prod.splits)
@@ -1529,7 +1523,7 @@ subsection \<open>Correctness\<close>
 
 lemma iarray_simps [simp]:
   \<open>IArray.length (IArray xs) = length xs\<close> \<open>IArray xs !! i = xs ! i\<close>
-  by (simp_all add: IArray.length_def IArray.sub_def)
+  by simp_all
 
 lemma inext_dnext:
   assumes \<open>\<And>row. row \<in> set gt \<Longrightarrow> map_of (f row) k = map_of row X\<close>
@@ -1730,6 +1724,6 @@ text \<open>Bounds checks compare as \<^typ>\<open>integer\<close>: the code equ
 
 lemma iarray_length_less_code [code_unfold]:
   \<open>(i < IArray.length as) = (integer_of_nat i < IArray.length' as)\<close>
-  by (simp add: IArray.length_def integer_of_nat_eq_of_nat)
+  by (simp add: integer_of_nat_eq_of_nat)
 
 end

@@ -10,7 +10,7 @@ sig
   val prove: Proof.context -> Grammar_Common.grammar ->
     Grammar_Common.rel_info -> bridge
   val prover: Proof.context -> Grammar_Common.grammar ->
-    Grammar_Common.rel_info -> string -> bridge
+    Grammar_Common.rel_info -> thm list -> string -> bridge
 end;
 
 structure Parser_Rel_Bridge: PARSER_REL_BRIDGE =
@@ -28,17 +28,13 @@ type setup =
   preds: (string * term) list, insensitive: bool,
   astT: typ, ptreeT: typ, wordT: typ, tokenT: typ, symT: typ,
   carrier_of: string -> typ, dec_of: string -> term,
-  proot_c: term, erase_c: term, pyield_c: term, wf_c: term, Nt_c: term, Tm_c: term};
+  proot_c: term, erase_c: term, pyield_c: term, wf_c: term, Nt_c: term};
 
 fun setup ctxt (gram: Grammar_Common.grammar) preds : setup =
   let
-    val {isgT, wordT, astT, tokenT, ...} = Grammar_Common.get_desc gram;
+    val {isgT, wordT, astT, tokenT, symT, ptreeT, ...} = Grammar_Common.get_desc gram;
     val arts = Grammar_Common.artifacts_of gram;
     val gram_t = #gram_t arts;
-    val tokT = #tokT gram;
-    val Ts = (case astT of Type (_, Ts) => Ts | _ => raise Fail "Parser_Rel_Bridge: astT");
-    val ptreeT = Type (\<^type_name>\<open>ptree\<close>, Ts);
-    val symT = Type (\<^type_name>\<open>sym\<close>, [HOLogic.stringT, tokT]);
     val rootT = HOLogic.mk_prodT (symT, HOLogic.natT);
   in
     {gram = gram, gram_t = gram_t, gram_eqs = Parser_Dec_Total.gram_eqs ctxt gram,
@@ -50,8 +46,7 @@ fun setup ctxt (gram: Grammar_Common.grammar) preds : setup =
      erase_c = Const (\<^const_name>\<open>erase\<close>, ptreeT --> astT),
      pyield_c = Const (\<^const_name>\<open>pyield\<close>, ptreeT --> wordT),
      wf_c = Const (\<^const_name>\<open>wf_ptree\<close>, isgT --> ptreeT --> HOLogic.boolT),
-     Nt_c = Const (\<^const_name>\<open>Nt\<close>, HOLogic.stringT --> symT),
-     Tm_c = Const (\<^const_name>\<open>Tm\<close>, tokT --> symT)}
+     Nt_c = Const (\<^const_name>\<open>Nt\<close>, Grammar_Common.name_typ gram --> symT)}
   end;
 
 (* the root of a tree of the start symbol A: by the selectors when A is the
@@ -60,9 +55,9 @@ fun start_root (s: setup) start =
   let val isgT = fastype_of (#gram_t s) in
     if start = #start (#gram s) then
       HOLogic.mk_prod
-        (#Nt_c s $ (Const (\<^const_name>\<open>istart\<close>, isgT --> HOLogic.stringT) $ #gram_t s),
+        (#Nt_c s $ (Const (\<^const_name>\<open>istart\<close>, isgT --> Grammar_Common.name_typ (#gram s)) $ #gram_t s),
          Const (\<^const_name>\<open>istart_ind\<close>, isgT --> HOLogic.natT) $ #gram_t s)
-    else HOLogic.mk_prod (#Nt_c s $ HOLogic.mk_string start, zero_nat)
+    else HOLogic.mk_prod (#Nt_c s $ Grammar_Common.name_term (#gram s) start, zero_nat)
   end;
 
 (* P: the relation of the start symbol at the start indentation *)
@@ -78,21 +73,12 @@ fun pred_P (s: setup) start =
       in Term.lambda w (Term.lambda x (pred $ zero_nat $ w $ x)) end
   end;
 
-(* the annotated right-hand side of a production, as the isg holds it *)
-fun rhs_hol (s: setup) (p: Grammar_Common.prod) =
-  let
-    val terminals = #terminals (#gram s);
-    val sym_annT = HOLogic.mk_prodT (#symT s, \<^typ>\<open>irel\<close>);
-    fun sym (Grammar_Common.RN n) = #Nt_c s $ HOLogic.mk_string n
-      | sym (Grammar_Common.RC i) = #Tm_c s $ Vector.sub (terminals, i)
-      | sym (Grammar_Common.RT i) = #Tm_c s $ Vector.sub (terminals, i);
-  in
-    HOLogic.mk_list sym_annT
-      (map (fn (rs, ann) => HOLogic.mk_prod (sym rs, Grammar_Common.irel_term ann)) (#rhs p))
-  end;
-
 
 (** dec_sound: a decoded value satisfies the relation **)
+
+(* \<open>@span\<close>: the decoder's yield_span of the children is the relation's word_span of
+   the word *)
+val span_simps = @{thms yield_span_def};  (* ast_yield.simps, ast_yield_erase are [simp] *)
 
 (* body_A pt: \<forall>x. dec_A (erase pt) = Some x \<longrightarrow> pred_A [snd (proot pt)] (pyield pt) x *)
 fun b1_body (s: setup) (A, pred) pt =
@@ -117,11 +103,11 @@ fun b1_body (s: setup) (A, pred) pt =
    premises then closed by the child's induction hypothesis and the relation *)
 fun b1_node_tac ctxt (s: setup) (intros, loops) dec_nones sel_eqs =
   let
-    val ctxt1 = ctxt addsimps (#gram_eqs s @ sel_eqs @ @{thms list_all2_Cons1});
+    val ctxt1 = ctxt |> Simplifier.add_simps (#gram_eqs s @ sel_eqs @ @{thms list_all2_Cons1} @ span_simps);
     val ctxt2 =
       Splitter.add_split @{thm option.split_asm} ctxt
-        addsimps (dec_nones @ sel_eqs @
-          @{thms bind_eq_Some_conv asym_erase case_ast_Nt_None});
+        |> Simplifier.add_simps (dec_nones @ sel_eqs @
+          @{thms bind_eq_Some_conv asym_erase case_ast_Nt_None} @ span_simps);
     val ctxt3 = ctxt2 addIs intros;
     val close = Clasimp.fast_force_tac ctxt3;
   in
@@ -138,6 +124,7 @@ fun b1_node_tac ctxt (s: setup) (intros, loops) dec_nones sel_eqs =
 fun prove_b1_all ctxt (s: setup) intros dec_nones =
   Grammar_Ptree_Induct.prove ctxt
     {gram_t = #gram_t s, ptreeT = #ptreeT s, tokT = #tokT (#gram s),
+     nameT = Grammar_Common.name_typ (#gram s), name = Grammar_Common.name_term (#gram s),
      bodies = map (fn Ap => (fst Ap, b1_body s Ap)) (#preds s)}
     (fn ctxt' => fn sel_eqs => b1_node_tac ctxt' s intros dec_nones sel_eqs);
 
@@ -160,7 +147,7 @@ fun prove_dec_sound ctxt (s: setup) b1_all start =
     val start_th = b1_all start;
     fun tac {context, ...} =
       Method.insert_tac context [start_th] 1
-      THEN HEADGOAL (SOLVED' (Clasimp.fast_force_tac (context addsimps #gram_eqs s)));
+      THEN HEADGOAL (SOLVED' (Clasimp.fast_force_tac (context |> Simplifier.add_simps (#gram_eqs s))));
   in
     Goal.prove_sorry ctxt [pt_nm, x_nm] [] prop tac
     |> Grammar_Common.close_binders ctxt [pt_nm, x_nm]
@@ -184,7 +171,7 @@ fun b2_body (s: setup) A root_t w x =
   end;
 
 fun nt_root (s: setup) A i_t =
-  HOLogic.mk_prod (#Nt_c s $ HOLogic.mk_string A, i_t);
+  HOLogic.mk_prod (#Nt_c s $ Grammar_Common.name_term (#gram s) A, i_t);
 
 (* the segments of an intro's word: w1 @ (w2 @ ...) *)
 fun segments (Const (\<^const_name>\<open>List.append\<close>, _) $ a $ b) = a :: segments b
@@ -209,7 +196,7 @@ fun b2_case_tac ctxt (s: setup) (p: Grammar_Common.prod) =
           Const (\<^const_name>\<open>Nt\<close>, _) $ a => a
         | _ => raise Fail "Parser_Rel_Bridge: root symbol");
       val _ =
-        if HOLogic.dest_string A_lit = #lhs p then ()
+        if Grammar_Common.name_of_term (#gram s) A_lit = #lhs p then ()
         else raise Fail "Parser_Rel_Bridge: induction cases out of production order";
       val word =
         (case nth cs 2 of
@@ -217,7 +204,8 @@ fun b2_case_tac ctxt (s: setup) (p: Grammar_Common.prod) =
         | _ => raise Fail "Parser_Rel_Bridge: yield conjunct");
       val PLeaf_c = Const (\<^const_name>\<open>PLeaf\<close>, #tokenT s --> ptT);
       val PNode_c =
-        Const (\<^const_name>\<open>PNode\<close>, HOLogic.stringT --> HOLogic.natT --> HOLogic.listT ptT --> ptT);
+        Const (\<^const_name>\<open>PNode\<close>,
+          Grammar_Common.name_typ (#gram s) --> HOLogic.natT --> HOLogic.listT ptT --> ptT);
       fun yield_of th =
         (case HOLogic.dest_Trueprop (Thm.prop_of th) of
           Const (\<^const_name>\<open>HOL.eq\<close>, _) $ (Const (\<^const_name>\<open>pyield\<close>, _) $ pt) $ w =>
@@ -233,16 +221,13 @@ fun b2_case_tac ctxt (s: setup) (p: Grammar_Common.prod) =
       val children = map child (segments word);
       val pts_hol = HOLogic.mk_list ptT children;
       val witness = PNode_c $ A_lit $ i_t $ pts_hol;
-      val exI_inst =
-        infer_instantiate' ctxt' [NONE, SOME (Thm.cterm_of ctxt' witness)] @{thm exI};
-      val wf_node_inst =
-        Drule.infer_instantiate ctxt'
-          [(("rhs", 0), Thm.cterm_of ctxt' (rhs_hol s p)),
-           (("pts", 0), Thm.cterm_of ctxt' pts_hol)] @{thm wf_node};
+      val (exI_inst, wf_node_inst) =
+        Grammar_Ptree_Induct.node_intros ctxt'
+          {witness = witness, rhs = Grammar_Ptree_Induct.rhs_term (#gram s) p, pts = pts_hol};
       (* the decoder conjunct: nonterminal children by their induction
          hypotheses, wrong alternatives by dec_none / case_ast_Nt_None *)
       val simp_ctxt =
-        ctxt' addsimps (#gram_eqs s @ @{thms wf_leaf asym_erase case_ast_Nt_None});
+        ctxt' |> Simplifier.add_simps (#gram_eqs s @ @{thms wf_leaf asym_erase case_ast_Nt_None} @ span_simps);
     in
       HEADGOAL (resolve_tac ctxt' [exI_inst])
       THEN HEADGOAL (REPEAT_ALL_NEW (resolve_tac ctxt' @{thms conjI}))
@@ -264,7 +249,7 @@ fun prove_b2_all ctxt (s: setup) dec_nones =
         in (preds, #induct (#2 (Inductive.the_inductive ctxt (snd (hd preds))))) end);
     val prods = #prods (#gram s);
     fun case_tac ctxt' k =
-      DETERM (HEADGOAL (SOLVED' (b2_case_tac (ctxt' addsimps dec_nones) s (nth prods k))));
+      DETERM (HEADGOAL (SOLVED' (b2_case_tac (ctxt' |> Simplifier.add_simps dec_nones) s (nth prods k))));
     val ths =
       Grammar_Defs.prove_family ctxt
         {comps = comps, prod_lhss = map #lhs prods, insensitive = #insensitive s,
@@ -290,7 +275,7 @@ fun prove_rel_dec ctxt (s: setup) b2_all start =
          HOLogic.mk_Trueprop (b2_body s start (start_root s start) w x));
     val start_th = nth b2_all (find_index (fn (A, _) => A = start) (#preds s));
     fun tac {context, ...} =
-      HEADGOAL (TRY o simp_tac (put_simpset HOL_basic_ss context addsimps #gram_eqs s))
+      HEADGOAL (TRY o simp_tac (put_simpset HOL_basic_ss context |> Simplifier.add_simps (#gram_eqs s)))
       THEN HEADGOAL (SOLVED' (eresolve_tac context [start_th]));
   in
     Goal.prove_sorry ctxt [w_nm, x_nm] [] prop tac
@@ -320,7 +305,7 @@ fun concise what f =
     error ("bridge \<open>" ^ what ^ "\<close>: " ^
       (case split_lines msg of l :: _ => l | [] => msg));
 
-fun prover ctxt (gram: Grammar_Common.grammar) (ri: Grammar_Common.rel_info) =
+fun prover ctxt (gram: Grammar_Common.grammar) (ri: Grammar_Common.rel_info) dec_nones =
   let
     val _ = validate gram ri;
     fun timed label f = Grammar_Common.timed ctxt "parser" ("bridge " ^ label) f ();
@@ -349,9 +334,6 @@ fun prover ctxt (gram: Grammar_Common.grammar) (ri: Grammar_Common.rel_info) =
       |> filter_out (self_prem args_of)
       |> List.partition (self_prem idx_free);
     val intros = (plain, loops);
-    val dec_nones =
-      timed "dec_none lemmas"
-        (fn () => map (Parser_Dec_Total.dec_none ctxt gram o fst) (#preds ri));
     val b1_all = concise "dec_sound (decoder agrees with the relation)"
       (fn () => timed "dec_sound" (fn () => prove_b1_all ctxt s intros dec_nones));
     val b2_all = concise "rel_dec (relation decoded by the decoder)"
@@ -364,6 +346,7 @@ fun prover ctxt (gram: Grammar_Common.grammar) (ri: Grammar_Common.rel_info) =
          (fn () => timed "rel_dec final" (fn () => prove_rel_dec ctxt s b2_all start))};
   in bridge end;
 
-fun prove ctxt (gram: Grammar_Common.grammar) ri = prover ctxt gram ri (#start gram);
+fun prove ctxt (gram: Grammar_Common.grammar) ri =
+  (validate gram ri; prover ctxt gram ri (Parser_Dec_Total.dec_nones ctxt gram) (#start gram));
 
 end;

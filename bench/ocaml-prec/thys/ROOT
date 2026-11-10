@@ -1,0 +1,7 @@
+chapter OCaml
+
+session OCaml_Prec = LR_Parser +
+  options [document = false]
+  theories
+    OCaml_Parser
+  export_files (in "../isabelle") [2] "*:code/**"

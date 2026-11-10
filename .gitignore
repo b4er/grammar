@@ -3,3 +3,4 @@
 papers/
 scratch/
 output/
+.local-heap/

@@ -25,6 +25,11 @@ text \<open>The kind of a failure: the step function has no action
 
 datatype perr_kind = NoAction | ReduceCycle | Offside colset | Misaligned colset
 
+text \<open>A step of a repair sequence (Diekmann and Tratt 2020): a terminal inserted at a
+  column, a token deleted, a token kept.\<close>
+
+datatype 't rop = RIns 't nat | RDel 't | RKeep
+
 text \<open>The error, over the token type of the parser's input, so that a token
   record extended by the user (\<open>'m\<close>) keeps its fields: the index of the
   offending token in the input, the token (\<open>None\<close> at the end of the input),
@@ -37,9 +42,10 @@ text \<open>The error, over the token type of the parser's input, so that a toke
   \<^const>\<open>Misaligned\<close> the token the offending one must be indented from or
   aligned with; both are empty for a grammar without layout. Last, for the
   messages: the state after the last shift, before those reductions (the state
-  whose kernel says what was being parsed), and the stack where the error is
+  whose kernel says what was being parsed), the stack where the error is
   detected, top first, each entry as its symbol and the spans of its tokens
-  (Pottier's \<open>$0, $1, \<dots>\<close>: what was recognised up to here).\<close>
+  (Pottier's \<open>$0, $1, \<dots>\<close>: what was recognised up to here), and the repair the
+  recovery chose, empty if it chose none.\<close>
 
 record ('n, 't, 'ch, 'm) perr =
   pe_index :: nat
@@ -52,6 +58,7 @@ record ('n, 't, 'ch, 'm) perr =
   pe_anchor :: \<open>('t, 'ch, 'm) token_scheme option\<close>
   pe_shift_state :: nat
   pe_stack :: \<open>(('n, 't) sym \<times> 'ch span list) list\<close>
+  pe_repair :: \<open>'t rop list\<close>
 
 subsection \<open>The engine\<close>
 
@@ -155,7 +162,7 @@ definition dperr :: \<open>('c \<Rightarrow> nat) \<Rightarrow> ('c \<Rightarrow
   \<open>dperr state inp dec ex n r = (case r of
        None \<Rightarrow> \<lparr>pe_index = 0, pe_tok = None, pe_state = 0, pe_kind = ReduceCycle,
          pe_expected = [], pe_expect_end = False, pe_columns = [], pe_anchor = None,
-         pe_shift_state = 0, pe_stack = []\<rparr>
+         pe_shift_state = 0, pe_stack = [], pe_repair = []\<rparr>
      | Some s \<Rightarrow>
          let (k, st, sh) = (case s of DDone st \<Rightarrow> (NoAction, st, st)
                                    | DStuck k st sh \<Rightarrow> (k, st, sh));
@@ -165,7 +172,25 @@ definition dperr :: \<open>('c \<Rightarrow> nat) \<Rightarrow> ('c \<Rightarrow
             pe_tok = (case inp c of [] \<Rightarrow> None | x # _ \<Rightarrow> Some (dec x)),
             pe_state = state c, pe_kind = k, pe_expected = ts, pe_expect_end = e,
             pe_columns = [], pe_anchor = None, pe_shift_state = state (fst sh),
-            pe_stack = estack (snd st)\<rparr>)\<close>
+            pe_stack = estack (snd st), pe_repair = []\<rparr>)\<close>
+
+text \<open>The drivers report the symbols of the grammar the tables are built from. For a
+  restricted grammar \<open>orig\<close> gives them the names of the grammar the user wrote.\<close>
+
+definition pe_names :: \<open>('n \<Rightarrow> 'n) \<Rightarrow> ('n, 't, 'ch, 'm) perr \<Rightarrow> ('n, 't, 'ch, 'm) perr\<close> where
+  \<open>pe_names orig e = e\<lparr>pe_stack := map (\<lambda>(X, s).
+     (case X of Nt n \<Rightarrow> Nt (orig n) | Tm t \<Rightarrow> Tm t, s)) (pe_stack e)\<rparr>\<close>
+
+definition pe_diag_names :: \<open>('n \<Rightarrow> 'n) \<Rightarrow> ('n, 't, 'ch, 'm) perr + 'x \<Rightarrow>
+    ('n, 't, 'ch, 'm) perr + 'x\<close> where
+  \<open>pe_diag_names orig r = (case r of Inl e \<Rightarrow> Inl (pe_names orig e) | Inr x \<Rightarrow> Inr x)\<close>
+
+lemma pe_diag_names_Inr_iff: \<open>pe_diag_names orig r = Inr x \<longleftrightarrow> r = Inr x\<close>
+  by (simp add: pe_diag_names_def split: sum.split)
+
+definition pe_stop_names :: \<open>('n \<Rightarrow> 'n) \<Rightarrow> (nat \<Rightarrow> 'w \<Rightarrow> (('n, 't, 'ch, 'm) perr \<times> 'p) option) \<Rightarrow>
+    nat \<Rightarrow> 'w \<Rightarrow> (('n, 't, 'ch, 'm) perr \<times> 'p) option\<close> where
+  \<open>pe_stop_names orig stop b w = map_option (\<lambda>(e, pl). (pe_names orig e, pl)) (stop b w)\<close>
 
 subsection \<open>The layout-free adapter\<close>
 
@@ -397,7 +422,7 @@ definition mk_perr :: \<open>perr_kind \<Rightarrow> nat \<Rightarrow> ('m, 'ch,
             | _ \<Rightarrow> (k, None))
       in \<lparr>pe_index = n - length v, pe_tok = tk, pe_state = st, pe_kind = k',
          pe_expected = map fst cols, pe_expect_end = e, pe_columns = cols, pe_anchor = anc,
-         pe_shift_state = sh, pe_stack = estack tstk\<rparr>)\<close>
+         pe_shift_state = sh, pe_stack = estack tstk, pe_repair = []\<rparr>)\<close>
 
 text \<open>The error at a stop of the set-anchored drivers, with the terminals \<open>ts\<close> as
   candidates.\<close>
@@ -1050,6 +1075,59 @@ lemma vkdiag_Inr_iff:
          Some r \<Rightarrow> r | None \<Rightarrow> sdrun T (([kin], tcols w), [kcl], [i\<^sub>0], w, [])) dec = Some x\<close>
   unfolding vkdiag_def by (simp split: option.split)
 
+text \<open>The same with the tokens numbered by \<open>f\<close>, the numbering of the parser's code
+  equation, where \<^const>\<open>vnum\<close> searches the terminals of the tables for every token of
+  the word and every trial. The backend proves \<^prop>\<open>vnum V = f\<close> and rewrites the
+  code equation of \<open>p_diag\<close> with \<open>vkdiag_f\<close>; nothing else is stated about them.\<close>
+
+definition vtry_f :: \<open>('n, 't) vtab \<Rightarrow> ('t \<Rightarrow> nat) \<Rightarrow> vcfg \<Rightarrow> ('t \<times> nat) option \<Rightarrow> bool\<close> where
+  \<open>vtry_f V f c x = (vtrial V (fst c, case x of None \<Rightarrow> [] | Some (t, k) \<Rightarrow> [(f t, k)]) = Some True)\<close>
+
+definition vcolumns_f :: \<open>('n, 't) vtab \<Rightarrow> ('t \<Rightarrow> nat) \<Rightarrow> 't list \<Rightarrow> vcfg \<Rightarrow> ('t \<times> colset) list \<times> bool\<close> where
+  \<open>vcolumns_f V f ts c = columns_at (vtry_f V f c)
+     (col_reps (concat (map (\<lambda>(j, av). concat (map irep_ends av)) (fst c)))) ts\<close>
+
+definition vperr_f :: \<open>('n, 't) vtab \<Rightarrow> ('t \<Rightarrow> nat) \<Rightarrow> 't list \<Rightarrow> nat \<Rightarrow> ('m, 'ch, 'n, 't) vst_n \<Rightarrow>
+    ('m, 'ch, 'n, 't) vst_n \<Rightarrow> ('n, 't, 'ch, 'm) perr\<close> where
+  \<open>vperr_f V f ts n st sh = (case (st, sh) of ((fs, _, v, tstk), (fs', w', _, tstk')) \<Rightarrow>
+     mk_perr NoAction n v (vtop fs) (vtop fs') (vcolumns_f V f ts (fs', w')) tstk' tstk)\<close>
+
+definition vdiag_f :: \<open>('n, 't) vtab \<Rightarrow> ('t \<Rightarrow> nat) \<Rightarrow> ('n, 't) stab \<Rightarrow> ('n, 't) sitem list \<Rightarrow>
+    ('n, 't) sitem list \<Rightarrow> nat \<Rightarrow> 't list \<Rightarrow> (('m, 'ch, 'n, 't) ast \<Rightarrow> 'x option) \<Rightarrow> ('m, 'ch, 't) tword \<Rightarrow>
+    ('n, 't, 'ch, 'm) perr + 'x\<close> where
+  \<open>vdiag_f V f T kin kcl i\<^sub>0 ts dec w =
+     (let st = ([v_av0 V], vtnum f w, w, [])
+      in (case vdrun V st st of
+            Some (VDone s) \<Rightarrow> (case Option.bind (vtree s) dec of
+                Some x \<Rightarrow> Inr x
+              | None \<Rightarrow> Inl (vperr_f V f ts (length w) s s))
+          | Some (VStuck s sh) \<Rightarrow> Inl (vperr_f V f ts (length w) s sh)
+          | _ \<Rightarrow> sdiag T kin kcl i\<^sub>0 ts dec w))\<close>
+
+definition vkdiag_f :: \<open>('n, 't) vtab \<Rightarrow> ('n, 't) vktab \<Rightarrow> ('n, 't) stab \<Rightarrow> ('n, 't) sitem list \<Rightarrow>
+    ('n, 't) sitem list \<Rightarrow> nat \<Rightarrow> ('t \<Rightarrow> nat) \<Rightarrow> 't list \<Rightarrow> (('m, 'ch, 'n, 't) ast \<Rightarrow> 'x option) \<Rightarrow>
+    ('m, 'ch, 't) tword \<Rightarrow> ('n, 't, 'ch, 'm) perr + 'x\<close> where
+  \<open>vkdiag_f V K T kin kcl i\<^sub>0 f ts dec w =
+     (case Option.bind (case vrun_k K [v_av0 V] (vtnum f w) w [] of
+         Some r \<Rightarrow> r | None \<Rightarrow> sdrun T (([kin], tcols w), [kcl], [i\<^sub>0], w, [])) dec of
+        Some x \<Rightarrow> Inr x
+      | None \<Rightarrow> Inl (projl (vdiag_f V f T kin kcl i\<^sub>0 ts (\<lambda>_. None :: unit option) w)))\<close>
+
+lemma vtry_f_vnum: \<open>vtry_f V (vnum V) = vtry V\<close>
+  by (intro ext) (simp add: vtry_f_def vtry_def)
+
+lemma vcolumns_f_vnum: \<open>vcolumns_f V (vnum V) = vcolumns V\<close>
+  by (intro ext) (simp add: vcolumns_f_def vcolumns_def vtry_f_vnum)
+
+lemma vperr_f_vnum: \<open>vperr_f V (vnum V) = vperr V\<close>
+  by (intro ext) (simp add: vperr_f_def vperr_def vcolumns_f_vnum)
+
+lemma vdiag_f_vnum: \<open>vdiag_f V (vnum V) = vdiag V\<close>
+  unfolding vdiag_f_def vdiag_def vperr_f_vnum vtcols_vtnum ..
+
+lemma vkdiag_f_eq: \<open>vnum V = f \<Longrightarrow> vkdiag V K T kin kcl i\<^sub>0 f = vkdiag_f V K T kin kcl i\<^sub>0 f\<close>
+  by (hypsubst, unfold vkdiag_f_def vkdiag_def vdiag_f_vnum) (rule refl)
+
 section \<open>Messages\<close>
 
 text \<open>An error as a message a person can act on, after Pottier (2016, Fig. 7):
@@ -1079,6 +1157,20 @@ fun lreach :: \<open>('n, 't) is_cfg \<Rightarrow> 'n list \<Rightarrow> nat \<R
       else lreach G nul f
         ((case x of Nt A \<Rightarrow> concat (map (\<lambda>(B, rhs). if B = A then lcorners nul rhs else []) (iprods G))
                   | Tm _ \<Rightarrow> []) @ todo) (x # seen))\<close>
+
+text \<open>The patterns on the fuel and on \<open>todo\<close> together do not survive the
+  preprocessing of \<open>Code_Target_Numeral\<close>, where \<open>0\<close> is no constructor, as for
+  \<open>rlevel\<close> in \<^file>\<open>LR_Recover.thy\<close>.\<close>
+
+lemma lreach_code [code]:
+  \<open>lreach G nul f todo seen = (if f = 0 then seen else case todo of
+     [] \<Rightarrow> seen
+   | x # todo' \<Rightarrow>
+       if x \<in> set seen then lreach G nul f todo' seen
+       else lreach G nul (f - 1)
+         ((case x of Nt A \<Rightarrow> concat (map (\<lambda>(B, rhs). if B = A then lcorners nul rhs else []) (iprods G))
+                   | Tm _ \<Rightarrow> []) @ todo') (x # seen))\<close>
+  by (cases f; cases todo) simp_all
 
 definition nt_first :: \<open>('n, 't) is_cfg \<Rightarrow> 'n list \<Rightarrow> 'n \<Rightarrow> 't list\<close> where
   \<open>nt_first G nul X =
@@ -1111,6 +1203,102 @@ definition nt_summary :: \<open>('n, 't) is_cfg \<Rightarrow> 'n list \<Rightarr
           cov = filter (\<lambda>(X, F). F \<noteq> [] \<and> set F \<subseteq> set ex) fs
       in (map fst cov, filter (\<lambda>t. \<not> list_ex (\<lambda>(X, F). t \<in> set F) cov) ex))\<close>
 
+text \<open>The summary of the kernel says nothing after a complete item, which is where the
+  long lists are: inside a block, after an expression, anything that continues it is
+  expected. There the classes come from what the grammar lets follow the symbol on top
+  of the stack. That symbol may be the result of reductions the offending token
+  triggered, and a reduced symbol ends with what it was reduced from, so the search takes
+  unit productions both ways, from the symbol and from each left-hand side it ends. What
+  may follow one of those symbols in a right-hand side is a candidate. This reads the
+  grammar, not the stack below the top, so a candidate is only a name: it counts when all
+  it may start with is expected, and when it covers at least two terminals still listed.
+  The largest goes first.\<close>
+
+definition sreach :: \<open>('x \<Rightarrow> 'x list) \<Rightarrow> nat \<Rightarrow> 'x list \<Rightarrow> 'x list\<close> where
+  \<open>sreach nx n xs = rev (snd (fold (\<lambda>_ (todo, seen). case todo of
+       [] \<Rightarrow> ([], seen)
+     | x # t \<Rightarrow> if x \<in> set seen then (t, seen) else (t @ nx x, x # seen)) [0..<n] (xs, [])))\<close>
+
+definition rcorners :: \<open>'n list \<Rightarrow> ('n, 't) rhs \<Rightarrow> ('n, 't) sym list\<close> where
+  \<open>rcorners nul rhs = (let xs = rev (map fst rhs) in take (Suc (length (takeWhile (nsym nul) xs))) xs)\<close>
+
+definition follow_nts :: \<open>('n, 't) is_cfg \<Rightarrow> 'n list \<Rightarrow> ('n, 't) sym \<Rightarrow> 'n list\<close> where
+  \<open>follow_nts G nul y =
+     (let ps = iprods G;
+          n = Suc (length (concat (map (\<lambda>(A, rhs). Nt A # map fst rhs) ps)));
+          ends = (\<lambda>x. concat (map (\<lambda>(A, rhs). if x \<in> set (rcorners nul rhs) then [(Nt A, rhs)] else []) ps));
+          up = (\<lambda>x. map fst (filter (\<lambda>(A, rhs). list_all (\<lambda>z. z = x \<or> nsym nul z) (map fst rhs)) (ends x)));
+          down = (\<lambda>x. case x of
+              Tm _ \<Rightarrow> []
+            | Nt B \<Rightarrow> concat (map (\<lambda>(A, rhs).
+                if A = B then (case filter (\<lambda>z. \<not> nsym nul z) (map fst rhs) of [z] \<Rightarrow> [z] | _ \<Rightarrow> [])
+                else []) ps));
+          ys = sreach (\<lambda>x. up x @ down x) n (y # map fst (ends y));
+          after = (\<lambda>r. concat (map (\<lambda>i. case drop i r of
+              [] \<Rightarrow> []
+            | (Z, _) # rest \<Rightarrow> if Z \<in> set ys then
+                List.map_filter (\<lambda>x. case x of Nt X \<Rightarrow> Some X | Tm _ \<Rightarrow> None) (lcorners nul rest)
+              else []) [0..<length r]))
+      in remdups (concat (map (\<lambda>(A, rhs). after rhs) ps)))\<close>
+
+definition class_summary :: \<open>('n, 't) is_cfg \<Rightarrow> 'n list \<Rightarrow> 't list \<Rightarrow> 't list \<Rightarrow> 'n list \<times> 't list\<close> where
+  \<open>class_summary G xs ex rest0 =
+     (let nul = nullables G;
+          cs = filter (\<lambda>(X, F). set F \<subseteq> set ex) (map (\<lambda>X. (X, remdups (nt_first G nul X))) xs)
+      in fold (\<lambda>(X, F) (ns, rest).
+           if 2 \<le> length (filter (\<lambda>t. t \<in> set F) rest)
+           then (ns @ [X], filter (\<lambda>t. t \<notin> set F) rest) else (ns, rest))
+         (rev (sort_key (\<lambda>(X, F). length F) (rev cs))) ([], rest0))\<close>
+
+subsection \<open>Unclosed brackets\<close>
+
+text \<open>The brackets of a grammar: \<open>(u, c)\<close> when \<open>c\<close> ends a right-hand side with
+  \<open>u\<close> before it, and every right-hand side has as many of the one as of the other. So
+  \<open>if\<close> and \<open>then\<close> are no pair, as no production ends in \<open>then\<close>, and neither are a
+  separator and a closer, as the closer occurs without the separator.\<close>
+
+definition brackets :: \<open>('n, 't) is_cfg \<Rightarrow> ('t \<times> 't) list\<close> where
+  \<open>brackets G =
+     (let rs = map (map fst \<circ> snd) (iprods G);
+          cnt = (\<lambda>x r. length (filter (\<lambda>y. y = x) r));
+          tms = List.map_filter (\<lambda>x. case x of Tm t \<Rightarrow> Some t | Nt _ \<Rightarrow> None)
+      in remdups (concat (map (\<lambda>r. if r = [] then [] else
+           concat (map (\<lambda>c. concat (map (\<lambda>u.
+               if u \<noteq> c \<and> list_all (\<lambda>q. cnt (Tm u) q = cnt (Tm c) q) rs then [(u, c)] else [])
+             (tms (butlast r)))) (tms [last r]))) rs)))\<close>
+
+text \<open>The innermost bracket still open: the topmost opening bracket on the stack, a
+  closed one being reduced away, with its token and its closer. The closer must be
+  expected, or the bracket is not what is wrong here.\<close>
+
+definition open_bracket :: \<open>('n, 't) is_cfg \<Rightarrow> ('n, 't, 'ch, 'm) perr \<Rightarrow> ('t \<times> 'ch span \<times> 't) option\<close> where
+  \<open>open_bracket G e =
+     (let bs = brackets G
+      in case find (\<lambda>(X, ss). case X of Tm t \<Rightarrow> ss \<noteq> [] \<and> map_of bs t \<noteq> None | Nt _ \<Rightarrow> False) (pe_stack e) of
+           Some (Tm t, s # _) \<Rightarrow> (case map_of bs t of
+             Some c \<Rightarrow> if c \<in> set (pe_expected e) then Some (t, s, c) else None
+           | None \<Rightarrow> None)
+         | _ \<Rightarrow> None)\<close>
+
+text \<open>Is that bracket the error? A repair settles it: it must start by inserting the
+  closer. Without a repair there is the end of the input, where it is the error, and a
+  token out of place on a later line at or left of the bracket's column, which has left
+  the bracket's text. A token with no action inside the bracket says nothing by itself: a
+  stray comma also leaves the closer expected.\<close>
+
+definition unclosed :: \<open>('n, 't) is_cfg \<Rightarrow> ('n, 't, 'ch, 'm) perr \<Rightarrow> ('t \<times> 'ch span) option\<close> where
+  \<open>unclosed G e = (case open_bracket G e of
+     None \<Rightarrow> None
+   | Some (t, s, c) \<Rightarrow>
+       if (case filter (\<lambda>r. r \<noteq> RKeep) (pe_repair e) of
+             RIns d _ # _ \<Rightarrow> d = c
+           | _ # _ \<Rightarrow> False
+           | [] \<Rightarrow> (case pe_tok e of
+               None \<Rightarrow> True
+             | Some x \<Rightarrow> s_line s < s_line (span x) \<and> s_col (span x) \<le> s_col s \<and>
+                 (case pe_kind e of Offside _ \<Rightarrow> True | Misaligned _ \<Rightarrow> True | _ \<Rightarrow> False)))
+       then Some (t, s) else None)\<close>
+
 subsection \<open>Text\<close>
 
 fun nat_str :: \<open>nat \<Rightarrow> string\<close> where
@@ -1125,8 +1313,12 @@ definition join_or :: \<open>string list \<Rightarrow> string\<close> where
 definition squote :: \<open>string \<Rightarrow> string\<close> where
   \<open>squote s = CHR 0x27 # s @ [CHR 0x27]\<close>
 
+text \<open>The article of a nonterminal's display name; none before a quoted terminal, which
+  a generated list over a group starting with a terminal shows as.\<close>
+
 definition article :: \<open>string \<Rightarrow> string\<close> where
-  \<open>article s = (case s of c # _ \<Rightarrow> if c \<in> set ''aeiouAEIOU'' then ''an '' @ s else ''a '' @ s
+  \<open>article s = (case s of c # _ \<Rightarrow> if c = CHR 0x27 then s
+                                  else if c \<in> set ''aeiouAEIOU'' then ''an '' @ s else ''a '' @ s
                         | [] \<Rightarrow> s)\<close>
 
 text \<open>The text of a run of tokens, with their spans: tokens on one line are
@@ -1209,8 +1401,10 @@ definition last_span :: \<open>(('n, 't) sym \<times> 'ch span list) list \<Righ
   \<open>last_span stk = (case filter (\<lambda>(X, ss). ss \<noteq> []) stk of [] \<Rightarrow> None | (X, ss) # _ \<Rightarrow> Some (last ss))\<close>
 
 text \<open>The expected things: on a layout grammar, when there is an offending token,
-  the terminals accepted at its column; then the nonterminal summary when more
-  than \<^const>\<open>pi_k\<close> terminals are expected; and the end of the input.\<close>
+  the terminals accepted at its column; then, when more than \<^const>\<open>pi_k\<close>
+  terminals are expected, the nonterminal summary, and the classes if the list is still
+  too long; and the end of the input. Two entries that show alike (a nonterminal and a
+  generated list of it) are listed once.\<close>
 
 definition expected_text :: \<open>('n, 't) pinfo \<Rightarrow> ('n, 't, 'ch, 'm) perr \<Rightarrow> string list\<close> where
   \<open>expected_text I e =
@@ -1218,23 +1412,33 @@ definition expected_text :: \<open>('n, 't) pinfo \<Rightarrow> ('n, 't, 'ch, 'm
                   (Some x, _ # _) \<Rightarrow> map fst (filter (\<lambda>(t, cs). col_in (s_col (span x)) cs) (pe_columns e))
                 | _ \<Rightarrow> pe_expected e);
           (ns, ts) = (if length ex \<le> pi_k I then ([], ex)
-                      else nt_summary (pi_G I) (kernel_nts (pi_states I) (pe_shift_state e)) ex)
-      in map (\<lambda>X. article (pi_nt I X)) ns @ map (\<lambda>t. squote (tspell I t)) ts @
+                      else nt_summary (pi_G I) (kernel_nts (pi_states I) (pe_shift_state e)) ex);
+          (ms, us) = (if pi_k I < length ns + length ts
+                      then (case pe_stack e of
+                          [] \<Rightarrow> ([], ts)
+                        | (Y, _) # _ \<Rightarrow> class_summary (pi_G I)
+                            (follow_nts (pi_G I) (nullables (pi_G I)) Y) ex ts)
+                      else ([], ts))
+      in remdups (map (\<lambda>X. article (pi_nt I X)) (ns @ ms) @ map (\<lambda>t. squote (tspell I t)) us) @
          (if pe_expect_end e then [''end of input''] else []))\<close>
 
 text \<open>What was recognised up to here: the topmost entry of the stack if it is a
-  nonterminal, otherwise the text of the topmost three entries.\<close>
+  nonterminal, otherwise the text of the topmost three entries. A generated list over a
+  group shown as its first terminal is taken by its text as well.\<close>
 
 definition upto_text :: \<open>('n, 't) pinfo \<Rightarrow> ('ch \<Rightarrow> string) \<Rightarrow> ('n, 't, 'ch, 'm) perr \<Rightarrow> string list\<close> where
-  \<open>upto_text I chs e = (case pe_stack e of
+  \<open>upto_text I chs e =
+     (let txt = (case span_text chs (concat (rev (map snd (take 3 (pe_stack e))))) of
+                   [] \<Rightarrow> []
+                 | s \<Rightarrow> [''up to here: '' @ squote s])
+      in case pe_stack e of
        [] \<Rightarrow> []
      | (Nt A, ss) # _ \<Rightarrow>
-         if ss = [] then [] else
+         if take 1 (pi_nt I A) = [CHR 0x27] then txt
+         else if ss = [] then [] else
            [''up to here: '' @ article (pi_nt I A) @ '' was recognised'' @
             (case span_text chs ss of [] \<Rightarrow> [] | t \<Rightarrow> '': '' @ squote t)]
-     | _ \<Rightarrow> (case span_text chs (concat (rev (map snd (take 3 (pe_stack e))))) of
-         [] \<Rightarrow> []
-       | s \<Rightarrow> [''up to here: '' @ squote s]))\<close>
+     | _ \<Rightarrow> txt)\<close>
 
 text \<open>The template of the error, the most specific key first.\<close>
 
@@ -1254,6 +1458,18 @@ definition stack_text :: \<open>('n, 't) pinfo \<Rightarrow> ('ch \<Rightarrow> 
   \<open>stack_text I chs e i = (case drop i (pe_stack e) of
        [] \<Rightarrow> []
      | (X, ss) # _ \<Rightarrow> (case span_text chs ss of [] \<Rightarrow> sym_text I X | t \<Rightarrow> t))\<close>
+
+text \<open>The repair the recovery chose, for its note.\<close>
+
+fun rop_text :: \<open>('n, 't) pinfo \<Rightarrow> 't rop \<Rightarrow> string list\<close> where
+  \<open>rop_text I (RIns t k) = [''insert '' @ squote (tspell I t)]\<close>
+| \<open>rop_text I (RDel t) = [''delete '' @ squote (tspell I t)]\<close>
+| \<open>rop_text I RKeep = []\<close>
+
+definition repair_text :: \<open>('n, 't) pinfo \<Rightarrow> ('n, 't, 'ch, 'm) perr \<Rightarrow> string list\<close> where
+  \<open>repair_text I e = (case concat (map (rop_text I) (pe_repair e)) of
+     [] \<Rightarrow> []
+   | r # rs \<Rightarrow> [''repaired by: '' @ r @ concat (map (\<lambda>s. '', '' @ s) rs)])\<close>
 
 text \<open>A template with its holes \<open>$0\<close> to \<open>$9\<close> filled: a hole is one digit, and
   a \<open>$\<close> without a digit stands for itself.\<close>
@@ -1279,16 +1495,24 @@ definition perr_message :: \<open>('n, 't) pinfo \<Rightarrow> ('ch \<Rightarrow
              None \<Rightarrow> []
            | Some a \<Rightarrow> '' ('' @ v @ '' '' @ squote (tok_text I chs a) @ '' at '' @
                         nat_str (s_line (span a)) @ '':'' @ nat_str (s_col (span a)) @ '')'');
-          text = (case phand I e of Some t \<Rightarrow> fill_holes (stack_text I chs e) t | None \<Rightarrow> (case pe_kind e of
+          generic = (case pe_kind e of
              Misaligned cs \<Rightarrow> what @ '' at column '' @ nat_str c @ '' must be at '' @ col_text cs @
                anchor ''aligned with''
            | Offside cs \<Rightarrow> what @ '' at column '' @ nat_str c @ '' must be at '' @ col_text cs @
                anchor ''indented from''
            | ReduceCycle \<Rightarrow> ''the parser loops on a cycle of reductions at '' @ what @ after
-           | NoAction \<Rightarrow> ''syntax error at '' @ what @ after));
+           | NoAction \<Rightarrow> ''syntax error at '' @ what @ after);
+          (text, demoted) = (case phand I e of
+             Some t \<Rightarrow> (fill_holes (stack_text I chs e) t, [])
+           | None \<Rightarrow> (case unclosed (pi_G I) e of
+               None \<Rightarrow> (generic, [])
+             | Some (t, s) \<Rightarrow>
+                 (squote (tspell I t) @ '' at '' @ nat_str (s_line s) @ '':'' @ nat_str (s_col s) @
+                  '' is not closed'', [generic])));
           ex = expected_text I e
       in \<lparr>pm_line = l, pm_col = c, pm_off = off, pm_len = n, pm_text = text,
-          pm_notes = (if ex = [] then [] else [''expected: '' @ join_or ex]) @ upto_text I chs e\<rparr>)\<close>
+          pm_notes = demoted @ (if ex = [] then [] else [''expected: '' @ join_or ex]) @
+            upto_text I chs e @ repair_text I e\<rparr>)\<close>
 
 text \<open>What the command reads from a sentence of an \<^text>\<open>errors\<close> block: the
   state, the offending terminal, the state after the last shift, the index of the

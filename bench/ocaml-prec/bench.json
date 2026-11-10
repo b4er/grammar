@@ -1,0 +1,2 @@
+{"title": "Menhir (OCaml subset, precedence declarations)", "primary": "instructions",
+ "apt": ["valgrind"], "opam": ["ocamlfind", "zarith", "menhir"]}

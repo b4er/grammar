@@ -1,5 +1,5 @@
 theory Diag_Tests
-  imports LR_Parser.LR_Parser
+  imports LR_Parser.LR_Parser Parser_Check
 begin
 
 section \<open>Diagnostics of rejected words\<close>
@@ -29,7 +29,7 @@ grammar (relation) lay =
   and
     N :: \<open>nat\<close> = LX \<Rightarrow> \<open>\<lambda>_. 1\<close> | LNum \<Rightarrow> \<open>\<lambda>_. 2\<close>
 
-parser lay_plain for lay
+parser (no_diagnostics) lay_plain for lay
 
 parser (diagnostics) lay_parse for lay
 
@@ -39,10 +39,11 @@ ML \<open>
   fun same_code ctxt plain diag extra =
     let
       val thy = Proof_Context.theory_of ctxt;
+      val base = Context.theory_base_name thy ^ ".";
       fun consts_of p =
         #constants (Consts.dest (Sign.consts_of thy))
         |> map #1
-        |> filter (fn c => c = "Diag_Tests." ^ p orelse String.isPrefix ("Diag_Tests." ^ p ^ "_") c)
+        |> filter (fn c => c = base ^ p orelse String.isPrefix (base ^ p ^ "_") c)
         |> sort_strings;
       fun eqns c =
         map (XML.content_of o YXML.parse_body o Pretty.unformatted_string_of)
@@ -58,7 +59,7 @@ ML \<open>
       val renamed = map rename ps;
       val extra' = subtract (op =) renamed ds;
     in
-      (extra' = map (fn s => "Diag_Tests." ^ diag ^ s) extra
+      (extra' = map (fn s => base ^ diag ^ s) extra
         orelse error ("diagnostics: unexpected constants " ^ commas_quote extra'));
       ps ~~ renamed |> List.app (fn (c, c') =>
         if map rename (eqns c) = eqns c' then ()
@@ -66,48 +67,43 @@ ML \<open>
     end
 \<close>
 
-ML_val \<open>same_code \<^context> "lay_plain" "lay_parse" ["_diag", "_info", "_render", "_terminals"]\<close>
+ML_val \<open>same_code \<^context> "lay_plain" "lay_parse" ["_coverage", "_diag", "_info", "_probe", "_render", "_terminals"]\<close>
 
 lemma \<open>lay_parse_diag w = Inr x \<longleftrightarrow> lay_S w x\<close>
   using lay_parse_diag.Inr_iff lay_parse.sound lay_parse.complete by blast
 
 text \<open>An accepted word: \<open>Inr\<close> with the parser's value.\<close>
 
-lemma \<open>lay_parse_diag [tu 1 LX ''x'', tu 2 LPlus ''+'', tu 3 LLP ''('', tu 4 LNum ''2'',
+parser_check \<open>lay_parse_diag [tu 1 LX ''x'', tu 2 LPlus ''+'', tu 3 LLP ''('', tu 4 LNum ''2'',
     tu 5 LRP '')'', tu 6 LSemi '';'', tu 7 LX ''x''] = Inr [3, 1]\<close>
-  by eval
 
 text \<open>A wrong token in the middle: the second \<open>+\<close>, index 2 counting from 0,
   reported with its span; an operand was expected.\<close>
 
-lemma \<open>(case lay_parse_diag [tu 1 LX ''x'', tu 2 LPlus ''+'', tu 3 LPlus ''+'', tu 4 LX ''x''] of
+parser_check \<open>(case lay_parse_diag [tu 1 LX ''x'', tu 2 LPlus ''+'', tu 3 LPlus ''+'', tu 4 LX ''x''] of
     Inl e \<Rightarrow> pe_index e = 2 \<and> pe_tok e = Some (tu 3 LPlus ''+'') \<and>
       map_option (s_col \<circ> span) (pe_tok e) = Some 3 \<and> pe_kind e = NoAction \<and>
       pe_expected e = [LLP, LX, LNum] \<and> \<not> pe_expect_end e
   | Inr _ \<Rightarrow> False)\<close>
-  by eval
 
 text \<open>A closing parenthesis without an opening one: an operator, a separator or
   the end of the input was expected.\<close>
 
-lemma \<open>(case lay_parse_diag [tu 1 LX ''x'', tu 2 LRP '')''] of
+parser_check \<open>(case lay_parse_diag [tu 1 LX ''x'', tu 2 LRP '')''] of
     Inl e \<Rightarrow> pe_index e = 1 \<and> pe_expected e = [LSemi, LPlus] \<and> pe_expect_end e
   | Inr _ \<Rightarrow> False)\<close>
-  by eval
 
 text \<open>A premature end of input and the empty input.\<close>
 
-lemma \<open>(case lay_parse_diag [tu 1 LX ''x'', tu 2 LPlus ''+''] of
+parser_check \<open>(case lay_parse_diag [tu 1 LX ''x'', tu 2 LPlus ''+''] of
     Inl e \<Rightarrow> pe_index e = 2 \<and> pe_tok e = None \<and> pe_kind e = NoAction \<and>
       pe_expected e = [LLP, LX, LNum] \<and> \<not> pe_expect_end e
   | Inr _ \<Rightarrow> False)\<close>
-  by eval
 
-lemma \<open>(case lay_parse_diag [] of
+parser_check \<open>(case lay_parse_diag [] of
     Inl e \<Rightarrow> pe_index e = 0 \<and> pe_tok e = None \<and> pe_kind e = NoAction \<and>
       pe_expected e = [LLP, LX, LNum] \<and> \<not> pe_expect_end e
   | Inr _ \<Rightarrow> False)\<close>
-  by eval
 
 text \<open>The candidates are the grammar's terminals in the order they occur in the
   productions, with their spellings; \<open>lay\<close> declares none, so a terminal is spelled
@@ -168,12 +164,11 @@ subsection \<open>One pass against the rerun\<close>
 text \<open>\<open>lay_parse_diag\<close> runs a word once. On every word up to length \<open>4\<close> it agrees
   with the parser followed, on a rejection, by a second run of the diagnosis.\<close>
 
-lemma \<open>list_all (\<lambda>w. let w' = map (\<lambda>x. tu 0 x []) w in
+parser_check \<open>list_all (\<lambda>w. let w' = map (\<lambda>x. tu 0 x []) w in
     lay_parse_diag w' = (case lay_parse w' of Some x \<Rightarrow> Inr x
       | None \<Rightarrow> Inl (pdiagnose lay_parse_ptabs lay_parse_i0 (pnum lay_parse_ptabs)
                     (map fst lay_parse_terminals) w')))
     (words [LX, LNum, LPlus, LSemi, LLP, LRP] 4)\<close>
-  by eval
 
 subsection \<open>A unit self-loop\<close>
 
@@ -192,23 +187,20 @@ grammar (relation) uloop =
 
 parser (diagnostics) uloop_parse for uloop
 
-lemma \<open>(case uloop_parse_diag [tu 1 PB ''x''] of
+parser_check \<open>(case uloop_parse_diag [tu 1 PB ''x''] of
     Inl e \<Rightarrow> pe_kind e = ReduceCycle \<and> pe_index e = 1 \<and> pe_tok e = None
   | Inr _ \<Rightarrow> False)\<close>
-  by eval
 
-lemma \<open>(case uloop_parse_diag [tu 1 PB ''x'', tu 2 PB ''y''] of
+parser_check \<open>(case uloop_parse_diag [tu 1 PB ''x'', tu 2 PB ''y''] of
     Inl e \<Rightarrow> pe_kind e = NoAction \<and> pe_index e = 1 \<and> pe_tok e = Some (tu 2 PB ''y'')
   | Inr _ \<Rightarrow> False)\<close>
-  by eval
 
 text \<open>Without layout annotations every column is accepted, and the token is
   not misplaced.\<close>
 
-lemma \<open>(case uloop_parse_diag [tu 1 PC ''x''] of
+parser_check \<open>(case uloop_parse_diag [tu 1 PC ''x''] of
     Inl e \<Rightarrow> pe_kind e = NoAction \<and> pe_expected e = [PB] \<and> pe_columns e = [(PB, [(0, None)])]
   | Inr _ \<Rightarrow> False)\<close>
-  by eval
 
 text \<open>The engine on the plain tables of \<open>uloop\<close>, built as the command builds
   them for the simple driver. They keep both reduces of the conflict, and the
@@ -225,13 +217,11 @@ definition ul_ptabs where
 
 definition ul_i0 where \<open>ul_i0 = st_find ul_states (lr0_start uloop ''!'')\<close>
 
-lemma \<open>(let e = pdiagnose ul_ptabs ul_i0 (pnum ul_ptabs) [PA, PB, PC] [tu 1 PB ''x''] in
+parser_check \<open>(let e = pdiagnose ul_ptabs ul_i0 (pnum ul_ptabs) [PA, PB, PC] [tu 1 PB ''x''] in
     pe_kind e = ReduceCycle \<and> pe_index e = 1 \<and> pe_tok e = None)\<close>
-  by eval
 
-lemma \<open>(let e = pdiagnose ul_ptabs ul_i0 (pnum ul_ptabs) [PA, PB, PC] [tu 1 PB ''x'', tu 2 PB ''y''] in
+parser_check \<open>(let e = pdiagnose ul_ptabs ul_i0 (pnum ul_ptabs) [PA, PB, PC] [tu 1 PB ''x'', tu 2 PB ''y''] in
     pe_kind e = NoAction \<and> pe_index e = 1 \<and> pe_tok e = Some (tu 2 PB ''y''))\<close>
-  by eval
 
 text \<open>The trials run into the same cycle: after \<open>PB\<close> the reduce \<open>B = PB\<close> is
   followed by \<open>B = B\<close> forever, whatever the lookahead, and the loop check, which
@@ -239,9 +229,8 @@ text \<open>The trials run into the same cycle: after \<open>PB\<close> the redu
   end of the input, although \<open>[PB]\<close> is in the language: the set is what this
   parser accepts, and on \<open>uloop\<close>'s conflicting tables it accepts nothing.\<close>
 
-lemma \<open>(let e = pdiagnose ul_ptabs ul_i0 (pnum ul_ptabs) [PA, PB, PC] [tu 1 PB ''x''] in
+parser_check \<open>(let e = pdiagnose ul_ptabs ul_i0 (pnum ul_ptabs) [PA, PB, PC] [tu 1 PB ''x''] in
     pe_expected e = [] \<and> \<not> pe_expect_end e)\<close>
-  by eval
 
 subsection \<open>Merged lookaheads and spurious reductions\<close>
 
@@ -266,20 +255,18 @@ grammar (relation) br =
 
 parser (diagnostics) br_parse for br
 
-lemma \<open>(case br_parse_diag [tu 1 BLB ''['', tu 2 BInt ''1'', tu 3 BRP '')''] of
+parser_check \<open>(case br_parse_diag [tu 1 BLB ''['', tu 2 BInt ''1'', tu 3 BRP '')''] of
     Inl e \<Rightarrow> pe_index e = 2 \<and> pe_tok e = Some (tu 3 BRP '')'') \<and>
       set (pe_expected e) = {BPlus, BComma, BRB} \<and> \<not> pe_expect_end e
   | Inr _ \<Rightarrow> False)\<close>
-  by eval
 
 text \<open>The state where the error is detected is not the one after the last shift:
   the trials start from the latter.\<close>
 
-lemma \<open>(case br_parse_diag [tu 1 BLB ''['', tu 2 BInt ''1'', tu 3 BRP '')''] of
+parser_check \<open>(case br_parse_diag [tu 1 BLB ''['', tu 2 BInt ''1'', tu 3 BRP '')''] of
     Inl e \<Rightarrow> pe_state e \<noteq> pstate (fst (case pdiag_run br_parse_ptabs br_parse_i0 br_parse_tnum
       [tu 1 BLB ''['', tu 2 BInt ''1'', tu 3 BRP '')''] of Some (DStuck _ _ sh) \<Rightarrow> sh))
   | Inr _ \<Rightarrow> False)\<close>
-  by eval
 
 ML_val \<open>
   check_oracle \<^context> "br"
@@ -315,14 +302,13 @@ text \<open>Declared spellings are kept; \<open>PId\<close> has none.\<close>
 lemma \<open>map snd t_ext_parse_terminals = [''while'', '':'', ''PId'']\<close>
   by (simp add: t_ext_parse_terminals_def)
 
-lemma \<open>(case t_ext_parse_diag
+parser_check \<open>(case t_ext_parse_diag
       [\<lparr>tok = PColon, span = \<lparr>s_line = 0, s_col = 0, s_off = 0, s_len = 1, s_txt = []\<rparr>, trailing = []\<rparr>,
        \<lparr>tok = PColon, span = \<lparr>s_line = 0, s_col = 2, s_off = 2, s_len = 1, s_txt = []\<rparr>,
         trailing = [(Comment, \<lparr>s_line = 0, s_col = 4, s_off = 4, s_len = 3, s_txt = []\<rparr>)]\<rparr>] of
     Inl e \<Rightarrow> pe_index e = 1 \<and> pe_expected e = [PId] \<and>
       map_option trailing (pe_tok e) = Some [(Comment, \<lparr>s_line = 0, s_col = 4, s_off = 4, s_len = 3, s_txt = []\<rparr>)]
   | Inr _ \<Rightarrow> False)\<close>
-  by eval
 
 subsection \<open>The set-anchored driver: layout\<close>
 
@@ -354,29 +340,26 @@ parser (diagnostics) do_parse2 for do
 text \<open>\<open>y\<close> continues the inner block at column 7 or the outer one at column 4; at
   column 2 it is nearest to the outer one, opened by the inner \<open>do\<close>.\<close>
 
-lemma \<open>(case do_parse2_diag [tu 1 DDo ''do'', tu 4 DDo ''do'', tu 7 DId ''x'', tu 2 DId ''y''] of
+parser_check \<open>(case do_parse2_diag [tu 1 DDo ''do'', tu 4 DDo ''do'', tu 7 DId ''x'', tu 2 DId ''y''] of
     Inl e \<Rightarrow> pe_index e = 3 \<and> pe_tok e = Some (tu 2 DId ''y'') \<and>
       pe_kind e = Misaligned [(4, Some 4), (7, Some 7)] \<and> pe_anchor e = Some (tu 4 DDo ''do'') \<and>
       pe_columns e = [(DId, [(4, Some 4), (7, Some 7)]), (DDo, [(4, Some 4), (7, Some 7)])] \<and>
       pe_expect_end e
   | Inr _ \<Rightarrow> False)\<close>
-  by eval
 
 text \<open>At column 9 it is nearest to the inner block, which starts with \<open>x\<close>.\<close>
 
-lemma \<open>(case do_parse2_diag [tu 1 DDo ''do'', tu 4 DDo ''do'', tu 7 DId ''x'', tu 9 DId ''y''] of
+parser_check \<open>(case do_parse2_diag [tu 1 DDo ''do'', tu 4 DDo ''do'', tu 7 DId ''x'', tu 9 DId ''y''] of
     Inl e \<Rightarrow> pe_kind e = Misaligned [(4, Some 4), (7, Some 7)] \<and> pe_anchor e = Some (tu 7 DId ''x'')
   | Inr _ \<Rightarrow> False)\<close>
-  by eval
 
 text \<open>At the end of the input there is no token to misplace: the error is
   \<^const>\<open>NoAction\<close>, and the block may start at any column right of \<open>4\<close>.\<close>
 
-lemma \<open>(case do_parse2_diag [tu 1 DDo ''do'', tu 4 DDo ''do''] of
+parser_check \<open>(case do_parse2_diag [tu 1 DDo ''do'', tu 4 DDo ''do''] of
     Inl e \<Rightarrow> pe_kind e = NoAction \<and> pe_tok e = None \<and> pe_anchor e = None \<and>
       pe_columns e = [(DId, [(5, None)]), (DDo, [(5, None)])] \<and> \<not> pe_expect_end e
   | Inr _ \<Rightarrow> False)\<close>
-  by eval
 
 datatype hc_tok = HCase | HOf | HLC | HRC | HSemi | HId
 
@@ -391,7 +374,7 @@ grammar (relation) hask_case =
       Exp = HId\<^sup>\<ge> \<Rightarrow> \<open>\<lambda>_. ()\<close>
     and
       AltBlock :: \<open>unit\<close>
-        = "{"\<^sup>> Alts\<^sup>* "}"\<^sup>* \<Rightarrow> \<open>\<lambda>_. ()\<close>
+        = "{"\<^sup>> Alts "}" \<Rightarrow> \<open>\<lambda>_. ()\<close>
         | AltLayout\<^sup>>      \<Rightarrow> \<open>\<lambda>_. ()\<close>
     and
       AltLayout :: \<open>unit\<close>
@@ -404,13 +387,12 @@ grammar (relation) hask_case =
 
 parser (diagnostics) hask_case_parse2 for hask_case
 
-lemma \<open>(case hask_case_parse2_diag [tu 1 HCase ''case'', tu 6 HId ''x'', tu 8 HOf ''of'',
+parser_check \<open>(case hask_case_parse2_diag [tu 1 HCase ''case'', tu 6 HId ''x'', tu 8 HOf ''of'',
       tu 3 HId ''A'', tu 4 HId ''B''] of
     Inl e \<Rightarrow> pe_index e = 4 \<and> pe_kind e = Misaligned [(3, Some 3)] \<and>
       pe_anchor e = Some (tu 3 HId ''A'') \<and>
       pe_columns e = [(HId, [(3, Some 3)]), (HSemi, [(3, None)])]
   | Inr _ \<Rightarrow> False)\<close>
-  by eval
 
 grammar (relation) py_suite =
   tokens \<open>py_tok\<close>
@@ -428,41 +410,38 @@ grammar (relation) py_suite =
     and
       BStatement = PId\<^sup>= \<Rightarrow> \<open>\<lambda>_. ()\<close>
 
-parser py_plain for py_suite
+parser (no_diagnostics) py_plain for py_suite
 
 parser (diagnostics) py_parse2 for py_suite
 
 text \<open>The option leaves the code equations of the set-anchored parser and its
   tables as they are.\<close>
 
-ML_val \<open>same_code \<^context> "py_plain" "py_parse2" ["_diag", "_info", "_render", "_terminals"]\<close>
+ML_val \<open>same_code \<^context> "py_plain" "py_parse2" ["_coverage", "_diag", "_info", "_probe", "_render", "_terminals"]\<close>
 
 text \<open>The one pass of the vector driver agrees with the parser and a second run of
   the diagnosis on the sparse driver on every word up to length \<open>4\<close> over tokens at
   a few columns.\<close>
 
-lemma \<open>list_all (\<lambda>w. let w' = map (\<lambda>(x, i). tu i x []) w in
+parser_check \<open>list_all (\<lambda>w. let w' = map (\<lambda>(x, i). tu i x []) w in
     py_parse2_diag w' = (case py_parse2 w' of Some x \<Rightarrow> Inr x
       | None \<Rightarrow> Inl (sdiagnose py_parse2_stab py_parse2_sinit py_parse2_sclos py_parse2_i0
                     (map fst py_parse2_terminals) w')))
     (words [(PWhile, 1), (PId, 3), (PId, 1), (PColon, 2), (PId, 0)] 4)\<close>
-  by eval
 
-lemma \<open>(case py_parse2_diag [tu 1 PWhile ''while'', tu 7 PId ''x'', tu 8 PColon '':'',
+parser_check \<open>(case py_parse2_diag [tu 1 PWhile ''while'', tu 7 PId ''x'', tu 8 PColon '':'',
       tu 3 PId ''y'', tu 4 PId ''z''] of
     Inl e \<Rightarrow> pe_index e = 4 \<and> pe_kind e = Misaligned [(3, Some 3)] \<and>
       pe_anchor e = Some (tu 3 PId ''y'') \<and> pe_expected e = [PId] \<and> pe_expect_end e
   | Inr _ \<Rightarrow> False)\<close>
-  by eval
 
 text \<open>The suite must be indented: right of column \<open>0\<close>, where the statement may
   start, so at least as far as \<open>while\<close>.\<close>
 
-lemma \<open>(case py_parse2_diag [tu 1 PWhile ''while'', tu 7 PId ''x'', tu 8 PColon '':'',
+parser_check \<open>(case py_parse2_diag [tu 1 PWhile ''while'', tu 7 PId ''x'', tu 8 PColon '':'',
       tu 0 PId ''y''] of
     Inl e \<Rightarrow> pe_kind e = Offside [(1, None)] \<and> pe_anchor e = Some (tu 1 PWhile ''while'')
   | Inr _ \<Rightarrow> False)\<close>
-  by eval
 
 datatype iswim_tok = IWhere | IPlus | IMinus | IEq | ILP | IRP | IId
 
@@ -476,14 +455,14 @@ grammar (relation) iswim =
         = Expr\<^sup>= "where"\<^sup>\<ge> IId\<^sup>\<ge> "="\<^sup>\<ge> WExpr\<^sup>\<ge>  \<Rightarrow> \<open>\<lambda>_ _ _. ()\<close>
         | Expr\<^sup>= "+"\<^sup>\<ge> Expr\<^sup>=                 \<Rightarrow> \<open>\<lambda>_ _. ()\<close>
         | "-"\<^sup>\<ge> Expr\<^sup>=                       \<Rightarrow> \<open>\<lambda>_. ()\<close>
-        | "("\<^sup>\<ge> Expr\<^sup>* ")"\<^sup>\<ge>                  \<Rightarrow> \<open>\<lambda>_. ()\<close>
+        | "("\<^sup>\<ge> Expr ")"\<^sup>\<ge>                  \<Rightarrow> \<open>\<lambda>_. ()\<close>
         | IId\<^sup>\<ge>                             \<Rightarrow> \<open>\<lambda>_. ()\<close>
     and
       WExpr :: \<open>unit\<close>
         = WExpr\<^sup>= "where"\<^sup>\<ge> IId\<^sup>\<ge> "="\<^sup>\<ge> WExpr\<^sup>\<ge>  \<Rightarrow> \<open>\<lambda>_ _ _. ()\<close>
         | WExpr\<^sup>= "+"\<^sup>\<ge> Expr\<^sup>=                 \<Rightarrow> \<open>\<lambda>_ _. ()\<close>
         | "-"\<^sup>= Expr\<^sup>=                        \<Rightarrow> \<open>\<lambda>_. ()\<close>
-        | "("\<^sup>= Expr\<^sup>* ")"\<^sup>\<ge>                   \<Rightarrow> \<open>\<lambda>_. ()\<close>
+        | "("\<^sup>= Expr ")"\<^sup>\<ge>                   \<Rightarrow> \<open>\<lambda>_. ()\<close>
         | IId\<^sup>=                              \<Rightarrow> \<open>\<lambda>_. ()\<close>
 
 parser (diagnostics) iswim_parse2 for iswim
@@ -492,12 +471,11 @@ text \<open>\<open>iswim\<close> keeps conflicts, and its start symbol takes eve
   of its errors are not about columns. Inside a \<open>where\<close> clause, \<open>"-"\<^sup>= Expr\<^sup>=\<close>
   anchors the operand at the \<open>-\<close>, and \<open>IId\<^sup>\<ge>\<close> puts it at or right of that.\<close>
 
-lemma \<open>(case iswim_parse2_diag [tu 1 IId ''x'', tu 3 IWhere ''where'', tu 9 IId ''y'', tu 11 IEq ''='',
+parser_check \<open>(case iswim_parse2_diag [tu 1 IId ''x'', tu 3 IWhere ''where'', tu 9 IId ''y'', tu 11 IEq ''='',
       tu 2 IMinus ''-'', tu 0 IId ''z''] of
     Inl e \<Rightarrow> pe_index e = 5 \<and> pe_kind e = Offside [(2, None)] \<and>
       pe_anchor e = Some (tu 2 IMinus ''-'') \<and> set (pe_expected e) = {IId, IMinus, ILP}
   | Inr _ \<Rightarrow> False)\<close>
-  by eval
 
 subsection \<open>The representative columns against a scan of every column\<close>
 
@@ -590,12 +568,11 @@ ML_val \<open>
 text \<open>The same with a conflict in the tables, where a run may restart on the sparse
   driver.\<close>
 
-lemma \<open>list_all (\<lambda>w. let w' = map (\<lambda>(x, i). tu i x []) w in
+parser_check \<open>list_all (\<lambda>w. let w' = map (\<lambda>(x, i). tu i x []) w in
     iswim_parse2_diag w' = (case iswim_parse2 w' of Some x \<Rightarrow> Inr x
       | None \<Rightarrow> Inl (sdiagnose iswim_parse2_stab iswim_parse2_sinit iswim_parse2_sclos
                     iswim_parse2_i0 (map fst iswim_parse2_terminals) w')))
     (words [(IId, 0), (IId, 2), (IWhere, 2), (IEq, 3), (IPlus, 4), (ILP, 1), (IRP, 1)] 4)\<close>
-  by eval
 
 text \<open>Those conflicts are between a shift and a reduction, which the vector driver
   resolves by itself. It stops only on two live reductions (expected warning), and
@@ -609,21 +586,18 @@ grammar (relation) rr =
 
 parser (diagnostics) rr_parse for rr
 
-lemma \<open>(let w = [tu 1 PA [], tu 2 PC []]; st = ([v_av0 rr_parse_vtab], vtcols rr_parse_vtab w, w, [])
+parser_check \<open>(let w = [tu 1 PA [], tu 2 PC []]; st = ([v_av0 rr_parse_vtab], vtcols rr_parse_vtab w, w, [])
     in vdrun rr_parse_vtab st st = Some VConflict)\<close>
-  by eval
 
-lemma \<open>list_all (\<lambda>w. let w' = map (\<lambda>(x, i). tu i x []) w in
+parser_check \<open>list_all (\<lambda>w. let w' = map (\<lambda>(x, i). tu i x []) w in
     rr_parse_diag w' = (case rr_parse w' of Some x \<Rightarrow> Inr x
       | None \<Rightarrow> Inl (sdiagnose rr_parse_stab rr_parse_sinit rr_parse_sclos
                     rr_parse_i0 (map fst rr_parse_terminals) w')))
     (words [(PA, 1), (PB, 2), (PC, 2)] 4)\<close>
-  by eval
 
-lemma \<open>(case rr_parse_diag [tu 1 PA [], tu 2 PC [], tu 3 PC []] of
+parser_check \<open>(case rr_parse_diag [tu 1 PA [], tu 2 PC [], tu 3 PC []] of
     Inl e \<Rightarrow> pe_index e = 2 \<and> pe_expected e = [] \<and> pe_expect_end e
   | Inr _ \<Rightarrow> False)\<close>
-  by eval
 
 section \<open>Messages\<close>
 
@@ -654,39 +628,111 @@ grammar (relation) m_lay =
 
 parser (diagnostics) m_lay_parse for m_lay
 
-lemma \<open>(case m_lay_parse_diag [tc 0 0 MX ''x'', tc 0 2 MPlus ''+'', tc 0 4 MPlus ''+''] of
+parser_check \<open>(case m_lay_parse_diag [tc 0 0 MX ''x'', tc 0 2 MPlus ''+'', tc 0 4 MPlus ''+''] of
     Inl e \<Rightarrow> pmsg_lines (perr_message m_lay_parse_info (\<lambda>c. [c]) e) | Inr _ \<Rightarrow> []) =
   [''0:4: syntax error at '+' (after '+')'',
    ''  expected: '(', 'MX' or '' @ squote ''MNum'',
    ''  up to here: '' @ squote ''x +'']\<close>
-  by eval
 
 text \<open>Past \<^const>\<open>pi_k\<close> expected terminals (5 in \<open>p_info\<close>) the summary takes
   over: with 1, the three here are FIRST(\<open>T\<close>), and \<open>T\<close> follows the dot in the
   kernel of the last shift.\<close>
 
-lemma \<open>(case m_lay_parse_diag [tc 0 0 MX ''x'', tc 0 2 MPlus ''+'', tc 0 4 MPlus ''+''] of
+parser_check \<open>(case m_lay_parse_diag [tc 0 0 MX ''x'', tc 0 2 MPlus ''+'', tc 0 4 MPlus ''+''] of
     Inl e \<Rightarrow> pmsg_lines (perr_message (m_lay_parse_info\<lparr>pi_k := 1\<rparr>) (\<lambda>c. [c]) e) | Inr _ \<Rightarrow> []) =
   [''0:4: syntax error at '+' (after '+')'',
    ''  expected: a T'',
    ''  up to here: '' @ squote ''x +'']\<close>
-  by eval
 
 text \<open>At the end of the input the position is right after the last token, and
-  the stack holds a whole \<open>E\<close>.\<close>
+  the stack holds a whole \<open>E\<close>. The \<open>(\<close> is still open and its closer is expected, so
+  the bracket is the primary text, and the generic text becomes a note.\<close>
 
-lemma \<open>(case m_lay_parse_diag [tc 0 0 MLP ''('', tc 0 1 MX ''x'', tc 0 3 MPlus ''+'', tc 1 0 MNum ''12''] of
+parser_check \<open>(case m_lay_parse_diag [tc 0 0 MLP ''('', tc 0 1 MX ''x'', tc 0 3 MPlus ''+'', tc 1 0 MNum ''12''] of
     Inl e \<Rightarrow> pmsg_lines (perr_message m_lay_parse_info (\<lambda>c. [c]) e) | Inr _ \<Rightarrow> []) =
-  [''1:2: syntax error at end of input (after '' @ squote ''12'' @ '')'',
+  [''1:2: '' @ squote ''('' @ '' at 0:0 is not closed'',
+   ''  syntax error at end of input (after '' @ squote ''12'' @ '')'',
    ''  expected: '' @ squote ''+'' @ '' or '' @ squote '')'',
    ''  up to here: an E was recognised: '' @ squote ''x + 12'']\<close>
-  by eval
 
-lemma \<open>(case m_lay_parse_diag [] of
+parser_check \<open>(case m_lay_parse_diag [] of
     Inl e \<Rightarrow> pmsg_lines (perr_message m_lay_parse_info (\<lambda>c. [c]) e) | Inr _ \<Rightarrow> []) =
   [''0:0: syntax error at end of input'',
    ''  expected: '(', 'MX' or '' @ squote ''MNum'']\<close>
-  by eval
+
+subsubsection \<open>Unclosed brackets and classes\<close>
+
+text \<open>The brackets come from the productions: \<open>+\<close> and \<open>;\<close> pair with nothing.\<close>
+
+parser_check \<open>brackets (pi_G m_lay_parse_info) = [(MLP, MRP)]\<close>
+
+text \<open>The closer not expected: the bracket is not the error, an operand is missing.\<close>
+
+parser_check \<open>hd (case m_lay_parse_diag [tc 0 0 MLP ''('', tc 0 1 MX ''x'', tc 0 3 MPlus ''+''] of
+    Inl e \<Rightarrow> pmsg_lines (perr_message m_lay_parse_info (\<lambda>c. [c]) e) | Inr _ \<Rightarrow> []) =
+  ''0:4: syntax error at end of input (after '' @ squote ''+'' @ '')''\<close>
+
+text \<open>A token with no action inside a bracket leaves the closer expected, and says
+  nothing by itself; a repair decides.\<close>
+
+definition m_stray :: \<open>m_tok rop list \<Rightarrow> string\<close> where
+  \<open>m_stray r = (case m_lay_parse_diag [tc 0 0 MLP ''('', tc 0 1 MX ''x'', tc 0 3 MNum ''1''] of
+     Inl e \<Rightarrow> hd (pmsg_lines (perr_message m_lay_parse_info (\<lambda>c. [c]) (e\<lparr>pe_repair := r\<rparr>)))
+   | Inr _ \<Rightarrow> [])\<close>
+
+parser_check \<open>m_stray [] = ''0:3: syntax error at '' @ squote ''1'' @ '' (after '' @ squote ''x'' @ '')''\<close>
+parser_check \<open>m_stray [RDel MNum] = m_stray []\<close>
+parser_check \<open>m_stray [RKeep, RIns MRP 0] = ''0:3: '' @ squote ''('' @ '' at 0:0 is not closed''\<close>
+
+text \<open>On a layout grammar a missing closer shows at the next offside token, on a later
+  line and left of the bracket. Further right it stays a question of columns.\<close>
+
+grammar (relation) m_off =
+  tokens \<open>(m_tok, char) token\<close>
+  terminals "(" = MLP and ")" = MRP
+  productions
+    Ds :: \<open>nat\<close> = D\<^sup>= \<Rightarrow> \<open>\<lambda>d. d\<close> | Ds\<^sup>= D\<^sup>= \<Rightarrow> \<open>\<lambda>a b. a + b\<close>
+  and
+    D :: \<open>nat\<close> = MNum\<^sup>= "("\<^sup>> As\<^sup>> ")"\<^sup>> \<Rightarrow> \<open>\<lambda>_ a. a\<close>
+  and
+    As :: \<open>nat\<close> = MX\<^sup>= \<Rightarrow> \<open>\<lambda>_. 1\<close> | As\<^sup>= MX\<^sup>> \<Rightarrow> \<open>\<lambda>a _. a\<close>
+
+parser m_off_parse for m_off
+
+definition m_off_first :: \<open>(m_tok, char) token list \<Rightarrow> string\<close> where
+  \<open>m_off_first w = (case m_off_parse_diag w of
+     Inl e \<Rightarrow> hd (pmsg_lines (perr_message m_off_parse_info (\<lambda>c. [c]) e)) | Inr _ \<Rightarrow> [])\<close>
+
+parser_check \<open>m_off_first [tc 0 0 MNum ''f'', tc 0 3 MLP ''('', tc 0 4 MX ''x'', tc 1 0 MX ''y''] =
+  ''1:0: '' @ squote ''('' @ '' at 0:3 is not closed''\<close>
+
+parser_check \<open>take 7 (m_off_first [tc 0 0 MNum ''f'', tc 0 3 MLP ''('', tc 0 4 MX ''x'', tc 1 4 MX ''y'']) =
+  ''1:4: 'y''\<close>
+
+text \<open>Classes: after a complete \<open>At\<close> nothing follows a dot in the kernel, yet the
+  grammar lets another \<open>At\<close> follow, and it stands for all three of its terminals. The
+  separator keeps its name.\<close>
+
+grammar m_app =
+  tokens \<open>(m_tok, char) token\<close>
+  terminals ";" = MSemi and "(" = MLP and ")" = MRP
+  productions
+    S :: \<open>nat\<close> = Sp ";" \<Rightarrow> \<open>\<lambda>s. s\<close>
+  and
+    Sp :: \<open>nat\<close> = At | Sp At \<Rightarrow> \<open>\<lambda>a b. a + b\<close>
+  and
+    At :: \<open>nat\<close> = MX \<Rightarrow> \<open>\<lambda>_. 1\<close> | MNum \<Rightarrow> \<open>\<lambda>_. 2\<close> | "(" Sp ")" \<Rightarrow> \<open>\<lambda>s. s\<close>
+
+parser m_app_parse for m_app
+
+parser_check \<open>(case m_app_parse_diag [tc 0 0 MX ''x'', tc 0 2 MPlus ''+''] of
+    Inl e \<Rightarrow> (pmsg_lines (perr_message (m_app_parse_info\<lparr>pi_k := 2\<rparr>) (\<lambda>c. [c]) e)) ! 1 | Inr _ \<Rightarrow> []) =
+  ''  expected: an At or '' @ squote '';''\<close>
+
+text \<open>Within the limit the terminals stay as they are.\<close>
+
+parser_check \<open>(case m_app_parse_diag [tc 0 0 MX ''x'', tc 0 2 MPlus ''+''] of
+    Inl e \<Rightarrow> length (expected_text m_app_parse_info e) | Inr _ \<Rightarrow> 0) = 4\<close>
 
 datatype md_tok = MDo | MId
 
@@ -711,22 +757,20 @@ parser (diagnostics) m_do_parse for m_do
 text \<open>A misplaced token is reported with the columns that would accept it and the
   token it must be aligned with.\<close>
 
-lemma \<open>(case m_do_parse_diag [tc 0 1 MDo ''do'', tc 0 4 MDo ''do'', tc 0 7 MId ''x'', tc 1 2 MId ''y''] of
+parser_check \<open>(case m_do_parse_diag [tc 0 1 MDo ''do'', tc 0 4 MDo ''do'', tc 0 7 MId ''x'', tc 1 2 MId ''y''] of
     Inl e \<Rightarrow> pmsg_lines (perr_message m_do_parse_info (\<lambda>c. [c]) e) | Inr _ \<Rightarrow> []) =
   [''1:2: 'y' at column 2 must be at columns 4 or 7 (aligned with 'do' at 0:4)'',
    ''  expected: end of input'',
    ''  up to here: a BStmts was recognised: '' @ squote ''do x'']\<close>
-  by eval
 
 text \<open>For a word over \<^typ>\<open>unit\<close> tokens there is no text: a token is shown by
   the spelling of its terminal, and what was recognised by its nonterminal only.\<close>
 
-lemma \<open>(case do_parse2_diag [tu 1 DDo ''do'', tu 4 DDo ''do'', tu 7 DId ''x'', tu 2 DId ''y''] of
+parser_check \<open>(case do_parse2_diag [tu 1 DDo ''do'', tu 4 DDo ''do'', tu 7 DId ''x'', tu 2 DId ''y''] of
     Inl e \<Rightarrow> do_parse2_render e | Inr _ \<Rightarrow> []) =
   ''0:2: 'DId' at column 2 must be at columns 4 or 7 (aligned with 'do' at 0:4)'' @ [CHR 0x0A] @
   ''  expected: end of input'' @ [CHR 0x0A] @
   ''  up to here: a BStmts was recognised''\<close>
-  by eval
 
 subsection \<open>Hand-written messages\<close>
 
@@ -768,51 +812,45 @@ definition m_br_lines :: \<open>(me_tok, char) token list \<Rightarrow> string l
 text \<open>The hand-written text replaces the primary line, with \<open>$0\<close> the text of the
   topmost stack entry, here the whole \<open>L\<close>; the position and the notes stay.\<close>
 
-lemma \<open>m_br_lines [tc 0 0 ELP ''('', tc 0 1 EInt ''12'', tc 0 3 EPlus ''+'', tc 0 4 EInt ''3'', tc 0 6 ERB '']''] =
+parser_check \<open>m_br_lines [tc 0 0 ELP ''('', tc 0 1 EInt ''12'', tc 0 3 EPlus ''+'', tc 0 4 EInt ''3'', tc 0 6 ERB '']''] =
   [''0:6: Unclosed '' @ squote ''('' @ '': after 12+3, '' @ squote '')'' @ '' is expected.'',
    ''  expected: '' @ squote ''+'' @ '', '' @ squote '')'' @ '' or '' @ squote '','',
    ''  up to here: a L was recognised: '' @ squote ''12+3'']\<close>
-  by eval
 
 text \<open>The key is the state, so another word reaching it gets the message; the state
   is that of an open bracket, reached here from \<open>[\<close>.\<close>
 
-lemma \<open>hd (m_br_lines [tc 0 0 ELP ''('', tc 0 1 ELP ''('', tc 0 2 ERB '']'']) =
+parser_check \<open>hd (m_br_lines [tc 0 0 ELP ''('', tc 0 1 ELP ''('', tc 0 2 ERB '']'']) =
   ''0:2: An expression must follow (.''\<close>
-  by eval
 
 text \<open>A key on the pair goes before one on the state alone: the sentence with
   \<open>$7\<close> has the same state as the one with \<open>(token)\<close>, and answers for the other
   terminals. The hole below the stack is empty at run time.\<close>
 
-lemma
+parser_check
   \<open>hd (m_br_lines [tc 0 0 ELP ''('', tc 0 1 EInt ''1'', tc 0 2 EPlus ''+'', tc 0 3 ERB '']'']) =
      ''0:3: '' @ squote '']'' @ '' cannot follow + here.''\<close>
-  by eval
 
-lemma
+parser_check
   \<open>hd (m_br_lines [tc 0 0 ELP ''('', tc 0 1 EInt ''1'', tc 0 2 EPlus ''+'', tc 0 3 ERP '')'']) =
      ''0:3: Missing an operand after +, .''\<close>
-  by eval
 
 text \<open>A state without a message keeps the default text.\<close>
 
-lemma \<open>hd (m_br_lines [tc 0 0 ELB ''['', tc 0 1 EInt ''1'', tc 0 2 ERP '')'']) =
+parser_check \<open>hd (m_br_lines [tc 0 0 ELB ''['', tc 0 1 EInt ''1'', tc 0 2 ERP '')'']) =
   ''0:2: syntax error at '' @ squote '')'' @ '' (after '' @ squote ''1'' @ '')''\<close>
-  by eval
 
 text \<open>A \<open>$\<close> without a digit is itself.\<close>
 
-lemma \<open>fill_holes (\<lambda>i. if i = 1 then ''x'' else []) ''$1 costs $y$2.'' = ''x costs $y.''\<close>
-  by eval
+parser_check \<open>fill_holes (\<lambda>i. if i = 1 then ''x'' else []) ''$1 costs $y$2.'' = ''x costs $y.''\<close>
 
 text \<open>The added constants are \<open>_messages\<close> and \<open>_probe\<close>, and the code equations stay those of the
   parser without a block.\<close>
 
-parser m_br_plain for m_br
+parser (no_diagnostics) m_br_plain for m_br
 
 ML_val \<open>same_code \<^context> "m_br_plain" "m_br_parse"
-  ["_diag", "_info", "_messages", "_probe", "_render", "_terminals"]\<close>
+  ["_coverage", "_diag", "_info", "_messages", "_probe", "_render", "_terminals"]\<close>
 
 text \<open>A layout grammar, on the vector driver: \<open>@\<close> gives a token's column, and
   the other tokens follow one past the token before. Keys are the same; the
@@ -826,17 +864,15 @@ parser (diagnostics) m_do_msg for m_do
   | "do"@1 \<Rightarrow> \<open>A block is expected after 'do'.\<close>
   | MId@1 MId@1 (shift) \<Rightarrow> \<open>A single expression only, not $0.\<close>
 
-lemma \<open>(case m_do_msg_diag [tc 0 1 MDo ''do'', tc 0 4 MDo ''do'', tc 0 7 MId ''x'', tc 1 2 MId ''y''] of
+parser_check \<open>(case m_do_msg_diag [tc 0 1 MDo ''do'', tc 0 4 MDo ''do'', tc 0 7 MId ''x'', tc 1 2 MId ''y''] of
     Inl e \<Rightarrow> pmsg_lines (perr_message m_do_msg_info (\<lambda>c. [c]) e) | Inr _ \<Rightarrow> []) =
   [''1:2: This statement is not aligned with do x.'',
    ''  expected: end of input'',
    ''  up to here: a BStmts was recognised: '' @ squote ''do x'']\<close>
-  by eval
 
-lemma \<open>(case m_do_msg_diag [tc 0 3 MDo ''do''] of
+parser_check \<open>(case m_do_msg_diag [tc 0 3 MDo ''do''] of
     Inl e \<Rightarrow> hd (pmsg_lines (perr_message m_do_msg_info (\<lambda>c. [c]) e)) | Inr _ \<Rightarrow> []) =
   ''0:5: A block is expected after '' @ squote ''do'' @ ''.''\<close>
-  by eval
 
 text \<open>Over \<^typ>\<open>unit\<close> tokens a stack entry has no text and \<open>$0\<close> is its symbol.\<close>
 
@@ -844,11 +880,10 @@ parser (diagnostics) py_msg for py_suite
   errors
     "while"@1 PId@7 ":"@8 PId@3 PId@4 \<Rightarrow> \<open>Statements of a suite line up, after $0.\<close>
 
-lemma \<open>(case py_msg_diag [tu 1 PWhile ''while'', tu 7 PId ''x'', tu 8 PColon '':'',
+parser_check \<open>(case py_msg_diag [tu 1 PWhile ''while'', tu 7 PId ''x'', tu 8 PColon '':'',
       tu 3 PId ''y'', tu 4 PId ''z''] of
     Inl e \<Rightarrow> hd (pmsg_lines (perr_message py_msg_info (\<lambda>_. []) e)) | Inr _ \<Rightarrow> []) =
   ''0:4: Statements of a suite line up, after '' @ squote ''PId'' @ ''.''\<close>
-  by eval
 
 text \<open>Tokens with further fields cannot be built from their terminals: such a
   sentence is a warning, and a word given as a term works.\<close>
@@ -859,12 +894,11 @@ parser (diagnostics) t_ext_msg for t_ext
   | \<open>[\<lparr>tok = PColon, span = span.make 0 0 0 1 [], trailing = []\<rparr>,
       \<lparr>tok = PColon, span = span.make 0 2 2 1 [], trailing = []\<rparr>]\<close> \<Rightarrow> \<open>An identifier follows ':'.\<close>
 
-lemma \<open>(case t_ext_msg_diag
+parser_check \<open>(case t_ext_msg_diag
       [\<lparr>tok = PColon, span = span.make 0 0 0 1 [], trailing = []\<rparr>,
        \<lparr>tok = PColon, span = span.make 0 2 2 1 [], trailing = []\<rparr>] of
     Inl e \<Rightarrow> hd (pmsg_lines (perr_message t_ext_msg_info (\<lambda>_. []) e)) | Inr _ \<Rightarrow> []) =
   ''0:2: An identifier follows '' @ squote '':'' @ ''.''\<close>
-  by eval
 
 subsection \<open>An \<open>errors\<close> block cannot fail the parser\<close>
 
@@ -879,10 +913,9 @@ parser (diagnostics) m_brx_parse for m_br
   | \<open>[tc 0 0 ELP ''('', y]\<close> \<Rightarrow> \<open>never used: a free variable\<close>
   | \<open>m_no_code\<close> \<Rightarrow> \<open>never used: no code\<close>
 
-lemma \<open>(case m_brx_parse_diag [tc 0 0 ELP ''('', tc 0 2 ERB '']''] of
+parser_check \<open>(case m_brx_parse_diag [tc 0 0 ELP ''('', tc 0 2 ERB '']''] of
     Inl e \<Rightarrow> hd (pmsg_lines (perr_message m_brx_parse_info (\<lambda>c. [c]) e)) | Inr _ \<Rightarrow> []) =
   ''0:2: Kept.''\<close>
-  by eval
 
 subsection \<open>The words of the block are not keywords\<close>
 
@@ -892,15 +925,13 @@ subsection \<open>Columns\<close>
 
 text \<open>Linear in the ends, however large the columns.\<close>
 
-lemma \<open>col_reps [1000000, 2, 2] = [0, 1, 2, 3, 999999, 1000000, 1000001]\<close>
-  by eval
+parser_check \<open>col_reps [1000000, 2, 2] = [0, 1, 2, 3, 999999, 1000000, 1000001]\<close>
 
 subsection \<open>The state-indexed driver\<close>
 
 text \<open>Constructors without arguments are numbered by a case distinction.\<close>
 
-lemma \<open>map rr_parse_tnum [PA, PB, PC] = map (vnum rr_parse_vtab) [PA, PB, PC]\<close>
-  by eval
+parser_check \<open>map rr_parse_tnum [PA, PB, PC] = map (vnum rr_parse_vtab) [PA, PB, PC]\<close>
 
 text \<open>Under \<^text>\<open>parser_literal_tables\<close> its tables are literals (expected warning,
   as for \<open>rr_parse\<close>), and nothing else changes.\<close>
@@ -909,10 +940,9 @@ declare [[parser_literal_tables]]
 parser (diagnostics) rr_lit_parse for rr
 declare [[parser_literal_tables = false]]
 
-lemma \<open>list_all (\<lambda>w. let w' = map (\<lambda>(x, i). tu i x []) w in
+parser_check \<open>list_all (\<lambda>w. let w' = map (\<lambda>(x, i). tu i x []) w in
     rr_lit_parse_diag w' = rr_parse_diag w')
     (words [(PA, 1), (PB, 2), (PC, 2)] 4)\<close>
-  by eval
 
 subsection \<open>Exported code\<close>
 

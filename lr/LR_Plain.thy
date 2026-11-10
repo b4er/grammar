@@ -102,9 +102,6 @@ proof (induction xs)
   then show ?case using Cons by (simp split: option.split)
 qed simp
 
-lemma sfind_cong: \<open>(\<And>x. x \<in> set xs \<Longrightarrow> f x = g x) \<Longrightarrow> sfind f xs = sfind g xs\<close>
-  by (induction xs) (auto split: option.split)
-
 lemma tkeys_complete: \<open>tlookup t n = Some a \<Longrightarrow> n \<in> set (tkeys t)\<close>
   unfolding tkeys_def using tentries_complete by force
 

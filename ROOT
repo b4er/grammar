@@ -1,15 +1,10 @@
-session Grammar_Command = Context_Free_Grammar +
-  options  [document_output = "output", document_bibliography]
+session Grammar_Model = Context_Free_Grammar +
   theories [document = false]
     Token
     Indentation_Sensitive
-  theories
-    Grammar_Command
-  document_files
-    "root.bib"
-    "root.tex"
+    Grammar_Base
 
-session LR_Parser in "lr" = Grammar_Command +
+session LR_Core in "lr" = Grammar_Model +
   theories
     LR
     LR_Driver
@@ -25,6 +20,23 @@ session LR_Parser in "lr" = Grammar_Command +
     LR_Loop
     LR_Plain
     LR_Diag
-    LR_Parser
+    LR_Recover
+    LR_Restrict
+    LR_Prec
 
-session Grammar_Tests in "tests" = LR_Parser + theories Regression_Tests Diag_Tests
+session LR_Parser in "command" = LR_Core +
+  options  [document_output = "../output", document_bibliography]
+  theories
+    Grammar_Command
+    LR_Parser
+    LR_Prec_Parse
+  document_files (in "../document")
+    "root.bib"
+    "root.tex"
+
+session Grammar_Tests in "tests" = LR_Parser +
+  theories Parser_Check Regression_Tests Diag_Tests Reach_Tests Prec_Tests Prec_Surface_Tests Compose_Tests Param_Tests Span_Tests Ast_Tests
+    Same_Terms
+
+session Grammar_Tests_Slow in "tests/slow" = Grammar_Tests +
+  theories Recover_Tests Repair_Tests Repair_Code_Tests
