@@ -458,8 +458,8 @@ partial_function (option) vadv :: \<open>('n, 't) vtab \<Rightarrow> vcfg \<Righ
 
 lemmas vadv_simps [code] = vadv.simps
 
-text \<open>The search tries every terminal at every column it tells apart, and on CaraML most of
-  these trials fail at all of them. A trial that succeeds has, on the stack of states
+text \<open>The search tries every terminal at every column it tells apart, and on a large grammar
+  most of these trials fail at all of them. A trial that succeeds has, on the stack of states
   alone, a shift of the terminal or a reduction listed for it as lookahead whose goto
   exists, and so on down to a shift: \<open>vshiftable\<close>, without the columns and the frames, true
   when its fuel runs out. It is the \<^const>\<open>ro_can\<close> of the adapter, checked once per

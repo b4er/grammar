@@ -4,7 +4,7 @@ begin
 
 section \<open>A faster closure for the set-anchored driver\<close>
 
-text \<open>Profiling the generated CaraML parser puts nearly all of a step's time
+text \<open>Profiling a parser generated for a large grammar puts nearly all of a step's time
   in \<^const>\<open>xclosure_auto\<close>, the closure of the frame a step pushes.  Its
   rounds (\<^const>\<open>xround\<close>) fold every slot of the round into the
   accumulator of the previous round, so each round unions the previous

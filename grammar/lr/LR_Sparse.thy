@@ -5,7 +5,7 @@ begin
 section \<open>Sparse closures for the set-anchored driver\<close>
 
 text \<open>A closure of \<^const>\<open>dclosure\<close> has one slot per production, but on
-  CaraML only about nine of its 286 items have a non-empty anchor set.  No
+  a grammar of 286 items only about nine have a non-empty anchor set.  No
   driver operation observes the empty ones: \<^const>\<open>live\<close> and
   \<^const>\<open>gfinal\<close> look at non-empty items only, \<^const>\<open>red_set\<close> unions
   anchor sets, \<^const>\<open>lgoto\<close> maps an empty item to an empty one, and a

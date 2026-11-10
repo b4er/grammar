@@ -3,7 +3,7 @@ theory Grammar_Base
 begin
 
 text \<open>Facts and the decoder recursion combinator used by the grammar and
-  parser commands (\<^file>\<open>command/Grammar_Command.thy\<close>). They live below
+  parser commands (\<^file>\<open>../Grammar_Command.thy\<close>). They live below
   the LR theories so that the command layer can sit above the proofs.\<close>
 
 lemma lang_of_complete:
@@ -31,8 +31,8 @@ lemma erase_Nt_E2:
   obtains ts where \<open>erase pt = Node A ts\<close>
   using assms by (cases pt) auto
 
-text \<open>The two rules behind the linear decoder proofs (\<^file>\<open>command/parser_dec_total.ML\<close>,
-  \<^file>\<open>command/parser_rel_bridge.ML\<close>):\<close>
+text \<open>The two rules behind the linear decoder proofs (\<^file>\<open>../parser_dec_total.ML\<close>,
+  \<^file>\<open>../parser_rel_bridge.ML\<close>):\<close>
 
 lemma proot_Tm_E:
   assumes \<open>fst (proot pt) = Tm t\<close>

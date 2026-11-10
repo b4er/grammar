@@ -1,5 +1,5 @@
 theory OCaml_Parser
-  imports LR_Parser.LR_Parser
+  imports TIGER_LR.LR_Parser
 begin
 
 section \<open>A subset of the OCaml grammar\<close>

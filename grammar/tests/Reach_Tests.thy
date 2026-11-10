@@ -1,10 +1,10 @@
 theory Reach_Tests
-  imports LR_Parser.LR_Parser Parser_Check
+  imports TIGER_LR.LR_Parser Parser_Check
 begin
 
 section \<open>Coverage of the error states\<close>
 
-text \<open>Sentences of the driver against \<^file>\<open>../command/lr_reach.ML\<close>: every word over the
+text \<open>Sentences of the driver against \<^file>\<open>../lr_reach.ML\<close>: every word over the
   terminals up to a length, cut at the first error, gives the same pairs of a state and
   a terminal and the same shortest lengths as the engine.\<close>
 

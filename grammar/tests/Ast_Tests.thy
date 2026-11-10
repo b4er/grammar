@@ -1,5 +1,5 @@
 theory Ast_Tests
-  imports LR_Parser.LR_Prec_Parse Parser_Check
+  imports TIGER_LR.LR_Prec_Parse Parser_Check
 begin
 
 section \<open>\<^theory_text>\<open>parser (ast)\<close>: the tree, no decoder\<close>

@@ -1,6 +1,6 @@
 theory Indentation_Sensitive
   imports
-    Token
+    "TIGER_Token.Token"
     "Context_Free_Grammar.Parse_Tree"
     "Context_Free_Grammar.Epsilon_Elimination"
     "HOL-Library.Extended_Nat"
@@ -33,7 +33,7 @@ text \<open>
   Symbols, ordinary context-free grammars, their derivation relations and their
   parse trees are those of \<^theory>\<open>Context_Free_Grammar.Parse_Tree\<close> and its
   parent: \<^const>\<open>Nt\<close> and \<^const>\<open>Tm\<close>, here over the tokens of theory
-  \<^theory>\<open>Grammar_Model.Token\<close>, \<^const>\<open>derive\<close> and \<^const>\<open>deriver\<close> over a
+  \<^theory>\<open>TIGER_Token.Token\<close>, \<^const>\<open>derive\<close> and \<^const>\<open>deriver\<close> over a
   production set, and \<^const>\<open>parse_tree\<close>.
 
   Not all of this is used by the LR development and the \<^text>\<open>grammar\<close>

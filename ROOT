@@ -1,11 +1,18 @@
-session Grammar_Model = Context_Free_Grammar +
+session TIGER_Token in "token" = HOL +
+  description "Spans, positions, and the token record standalone"
+  options [timeout = 60, document = false]
+  theories Token
+
+session TIGER_Grammar in "grammar/model" = Context_Free_Grammar +
+  sessions TIGER_Token
   theories [document = false]
-    Token
     Indentation_Sensitive
     Grammar_Base
 
-session LR_Core in "lr" = Grammar_Model +
-  theories
+session TIGER_LR in "grammar" = TIGER_Grammar +
+  options  [document_output = "../output", document_bibliography]
+  directories "lr"
+  theories [document = false]
     LR
     LR_Driver
     LR_Fast
@@ -23,9 +30,6 @@ session LR_Core in "lr" = Grammar_Model +
     LR_Recover
     LR_Restrict
     LR_Prec
-
-session LR_Parser in "command" = LR_Core +
-  options  [document_output = "../output", document_bibliography]
   theories
     Grammar_Command
     LR_Parser
@@ -34,9 +38,9 @@ session LR_Parser in "command" = LR_Core +
     "root.bib"
     "root.tex"
 
-session Grammar_Tests in "tests" = LR_Parser +
+session TIGER_Tests in "grammar/tests" = TIGER_LR +
   theories Parser_Check Regression_Tests Diag_Tests Reach_Tests Prec_Tests Prec_Surface_Tests Compose_Tests Param_Tests Span_Tests Ast_Tests
     Same_Terms
 
-session Grammar_Tests_Slow in "tests/slow" = Grammar_Tests +
+session TIGER_Tests_Slow in "grammar/tests/slow" = TIGER_Tests +
   theories Recover_Tests Repair_Tests Repair_Code_Tests

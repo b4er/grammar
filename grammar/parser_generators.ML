@@ -571,7 +571,7 @@ fun define_entry options all_errors (gen_name, gen) (shared: shared) (parse_b, g
             SOME hook => SOME hook
           | NONE =>
               error ("parser " ^ quote (Binding.name_of parse_b) ^ ": grammar " ^ quote gram_name ^
-                " has precedence declarations; import LR_Parser.LR_Prec_Parse")));
+                " has precedence declarations; import TIGER_LR.LR_Prec_Parse")));
     val (prec_out, lthy) =
       (case prec_hook of
         NONE => (NONE, lthy)

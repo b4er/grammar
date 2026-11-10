@@ -241,8 +241,8 @@ fun prove_family ctxt {comps, prod_lhss, insensitive, wordT, carrier_of, norm} b
         val idxs =
           map_filter (fn (k, A) => if member (op =) names A then SOME k else NONE)
             (map_index I prod_lhss);
-        (* the production cases in parallel (CaraML: in the one state of the induction,
-           879 s of the relation's 1136 s; now 13 s) *)
+        (* the production cases in parallel (on a large grammar, in the one state of the
+           induction: 879 s of the relation's 1136 s; now 13 s) *)
         fun cases_tac context =
           Grammar_Common.timed ctxt "prove_family"
             (string_of_int (length idxs) ^ " production cases of " ^ space_implode " " names)
