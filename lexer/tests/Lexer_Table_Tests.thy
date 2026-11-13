@@ -1,5 +1,7 @@
+(* Author: Basil Fürer, Claude *)
+
 theory Lexer_Table_Tests
-  imports Lexer_Command_Tests Lexer_Command.Lexer_Check
+  imports Lexer_Command_Tests TIGER_Lexer.Lexer_Check
 begin
 
 section \<open>Tests of the generated lexers\<close>
@@ -73,7 +75,7 @@ lexer (char) cmt_bytes :: \<open>ctok\<close> (* ~6 s *)
   rules
     \<open>letter+\<close> \<Rightarrow> Word
   | \<open>[0-9]+\<close> \<Rightarrow> Num
-  | \<open>[\ \n]+\<close> \<Rightarrow> skip
+  | \<open>[ \n]+\<close> \<Rightarrow> skip
   | "(*" \<Rightarrow> skip, push Comment
   | <Comment> (
       "(*" \<Rightarrow> skip, push Comment

@@ -1,5 +1,7 @@
+(* Author: Basil Fürer, Claude *)
+
 theory Driver_Tests
-  imports Lexer.Tables
+  imports TIGER_Lexer.TIGER_Tables
 begin
 
 section \<open>Tests of the driver\<close>

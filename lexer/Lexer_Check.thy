@@ -1,3 +1,5 @@
+(* Author: Basil Fürer, Claude *)
+
 theory Lexer_Check
   imports Lexer_Command
   keywords "lexer_check" :: thy_decl and "lex" :: diag

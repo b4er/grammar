@@ -1,3 +1,5 @@
+(* Author: Basil Fürer, Claude *)
+
 (* outer syntax of the lexer command: the options, the clauses, the where entries and the
    rules, handed to Lexer_Command.lexer_cmd and, unless sketch, Lexer_Tables.tables_cmd *)
 

@@ -1,5 +1,7 @@
+(* Author: Basil Fürer, Claude *)
+
 theory Prec_Surface_Tests
-  imports TIGER_LR.LR_Prec_Parse Parser_Check
+  imports TIGER_Grammar.LR_Prec_Parse Parser_Check
 begin
 
 section \<open>Precedence declarations in \<^theory_text>\<open>grammar\<close>\<close>
@@ -73,6 +75,12 @@ parser_check \<open>eq_s (toks 0 [PNum, PPlus, PNum, PStar, PNum]) = Some (Add N
 parser_check \<open>eq_e (toks 0 [PNum, PStar, PNum, PPlus, PNum]) = Some (Add (Mul N N) N)\<close>
 
 subsection \<open>Merged lines and transitivity\<close>
+
+text \<open>
+  Two \<open>precedence\<close> lines that share \<open>*\<close> merge into one order, and \<open>^\<close> binds
+  tighter than \<open>+\<close> by transitivity. Afroozeh et al. close their \<open>>\<close> transitively
+  in the same way \<^cite>\<open>\<open>Sect.~3.3\<close> in "afroozeh2013-operator-precedence"\<close>.
+\<close>
 
 grammar em =
   tokens \<open>p_tok\<close>
@@ -273,8 +281,9 @@ grammar eh =
       | PNum \<Rightarrow> \<open>\<lambda>_. N\<close>
 
 text \<open>The report names the productions of the grammar. A state whose evidence is two
-  copies of one production of \<open>G'\<close>, or a unit chain of \<open>G'\<close>, prints them as such
-  (the limit of 14a); the example below the line is what explains it. No chain carries
+  copies of one production of \<open>G'\<close>, or a unit chain of \<open>G'\<close>, prints them as such:
+  both copies map back to the production of \<open>eh\<close> they come from, so the two sides
+  read alike, and the example below the line is what tells them apart. No chain carries
   its \<open>\<^sup>=\<close>, and each state has one line. Under \<open>[[grammar_timing]]\<close> the sizes are
   those of \<open>G'\<close>, the grammar the tables are built from: 6 productions, where \<open>eh\<close> has 3.
   The two commands run one after the other, as each wraps the output hooks.\<close>

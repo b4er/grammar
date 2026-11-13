@@ -1,5 +1,7 @@
+(* Author: Basil Fürer, Claude *)
+
 theory Compose_Tests
-  imports TIGER_LR.LR_Prec_Parse Parser_Check
+  imports TIGER_Grammar.LR_Prec_Parse Parser_Check
 begin
 
 section \<open>Composition by reference\<close>
@@ -245,10 +247,10 @@ parser_check \<open>(case cshadow_diag_diag (toks 0 [CLP, CNum, CNum]) of
    ''  expected: '' @ squote ''*'' @ '', '' @ squote '')'' @ '' or '' @ squote ''+'',
    ''  up to here: a T was recognised'']\<close>
 ML_val \<open>
-  \<^assert> (Grammar_Common.display_names \<^context> ["S", "cexp.E", "cexp.T", "cexp.T+"] =
-    [("cexp.E", "E"), ("cexp.T", "T"), ("cexp.T+", "T+")]);
-  \<^assert> (Grammar_Common.display_names \<^context> ["E", "cexp.E", "cexp.T", "Q(cexp.T, \";\")"] =
-    [("cexp.T", "T"), ("Q(cexp.T, \";\")", "Q(T, \";\")")]);
+  \<^assert> (Grammar_Common.display_names \<^context> ["S", \<^unchecked_name>\<open>cexp.E\<close>, \<^unchecked_name>\<open>cexp.T\<close>, "cexp.T+"] =
+    [(\<^unchecked_name>\<open>cexp.E\<close>, "E"), (\<^unchecked_name>\<open>cexp.T\<close>, "T"), ("cexp.T+", "T+")]);
+  \<^assert> (Grammar_Common.display_names \<^context> ["E", \<^unchecked_name>\<open>cexp.E\<close>, \<^unchecked_name>\<open>cexp.T\<close>, "Q(cexp.T, \";\")"] =
+    [(\<^unchecked_name>\<open>cexp.T\<close>, "T"), ("Q(cexp.T, \";\")", "Q(T, \";\")")]);
 \<close>
 
 subsection \<open>Numbered nonterminals: \<open>grammar_nat_labels\<close>\<close>

@@ -1,6 +1,6 @@
 chapter OCaml
 
-session OCaml_Prec = TIGER_LR +
+session OCaml_Prec = TIGER_Grammar +
   options [document = false]
   theories
     OCaml_Parser

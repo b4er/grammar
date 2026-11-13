@@ -1,11 +1,23 @@
+(* Author: Basil Fürer, Claude *)
+
 theory LR_Prec_Parse
-  imports LR_Parser TIGER_LR.LR_Prec
+  imports LR_Parser TIGER_Grammar.LR_Prec
 begin
 
 text \<open>The parser of the restricted grammar, stated against the grammar the user
   wrote.  All of it is inherited from the driver theorems on
   \<^term>\<open>restrict G d\<close>; \<^const>\<open>plain_ast\<close> drops the unit nodes of the chains and
-  restores the original nonterminal names.\<close>
+  restores the original nonterminal names.
+
+  In the terms of Klint and Visser, \<^const>\<open>prec_ok\<close> generates a filter, and the
+  restricted grammar with \<open>plain orig_name\<close> as translation shows it context-free
+  \<^cite>\<open>\<open>Def.~4.8\<close> in "klint1994-disambiguation-filters"\<close> once the checks pass;
+  \<open>prec_ok_unique\<close> says the filter is completely disambiguating
+  \<^cite>\<open>\<open>Def.~4.2\<close> in "klint1994-disambiguation-filters"\<close>, up to \<^const>\<open>erase\<close>.
+  The informal counterparts are \<^cite>\<open>\<open>Thms.~6.1, 6.4\<close> in "adams2017-tree-automata"\<close>:
+  intersection with a bottom-up deterministic automaton adds no ambiguity and no
+  LR(k) conflicts.  Here nothing is inferred from the automaton: determinism and
+  the conflict check are premises on the restricted grammar.\<close>
 
 section \<open>Freshness of the shift name\<close>
 

@@ -1,3 +1,5 @@
+(* Author: Basil Fürer, Claude *)
+
 (* the test command lexer_check (grammar's tests/parser_check.ML, renamed): closed boolean
    terms evaluated in the ML compiler with the code of their constants compiled once per
    theory chain; and the diagnostic lex, which prints the tokens of a text *)

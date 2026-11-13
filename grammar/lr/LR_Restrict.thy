@@ -1,6 +1,31 @@
+(* Author: Basil Fürer, Claude *)
+
 theory LR_Restrict
-  imports TIGER_Grammar.Grammar_Base "HOL-Library.While_Combinator"
+  imports TIGER_Grammar_Model.Grammar_Base "HOL-Library.While_Combinator"
 begin
+
+section \<open>Restricting the trees of a grammar by a tree automaton\<close>
+
+text \<open>A tree automaton \<open>A\<close> selects the trees of an indentation grammar
+  \<open>G\<close> it accepts; this theory computes a grammar \<open>G'\<close> whose trees are,
+  up to renaming and unit chains, exactly those.  This is the construction of
+  Adams and Might \<^cite>\<open>\<open>Sect.~3\<close> in "adams2017-tree-automata"\<close>: label the
+  productions, intersect with the automaton, and read the product back as a
+  grammar.  The theorems are \<^text>\<open>restrict_sound\<close>, \<^text>\<open>restrict_complete\<close>
+  and \<^text>\<open>restrict_ilang\<close>, for any \<open>G'\<close> that meets \<open>restrict_ok\<close>, and
+  \<^text>\<open>restrict_gen_correct\<close> (at the end): the executable \<open>restrict_gen\<close>
+  produces such a \<open>G'\<close>.  The paper states the construction without a
+  proof of this correspondence; its Sect.~6 proves other properties.\<close>
+
+subsection \<open>The automaton and its runs\<close>
+
+text \<open>\<open>prec_aut\<close> is a deterministic top-down tree automaton whose labels
+  are the productions of \<open>G\<close> \<^cite>\<open>\<open>Sect.~2.2\<close> in "adams2017-tree-automata"\<close>:
+  in state \<open>q\<close>, \<open>ok\<close> says whether a production may label the node, and
+  \<open>step\<close> gives the state of its \<open>k\<close>-th child.  The paper notes that
+  deterministic top-down automata are strictly weaker than the general ones;
+  the precedence automata used here are of this kind.  \<open>prec_run\<close> is
+  \<open>wf_ptree\<close> with the automaton's checks added at every node.\<close>
 
 type_synonym ('n, 't) alt = \<open>'n \<times> ('n, 't) rhs\<close>
 
@@ -18,6 +43,16 @@ inductive prec_run ::
       irel_sat (snd (r ! k)) (snd (proot (ts ! k))) i \<and>
       prec_run G A (step A q (n, r) k) (ts ! k)) \<Longrightarrow>
     prec_run G A q (PNode n i ts)\<close>
+
+subsection \<open>The restricted grammar and its correctness\<close>
+
+text \<open>The nonterminals of \<open>G'\<close> stand for pairs of a nonterminal of \<open>G\<close>
+  and an automaton state, the Cartesian product of
+  \<^cite>\<open>\<open>Sect.~3.1.3\<close> in "adams2017-tree-automata"\<close>; \<open>orig\<close> forgets the state.
+  \<open>G'\<close> may also contain unit productions \<open>n \<rightarrow> m\<close> with
+  \<open>orig n = orig m\<close>, and \<open>plain\<close> removes them when it maps a tree of
+  \<open>G'\<close> back to one of \<open>G\<close>.  The locale \<open>restrict_ok\<close> collects what the
+  proofs need of \<open>G'\<close>.\<close>
 
 fun usym :: \<open>('n' \<Rightarrow> 'n) \<Rightarrow> ('n', 't) sym \<Rightarrow> ('n, 't) sym\<close> where
   \<open>usym orig (Nt n) = Nt (orig n)\<close>
@@ -330,6 +365,9 @@ end
 
 section \<open>Reachability by a worklist\<close>
 
+text \<open>The reachable automaton states, and later the reachable classes, are
+  collected by a worklist over \<^const>\<open>while_option\<close>.\<close>
+
 fun reach_step :: \<open>('a \<Rightarrow> 'a list) \<Rightarrow> 'a list \<times> 'a list \<Rightarrow> 'a list \<times> 'a list\<close> where
   \<open>reach_step f (x # ws, vs) = (if x \<in> set vs then (ws, vs) else (f x @ ws, x # vs))\<close>
 | \<open>reach_step f ([], vs) = ([], vs)\<close>
@@ -407,6 +445,12 @@ proof -
 qed
 
 section \<open>Moore's partition refinement\<close>
+
+text \<open>The product has duplicate nonterminals.  Adams and Might remove them
+  by tree-automaton minimisation \<^cite>\<open>\<open>Sect.~3.1.3, Fig.~11b\<close> in "adams2017-tree-automata"\<close>.
+  Here the reachable states are partitioned by Moore-style refinement: two
+  states share a class when they have the same nonterminal and the same rows
+  of productions and child classes.\<close>
 
 fun first_ix :: \<open>'a \<Rightarrow> 'a list \<Rightarrow> nat\<close> where
   \<open>first_ix x [] = 0\<close>
@@ -498,6 +542,12 @@ lemma set_ralts: \<open>l \<in> set (ralts G A nt q) \<longleftrightarrow>
 
 definition ckid :: \<open>('n, 't, 'q) prec_aut \<Rightarrow> ('q \<Rightarrow> nat) \<Rightarrow> 'q \<Rightarrow> ('n, 't) alt \<Rightarrow> nat \<Rightarrow> nat option\<close> where
   \<open>ckid A cl q p k = (case fst (snd p ! k) of Nt _ \<Rightarrow> Some (cl (step A q p k)) | Tm _ \<Rightarrow> None)\<close>
+
+text \<open>The cover replaces the productions of a class by unit productions to
+  classes of the same nonterminal whose production sets are strict subsets,
+  largest first and pairwise disjoint.  This is the epsilon-introduction
+  heuristic of \<^cite>\<open>\<open>Sect.~3.1.3, Fig.~11c\<close> in "adams2017-tree-automata"\<close>,
+  which turns the product into the usual \<open>Exp\<close>/\<open>Term\<close>/\<open>Factor\<close> chain.\<close>
 
 definition ccands :: \<open>(nat \<Rightarrow> cell list) \<Rightarrow> (nat \<Rightarrow> 'k) \<Rightarrow> nat list \<Rightarrow> nat \<Rightarrow> nat list\<close> where
   \<open>ccands as key C c = rev (sort_key (\<lambda>b. length (as b))
@@ -903,6 +953,10 @@ qed
 end
 
 section \<open>The whole construction\<close>
+
+text \<open>\<open>restrict_gen\<close> chains the steps: reachable states, classes,
+  reachable classes, covered productions; the new names are the original
+  name, \<open>#\<close> and the class number.\<close>
 
 lemma reach_within:
   assumes S: \<open>finite S\<close> \<open>x \<in> S\<close> \<open>\<And>y. y \<in> S \<Longrightarrow> set (f y) \<subseteq> S\<close>

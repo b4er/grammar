@@ -1,3 +1,5 @@
+(* Author: Basil Fürer, Claude *)
+
 theory LR_Det
   imports LR_Driver
 begin
@@ -7,10 +9,11 @@ section \<open>The static sufficient condition for \<^const>\<open>mdet\<close>\
 text \<open>This theory proves \<open>rlalr_conflicts G Shn = [] \<Longrightarrow> mdet G Shn\<close>
   (\<^text>\<open>rlalr_sufficient\<close>, at the end): an executable check on the
   driver's tables implies the determinism premise of its completeness.
-  After Barthwal (2010, Def. 5.3.7 \<open>okSlr\<close> and Thm 5.4.4: conflict
+  After Barthwal \<^cite>\<open>\<open>Def.~5.3.7, Thm.~5.4.4\<close> in "barthwal2010-thesis-cfl-hol4"\<close> (\<open>okSlr\<close>: conflict
   freedom is demanded on viable-prefix-reachable states only), DeRemer and
-  Pennello (1982, Sect. 3: per-item lookahead) and Jourdan, Pottier and
-  Leroy (2012, Sect. 3.3 and Thm 4).
+  Pennello \<^cite>\<open>\<open>Sect.~3\<close> in "deremer1982-lalr-lookahead"\<close> (per-item lookahead) and Jourdan, Pottier and
+  Leroy \<^cite>\<open>\<open>Sect.~3.4, Thm.~4\<close> in "jourdan2012-validating-lr1"\<close> (a validator on the automaton; the validators imply
+  unambiguity).
 
   In order: saturation of the anchored reachable closure; the precise
   (viable-prefix) automaton \<^text>\<open>pr0_states\<close> and its worklist; the
@@ -167,8 +170,8 @@ qed
 section \<open>The item-relative conflict analysis: diagnosis\<close>
 
 text \<open>Why the entry-relative walk below cannot separate the remaining
-  states, on chunk T's state after \<open>"type" LId TVars\<close> (state 7 of
-  \<^const>\<open>pr0_states\<close>; \<open>parser/conflicts.md\<close> \<section>9).  Its kernel holds
+  states, on the state after \<open>"type" LId TVars\<close> of an ML-style signature
+  grammar (state 7 of \<^const>\<open>pr0_states\<close>).  Its kernel holds
   \<open>Spec = "type"\<^sup>= LId\<^sup>> TVars\<^sup>> \<cdot>\<close>, the same production continued by
   \<open>"=" Ty\<close>, and \<open>TVars = TVars\<^sup>\<ge> \<cdot> LId\<^sup>\<ge>\<close>.  The entry anchor is the anchor
   of the \<open>TVars\<close> subtree just read, and \<^const>\<open>wreach\<close> relates it to each
@@ -202,20 +205,17 @@ text \<open>Why the entry-relative walk below cannot separate the remaining
   \<^const>\<open>wdisjoint\<close>.
 
   The comparison is sound because the reference is one column.  \<open>Spec\<close> is
-  anchored (\<open>anchored_nts\<close> below: \<open>"type"\<^sup>=\<close>), so in the real frame every  \<open>Spec\<close> item at a dot \<open>\<ge> 1\<close> has the singleton pool \<open>{column of "type"}\<close>,
+  anchored (\<open>anchored_nts\<close> below: \<open>"type"\<^sup>=\<close>), so in the real frame every
+  \<open>Spec\<close> item at a dot \<open>\<ge> 1\<close> has the singleton pool \<open>{column of "type"}\<close>,
   and two such items at the same dot in the same frame read that \<open>"type"\<close>
   at the same entry; both sides' relations hold at that column, a disjoint
   pair is impossible.  At a nonterminal whose pool is not a singleton the
   two sides may be satisfied at different pool elements and disjointness
-  proves nothing: that is the two-action layout of the unpinned \<open>Ctor\<close> and
-  \<open>ArrTail\<close> of \<open>conflicts.md\<close> \<section>8, which the grammar now pins
-  (\<open>rationale.md\<close> 57).  The other sound reference is the start item at the
+  proves nothing: that is the two-action layout of an unanchored
+  nonterminal (a constructor list, an arrow-type tail), which anchoring that
+  nonterminal removes.  The other sound reference is the start item at the
   start state, whose pool is \<open>{istart_ind}\<close>.
 
-  The walk that follows from this (the next section): a triple is a state
-  with two cursors, each an item of the state's closure and a class relating
-  the lookahead's column to the item's left-hand-side indentation.  A cursor
-  at dot 0 is replaced by its predictors in the same state, the class
   The walk that follows from this (the next section): a triple is a state
   with two cursors, each an item of the state's closure and a class relating
   the lookahead's column to the item's left-hand-side indentation.  A cursor
@@ -859,7 +859,10 @@ section \<open>The pooled width invariant\<close>
 text \<open>The per-item form of the width invariant: each anchored closure item
   relates to \<open>some\<close> element of the frame's entry pool \<open>P\<close> by a \<open>wreach\<close>
   class; different items may pick different pool elements, as the pooled
-  machine's frames demand.  First the closure preservation, by
+  machine's frames demand.  This is the observation of
+  \<^cite>\<open>\<open>Sect.~5.8\<close> in "adams2013"\<close> that the items of one item set can carry different
+  indentation sets, so one set shared by all of them is not enough.
+  First the closure preservation, by
   \<^text>\<open>xiter_slot_induct\<close>: every step reuses its source's pool element.\<close>
 
 lemma xiter_pool:
@@ -1207,7 +1210,13 @@ section \<open>The canonical tracked stack\<close>
 text \<open>The descent needs more than \<^const>\<open>didx_ok\<close>: the goto history
   (\<^const>\<open>dshape\<close>), singleton pools on shift entries, the canonical bottom
   index, and the \<open>adjacency\<close> tying each tracked index to the canonical goto
-  target of the index below along the recorded symbol.  The reachability
+  target of the index below along the recorded symbol.  The bottom index and the
+  adjacency say what Barthwal's \<open>validItem_inv\<close>
+  \<^cite>\<open>\<open>Def.~5.4.3\<close> in "barthwal2010-thesis-cfl-hol4"\<close> says: the state of every
+  sub-stack is the one reached from the start state by reading its symbols.  The safety
+  invariant of Jourdan et al. \<^cite>\<open>\<open>Sect.~3.2\<close> in "jourdan2012-validating-lr1"\<close>
+  describes only a statically known suffix of the stack; here every index is
+  tracked.  The reachability
   induction constructs exactly these witnesses.\<close>
 
 definition strack :: \<open>('n, 't) is_cfg \<Rightarrow> 'n \<Rightarrow> ('n, 't) xitem list list \<Rightarrow>
@@ -2124,12 +2133,7 @@ proof -
       using ic2 icur_at_fuel by blast
     have shorter: \<open>length (tl Xs) < length Xs\<close> using hlen by simp
     show ?thesis
-      by (rule disjI2, rule exI[of _ \<open>tl Xs\<close>], rule exI[of _ \<alpha>'],
-          rule exI[of _ \<open>tl pstk\<close>], rule exI[of _ \<open>xfuel G (hd (tl Xs))\<close>],
-          rule exI[of _ \<open>xfuel G (hd (tl Xs))\<close>],
-          rule exI[of _ \<open>(pr\<^sub>1, m\<^sub>1', \<sigma>\<^sub>1)\<close>],
-          rule exI[of _ \<open>(pr\<^sub>2, m\<^sub>2', \<sigma>\<^sub>2)\<close>], intro conjI)
-        (use succ tr' live' ict1 ict2 shorter nth1 in auto)
+      using succ[folded nth1] tr' live' ict1 ict2 shorter by blast
   qed
 qed
 
@@ -2486,9 +2490,9 @@ proof -
 qed
 
 text \<open>The sufficiency theorem: an empty report makes the pooled machine
-  deterministic.  Cf.\ Barthwal (2010, Thm 5.4.4: conflict freedom on
-  reachable states suffices) and Jourdan et al. (2012, Thm 4: validator
-  soundness); the item-relative walk replaces their single-anchor comparison,
+  deterministic.  Cf.\ Barthwal \<^cite>\<open>\<open>Thm.~5.4.4\<close> in "barthwal2010-thesis-cfl-hol4"\<close> (conflict freedom on
+  reachable states suffices) and Jourdan et al. \<^cite>\<open>\<open>Sect.~3.3\<close> in "jourdan2012-validating-lr1"\<close> (the
+  completeness validator); the item-relative walk replaces their single-anchor comparison,
   which the test grammar \<open>xag\<close> refutes for the pooled machine.  The index
   the driver consulted is the top of the tracked stack, so the check at that
   one index covers both candidates.\<close>

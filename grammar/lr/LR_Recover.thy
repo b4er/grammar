@@ -1,3 +1,5 @@
+(* Author: Basil Fürer, Claude *)
+
 theory LR_Recover
   imports LR_Diag
 begin
@@ -11,14 +13,14 @@ text \<open>A rejected word is rewritten into one that parses, and the verified 
   rewriter, and \<open>p_recover\<close>. The tree of a rewritten word is a tree of that word:
   \<open>p.sound\<close> is the whole story, and nothing is proved about the rewriter.
 
-  The rewriter follows Menhir's \<open>error\<close> token. At a stop, it pops the stack to a
+  The rewriter follows the \<open>error\<close> token of ocamlyacc \<^cite>\<open>\<open>Sect.~17.4.4\<close> in "leroy2026-ocaml-manual"\<close>. At a stop, it pops the stack to a
   configuration that can shift the error token, skips the input until the parser
   can continue after that token, and replaces the tokens popped and skipped by one
   error token. Popped entries give the input they cover by the number of their
   tokens. Then it starts over on the new word, for the next error.
 
   Where no error token fits, or the grammar has none, it searches for a repair
-  sequence as in CPCT+ (Diekmann and Tratt 2020): tokens inserted, deleted and
+  sequence as in CPCT+ \<^cite>\<open>"diekmann2020-dont-panic"\<close>: tokens inserted, deleted and
   kept. See \<open>rcpct\<close>.\<close>
 
 subsection \<open>A plan\<close>
@@ -132,20 +134,22 @@ definition rsplice :: \<open>'t \<Rightarrow> rplan \<Rightarrow> ('m, 'ch, 't) 
 
 subsection \<open>Repair sequences\<close>
 
-text \<open>The search of Diekmann and Tratt (2020, Fig. 6, Sect. 5) over configurations
+text \<open>The search of \<^cite>\<open>\<open>Fig.~6, Sect.~5\<close> in "diekmann2020-dont-panic"\<close> over configurations
   \<open>'c\<close>, for the configuration after the last shift. A node holds a configuration,
   the input left, the number of tokens kept in a row and the repair so far, last
   step first. Keeping a token costs 0, inserting or deleting one costs 1, and a
-  delete is not followed by an insert (Fig. 6, line 12). A node succeeds at the
+  delete is not followed by an insert (Fig.~6, line~12). A node succeeds at the
   end of the input if that is accepted, or after \<open>rnshifts\<close> tokens kept.
+  \<open>rnshifts\<close> is their \<open>Nshifts\<close>, 3 as in Corchuelo et al.
+  \<^cite>\<open>\<open>Sect.~4.1\<close> in "diekmann2020-dont-panic"\<close>.
 
-  Their reduction-only step (CR Shift 3) is not needed: \<^const>\<open>ro_adv\<close> runs from
+  Their reduction-only step (CR Shift 3, Fig.~7) is not needed: \<^const>\<open>ro_adv\<close> runs from
   the configuration after the last shift with the terminal as lookahead, so it does
   the reductions that terminal licenses. Reductions it does not license would give
   a word the parser rejects, and this search rewrites words.
 
-  Compatible nodes are merged (their Sect. 5.2), see \<open>rkey\<close>. HOL has no clock,
-  so a budget of nodes replaces their timeout (Sect. 5.4): \<open>rnodes\<close> nodes for
+  Compatible nodes are merged \<^cite>\<open>\<open>Sect.~5.2\<close> in "diekmann2020-dont-panic"\<close>, see \<open>rkey\<close>. HOL has no clock,
+  so a budget of nodes replaces their timeout \<^cite>\<open>\<open>Sect.~5.4\<close> in "diekmann2020-dont-panic"\<close>: \<open>rnodes\<close> nodes for
   the whole word, so that several stops do not add up. It counts the nodes searched,
   which take most of the time of a repair, and merged nodes are free. An inserted
   terminal takes the column of the token it stands in front of if it fits there,
@@ -181,9 +185,9 @@ definition rnbrs :: \<open>('c, 't) rops \<Rightarrow> 't list \<Rightarrow> nat
              (case ro_adv ops c x of None \<Rightarrow> [] | Some c' \<Rightarrow> [(c', xs', Suc n, RKeep # os)],
               ins @ [(c, xs', 0, RDel (fst x) # os)])))\<close>
 
-text \<open>Fig. 6 gives a node of a key already seen the same future at no less cost, so
+text \<open>In the search of \<^cite>\<open>\<open>Fig.~6\<close> in "diekmann2020-dont-panic"\<close>, a node of a key already seen has the same future at no less cost, so
   it is dropped, and the first in the search stays: the search picks one repair, so
-  it needs no parent pointer trees. A key is that of Sect. 5.2: the configuration, the
+  it needs no parent pointer trees. A key is that of \<^cite>\<open>\<open>Sect.~5.2\<close> in "diekmann2020-dont-panic"\<close>: the configuration, the
   input left, the tokens kept in a row, and whether the repair ends in a delete. It
   adds the inserted terminals of \<open>av\<close>, as they count in the ranking.\<close>
 
@@ -205,7 +209,7 @@ definition rkey :: \<open>'t list \<Rightarrow> ('c, 't) rnode \<Rightarrow> 'c 
 
 text \<open>All nodes of one cost: the budget left, the nodes of the next cost, the
   successes in the order of the search, and the keys seen. Their complete set is
-  the point of Sect. 5.1, so the level is finished after the first one. If the
+  the point of \<^cite>\<open>\<open>Sect.~5.1\<close> in "diekmann2020-dont-panic"\<close>, so the level is finished after the first one. If the
   budget runs out the successes so far stand.\<close>
 
 fun rlevel :: \<open>('c, 't) rops \<Rightarrow> 't list \<Rightarrow> 't list \<Rightarrow> nat \<Rightarrow> nat \<Rightarrow> ('c, 't) rnode list \<Rightarrow>
@@ -240,8 +244,8 @@ fun rcost :: \<open>nat \<Rightarrow> ('c, 't) rops \<Rightarrow> 't list \<Righ
 | \<open>rcost (Suc f) ops ts av ke b cur vs = (case rlevel ops ts av ke b cur [] [] vs of
      (b', nx, ok, vs') \<Rightarrow> if ok \<noteq> [] \<or> nx = [] then (b', ok) else rcost f ops ts av ke b' nx vs')\<close>
 
-text \<open>The ranking of Sect. 5.3: how far parsing continues, up to \<^const>\<open>rntry\<close>
-  tokens, then fewer inserted terminals of \<open>av\<close> (\<open>%avoid_insert\<close>, Sect. 7.3), then
+text \<open>The ranking of \<^cite>\<open>\<open>Sect.~5.3\<close> in "diekmann2020-dont-panic"\<close>: how far parsing continues, up to \<^const>\<open>rntry\<close>
+  tokens, then fewer inserted terminals of \<open>av\<close> (\<open>%avoid_insert\<close> \<^cite>\<open>\<open>Sect.~7.3\<close> in "diekmann2020-dont-panic"\<close>), then
   the first in the search, where they choose at random.\<close>
 
 fun rreach :: \<open>('c, 't) rops \<Rightarrow> nat \<Rightarrow> 'c \<Rightarrow> ('t \<times> nat) list \<Rightarrow> nat \<Rightarrow> nat\<close> where
@@ -300,7 +304,7 @@ fun rapply :: \<open>(('t, 'ch, 'm) token_scheme \<Rightarrow> 't \<Rightarrow> 
 subsection \<open>The rewriter\<close>
 
 text \<open>The tokens that must be shifted after an error token before the next error
-  is reported, as in Bison and Menhir. A stop before that is recovered from in the
+  is reported, as the three tokens of ocamlyacc \<^cite>\<open>\<open>Sect.~17.4.4\<close> in "leroy2026-ocaml-manual"\<close>. A stop before that is recovered from in the
   same way, but it is taken for a consequence of the last recovery. A repair needs
   no such quiet: it succeeded by keeping \<^const>\<open>rnshifts\<close> tokens or at the end.\<close>
 

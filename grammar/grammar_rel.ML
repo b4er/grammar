@@ -1,3 +1,5 @@
+(* Author: Basil Fürer, Claude *)
+
 (* the definitions behind a grammar, continued: the inductive relation family
    (one definition per strongly connected component) with its language theorem;
    Grammar_Defs is the whole package, the grammar constant and the decoders
@@ -58,13 +60,13 @@ fun is_indent_insensitive (gram: Grammar_Common.grammar) =
   forall (fn {rhs, ...}: Grammar_Common.prod => forall (fn (_, a) => a = Any) rhs)
     (#prods gram);
 
-fun ch_span_typ chT = Type (\<^type_name>\<open>Token.span_ext\<close>, [chT, \<^typ>\<open>unit\<close>]);
+fun ch_span_typ chT = Type (\<^type_name>\<open>TIGER_Token.span_ext\<close>, [chT, \<^typ>\<open>unit\<close>]);
 
 (* \<open>\<lparr>tok = t, span = sp, \<dots> = m\<rparr>\<close>: the relation quantifies over the record
    extension \<open>m\<close> of every token, so it is stated for any client extension *)
 fun mk_token_ext tokT chT moreT =
-  let val tokenT = Type (\<^type_name>\<open>Token.token_ext\<close>, [tokT, chT, moreT]) in
-    Const (\<^const_name>\<open>Token.token.token_ext\<close>,
+  let val tokenT = Type (\<^type_name>\<open>TIGER_Token.token_ext\<close>, [tokT, chT, moreT]) in
+    Const (\<^const_name>\<open>TIGER_Token.token.token_ext\<close>,
       tokT --> ch_span_typ chT --> moreT --> tokenT)
   end;
 
@@ -470,7 +472,7 @@ fun gen_define_relation gram_t gram_th (gram: Grammar_Common.grammar) lthy =
         val defined' = defined @ (map pred_of comp ~~ #preds res);
       in ((comp, idxs, res), (defined', lthy')) end;
     val (comp_results, (_, lthy)) =
-      timed "Inductive.add_inductive" (fold_map define_comp comps) ([], lthy);
+      timed \<^unchecked_name>\<open>Inductive.add_inductive\<close> (fold_map define_comp comps) ([], lthy);
 
     (* the predicates, and the intros and inducts in the order of the grammar *)
     val pred_tab =
@@ -737,7 +739,7 @@ fun gen_define_relation gram_t gram_th (gram: Grammar_Common.grammar) lthy =
                    (* the token parameters only *)
                    (filter (fn (_, ct) =>
                       (case Thm.typ_of_cterm ct of
-                        Type (\<^type_name>\<open>Token.token_ext\<close>, _) => true
+                        Type (\<^type_name>\<open>TIGER_Token.token_ext\<close>, _) => true
                       | _ => false)) ps)))
                ctxt')
           THEN (REPEAT_DETERM o HEADGOAL)

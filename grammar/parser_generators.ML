@@ -1,3 +1,5 @@
+(* Author: Basil Fürer, Dmitriy Traytel, Claude *)
+
 (* the generic `parser` command.  A backend contributes the body of the parse
    constant, its sound/complete theorems and tactics for its own premises;
    the decoder totality premise is discharged here (Parser_Dec_Total), the
@@ -571,7 +573,7 @@ fun define_entry options all_errors (gen_name, gen) (shared: shared) (parse_b, g
             SOME hook => SOME hook
           | NONE =>
               error ("parser " ^ quote (Binding.name_of parse_b) ^ ": grammar " ^ quote gram_name ^
-                " has precedence declarations; import TIGER_LR.LR_Prec_Parse")));
+                " has precedence declarations; import TIGER_Grammar.LR_Prec_Parse")));
     val (prec_out, lthy) =
       (case prec_hook of
         NONE => (NONE, lthy)

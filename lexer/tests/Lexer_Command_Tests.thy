@@ -1,5 +1,7 @@
+(* Author: Basil Fürer, Claude *)
+
 theory Lexer_Command_Tests
-  imports Codepoint_Tests Lexer_Command.Lexer_Command
+  imports Codepoint_Tests TIGER_Lexer.Lexer_Command
 begin
 
 section \<open>Tests of the lexer command\<close>
@@ -11,14 +13,14 @@ text \<open>The rules of \<open>Codepoint_Tests\<close> as a @{command lexer}. W
 
 lexer cp :: \<open>tok\<close>
   where
-    lower = \<open>[a-z \<alpha>-\<kappa> \<mu>-\<omega>]\<close> | upper = \<open>[A-Z Α-Ρ \<Sigma>-\<Omega>]\<close>
+    lower = \<open>[a-z\<alpha>-\<kappa>\<mu>-\<omega>]\<close> | upper = \<open>[A-ZΑ-Ρ\<Sigma>-\<Omega>]\<close>
   | idchar = \<open>lower | upper | [0-9_']\<close>
   | many(p) = \<open>p p*\<close>
   rules
     \<open>lower idchar*\<close> \<Rightarrow> LIDENT
   | \<open>upper idchar*\<close> \<Rightarrow> UIDENT
   | \<open>many([\u{2190}-\u{22FF}])\<close> \<Rightarrow> OP
-  | \<open>many([\ \n])\<close> \<Rightarrow> skip
+  | \<open>many([ \n])\<close> \<Rightarrow> skip
 
 lemma \<open>cp.spec () =
   [\<lparr>match = Times (Pred cp.lower) (Star (Pred cp.idchar)),
@@ -57,10 +59,13 @@ lexer cmt :: \<open>ctok\<close>
   rules
     \<open>letter+\<close> \<Rightarrow> Word
   | \<open>[0-9]+\<close> \<Rightarrow> Num
-  | \<open>[\ \n]+\<close> \<Rightarrow> skip
+  | \<open>[ \n]+\<close> \<Rightarrow> skip
   | "(*" \<Rightarrow> skip, push Comment
   | <Comment> (
-      "(*" \<Rightarrow> skip, push Comment | "*)" \<Rightarrow> skip, pop | \<open>[^*(]+ | [*(]\<close> \<Rightarrow> skip)
+      "(*" \<Rightarrow> skip, push Comment
+    | "*)" \<Rightarrow> skip, pop
+    | \<open>[^*(]+ | [*(]\<close> \<Rightarrow> skip
+  )
 
 lemma \<open>cmt.spec Comment =
   [\<lparr>match = Times (Pred [(0x28, 0x28)]) (Pred [(0x2A, 0x2A)]),
@@ -104,7 +109,7 @@ lexer ops :: \<open>otok\<close>
   modes \<open>omode\<close>
   after after_tok
   rules
-    \<open>[a-z]+\<close> \<Rightarrow> Id | "(" \<Rightarrow> LParen | ")" \<Rightarrow> RParen | \<open>[\ ]+\<close> \<Rightarrow> skip
+    \<open>[a-z]+\<close> \<Rightarrow> Id | "(" \<Rightarrow> LParen | ")" \<Rightarrow> RParen | \<open>[ ]+\<close> \<Rightarrow> skip
   | <Start> "-" \<Rightarrow> Neg
   | <AfterOperand> "-" \<Rightarrow> Minus
 

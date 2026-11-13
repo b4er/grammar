@@ -1,3 +1,5 @@
+(* Author: Basil Fürer, Claude *)
+
 (* the tables of a lexer spec by evaluation, one per distinct rule list, the executable
    lexer on them and its correctness theorem, and a warning for each rule that wins in no
    state of a mode *)
@@ -180,7 +182,7 @@ fun accepted lit =
       |> distinct (op =)
   | _ => raise TERM ("accepted", [lit]));
 
-(* flex's "rule cannot be matched", per mode: a rule of the group that wins in no state of
+(* flex's "rule cannot be matched" \<^cite>\<open>\<open>Sect.~23\<close> in "paxson2026-flex-manual"\<close>, per mode: a rule of the group that wins in no state of
    its table, with the modes of the group *)
 fun unreachable ctxt positions (rules, vs) lit =
   let

@@ -1,3 +1,5 @@
+(* Author: Basil Fürer, Dmitriy Traytel, Claude *)
+
 theory LR_Trie
   imports LR_Int
 begin
@@ -7,7 +9,13 @@ section \<open>Tables as binary tries\<close>
 text \<open>A table from naturals to values as a binary trie: the path to a key is
   the sequence of bits of its binary numeral, least significant first. With
   binary naturals (\<^verbatim>\<open>Code_Binary_Nat\<close>) a lookup follows the constructors of
-  the numeral and involves no arithmetic, and a trie is static data.\<close>
+  the numeral and involves no arithmetic, and a trie is static data.
+
+  The datatype is the binary trie of Verbatim++
+  \<^cite>\<open>\<open>Sects.~5.1--5.2\<close> in "egolf2022-verbatim-plus-plus"\<close>, where a memo is keyed by the
+  length of a suffix as a binary number and a lookup reads the key bit by bit, comparing no
+  keys.  Okasaki and Gill \<^cite>\<open>"okasaki1998-integer-maps"\<close> treat integer maps as binary
+  tries (Patricia trees); the trie here is a plain one, with one node per bit of the key.\<close>
 
 datatype 'a ntrie = NTip | NNode \<open>'a option\<close> \<open>'a ntrie\<close> \<open>'a ntrie\<close>
 
@@ -482,7 +490,7 @@ lemma dparse_via_trie_tables:
 proof -
   have wf: \<open>lwf2 L\<close> using lwf2_mk_ltabs lt by blast
   have c: \<open>jctl (jtabs_of L) = isctl (itabs_of L)\<close>
-    by (rule ext) (case_tac x, simp only: jctl_eq[OF wf])
+    by (rule ext) (simp only: split_paired_all jctl_eq[OF wf])
   have f: \<open>jfinal (jtabs_of L) = isfinal (itabs_of L)\<close> by (rule ext) (rule jfinal_eq)
   show ?thesis
     unfolding dparse_via_index_tables[OF static st gt rt pcs pfs i0 lt refl] jt[symmetric] c f ..

@@ -1,5 +1,7 @@
+(* Author: Basil Fürer, Claude *)
+
 theory Recover_Tests
-  imports TIGER_Tests.Diag_Tests TIGER_Tests.Parser_Check
+  imports TIGER_Grammar_Tests.Diag_Tests TIGER_Grammar_Tests.Parser_Check
 begin
 
 section \<open>Recovery from rejected words\<close>

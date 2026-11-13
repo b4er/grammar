@@ -1,10 +1,12 @@
-theory Codepoints
-  imports Tables "HOL-Library.Code_Target_Nat"
+(* Author: Basil Fürer, Claude *)
+
+theory TIGER_Codepoints
+  imports TIGER_Tables "HOL-Library.Code_Target_Nat"
 begin
 
 section \<open>The codepoint instance\<close>
 
-text \<open>Codepoints are natural numbers, as in CaraML's \<open>ustring\<close>, and the range is
+text \<open>Codepoints are natural numbers, and the range is
   \<open>0 .. 0x10FFFF\<close>. Surrogates are in the range: excluding them is the business of the
   decoder. As \<^typ>\<open>nat\<close> is unbounded, character classes are no Boolean algebra on it
   (the negation of a class holds of no number above the range). We read a class at the

@@ -1,5 +1,7 @@
+(* Author: Basil Fürer, Dmitriy Traytel, Claude *)
+
 theory LR_Parser
-  imports TIGER_LR.LR_Plain TIGER_LR.LR_Sparse TIGER_LR.LR_Vec TIGER_LR.LR_Diag TIGER_LR.LR_Recover Grammar_Command
+  imports TIGER_Grammar.LR_Plain TIGER_Grammar.LR_Sparse TIGER_Grammar.LR_Vec TIGER_Grammar.LR_Diag TIGER_Grammar.LR_Recover Grammar_Command
   keywords "parser_error_states" :: diag
 begin
 
@@ -10,7 +12,7 @@ text \<open>The backend (\<^text>\<open>Grammar_Command\<close>) defines each ge
   \<open>ast\<close> to the grammar's carrier type.  Soundness of the composition is
   unconditional modulo \<^const>\<open>fresh_name\<close> (discharged by construction of
   \<open>Shn\<close>); completeness additionally needs \<^const>\<open>mdet\<close>
-  (Barthwal 2010, Thm 5.4.4; Jourdan et al. 2012, Thm 3), which
+  \<^cite>\<open>\<open>Thm.~5.4.4\<close> in "barthwal2010-thesis-cfl-hol4"\<close> \<^cite>\<open>\<open>Thm.~3\<close> in "jourdan2012-validating-lr1"\<close>, which
   \<^text>\<open>rlalr_sufficient\<close> reduces to \<^emph>\<open>evaluation\<close> of the static
   check \<^const>\<open>rlalr_conflicts\<close>, so the emitted \<open>.complete\<close> theorem is
   hypothesis-free whenever the check computes \<open>[]\<close>.\<close>
@@ -89,7 +91,14 @@ text \<open>\<^text>\<open>dparse_complete\<close> only says that the driver ret
   end-of-input reduce cell of another production.  Together with
   \<^const>\<open>mdet\<close> it pins the driver's answer to \<^term>\<open>erase pt\<close>
   (\<^text>\<open>dparse_complete_exact\<close>), and every parse tree of a word erases to
-  the same ast (\<^text>\<open>ast_of_unique\<close>).\<close>
+  the same ast (\<^text>\<open>ast_of_unique\<close>).
+
+  The uniqueness argument is that of Jourdan et al.
+  \<^cite>\<open>\<open>Sect.~3.4, Thm.~4\<close> in "jourdan2012-validating-lr1"\<close>: the driver is a function, and
+  by completeness it returns the value of each of two parses, so the two agree.  Barthwal
+  \<^cite>\<open>\<open>Sect.~5.4.5, Thm.~5.4.5\<close> in "barthwal2010-thesis-cfl-hol4"\<close> proves that a grammar
+  whose SLR machine is built without conflicts is unambiguous.  Here uniqueness holds up
+  to erasure: two trees of a word give the same ast.\<close>
 
 subsection \<open>The tree stack along an action list\<close>
 
@@ -436,7 +445,7 @@ lemma recover_no_error_ast_generic:
 section \<open>Explaining the reports\<close>
 
 text \<open>Diagnostics for the \<^theory_text>\<open>parser\<close> command, after Menhir's
-  \<open>.conflicts\<close> file: for every pair the checks return, the items of the
+  \<open>.conflicts\<close> file \<^cite>\<open>\<open>Sect.~6\<close> in "pottier2026-menhir-manual"\<close>: for every pair the checks return, the items of the
   state, a symbol path from the start state with a sample input
   (nonterminals expanded to shortest terminal words), the conflicting
   actions with the column relation each imposes on the lookahead against the
@@ -733,7 +742,7 @@ text \<open>What \<^file>\<open>lr_reach.ML\<close> reads, as numbers, so that t
   the automaton, the pairs of a state and a terminal whose action depends on the columns, and
   the driver as a function on words of terminals with their columns. Nothing here is
   proved, and nothing depends on it but warnings and the skeleton of an \<open>errors\<close> block
-  (Pottier, CC 2016; pottier2016-lr1-reachability).
+  \<^cite>\<open>\<open>Sect.~3\<close> in "pottier2016-lr1-reachability"\<close>.
 
   The states hold kernels, so a shift counts as decided by the columns if its terminal
   has a relation anywhere in the grammar. A reduction does if its cell has a relation,
@@ -753,7 +762,7 @@ definition lr_dep :: \<open>('n, 't) is_cfg \<Rightarrow> 't list \<Rightarrow> 
        if \<tau> \<noteq> WAny \<or> Nt (fst pr) \<in> set ss
        then [i, case t of None \<Rightarrow> length ts | Some a \<Rightarrow> ntidx ts a] else []) r)) rt))\<close>
 
-text \<open>\<open>on_error_reduce\<close> (Pottier, Reachability and error diagnosis in LR(1) parsers, Sect. 4):
+text \<open>\<open>on_error_reduce\<close> \<^cite>\<open>\<open>Sect.~4\<close> in "pottier2016-lr1-reachability"\<close>:
   in the second run on a rejected word a state reduces a production of a named
   nonterminal on every terminal it has no action on. The production is the lowest one the
   state can reduce. The parser and its tables stay as they are.\<close>

@@ -1,6 +1,6 @@
 chapter PureCake
 
-session PureCake_Bench = TIGER_LR +
+session PureCake_Bench = TIGER_Grammar +
   options [document = false]
   theories
     Pure_AST

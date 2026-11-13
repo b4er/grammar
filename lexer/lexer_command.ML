@@ -1,3 +1,5 @@
+(* Author: Basil Fürer, Claude *)
+
 (* the lexer command: the classes and regexes of a lexer spec, its mode type and its
    rules as definitions, with markup for the names *)
 

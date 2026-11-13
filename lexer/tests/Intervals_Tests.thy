@@ -1,10 +1,12 @@
+(* Author: Basil Fürer, Claude *)
+
 theory Intervals_Tests
-  imports Lexer.Tables
+  imports TIGER_Lexer.TIGER_Tables
 begin
 
 section \<open>Tests of character classes\<close>
 
-text \<open>The class operations and minterms of \<^theory>\<open>Lexer.Intervals\<close> on two
+text \<open>The class operations and minterms of \<^theory>\<open>TIGER_Lexer.TIGER_Intervals\<close> on two
   instances: natural numbers below a bound and bytes.\<close>
 
 subsection \<open>Natural numbers below a bound\<close>
@@ -34,7 +36,7 @@ value \<open>char_conj (char_neg [(CHR ''0'', CHR ''9'')]) [(CHR ''+'', CHR ''@'
 value \<open>sat_cls (char_conj [(CHR ''a'', CHR ''z'')] (char_neg char_top))\<close>
 
 text \<open>The minterms of \<open>\w\<close> and \<open>\d\<close> are \<open>\d\<close>, \<open>\w \<and> \<not> \d\<close> and \<open>\<not> \w\<close>
-  \<^cite>\<open>\<open>Ex. 1\<close> in "dantoni2014-minimization-symbolic-automata"\<close>. Each character
+  \<^cite>\<open>\<open>Ex.~1\<close> in "dantoni2014-minimization-symbolic-automata"\<close>. Each character
   lies in exactly one minterm, whose signature is its own:\<close>
 
 definition char_w where
@@ -54,7 +56,7 @@ definition minterms_ok :: \<open>char cls list \<Rightarrow> bool\<close> where
 
 value \<open>minterms_ok [char_w, char_d]\<close>
 
-text \<open>The bit predicates of \<^cite>\<open>\<open>Ex. 2\<close> in "dantoni2014-minimization-symbolic-automata"\<close>
+text \<open>The bit predicates of \<^cite>\<open>\<open>Ex.~2\<close> in "dantoni2014-minimization-symbolic-automata"\<close>
   on bytes give one minterm per byte value below \<open>2\<^sup>k\<close>:\<close>
 
 definition char_bit :: \<open>nat \<Rightarrow> char cls\<close> where

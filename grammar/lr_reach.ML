@@ -1,7 +1,9 @@
+(* Author: Basil Fürer, Claude *)
+
 (* which states of an LR automaton can detect an error, each with a shortest sentence
-   (Pottier, CC 2016, Sect. 3; pottier2016-lr1-reachability): the facts and edge facts of
-   Fig. 4 by the algorithm of Fig. 5, with the filter of Sect. 3.4, then the Dijkstra
-   of Sect. 3.5 over (state, lookahead).  Nothing here is proved, and nothing downstream
+   \<^cite>\<open>\<open>Sect.~3\<close> in "pottier2016-lr1-reachability"\<close>: the facts and edge facts of
+   Fig.~4 by the algorithm of Fig.~5, with the filter of Sect.~3.4, then the Dijkstra
+   of Sect.~3.5 over (state, lookahead).  Nothing here is proved, and nothing downstream
    depends on it but warnings and the skeleton of an errors block.
 
    The input is a plain view of the tables, so another backend only provides that view.
@@ -81,7 +83,9 @@ type result =
   reached: vertex list};
 
 (* sentences share their parts; a sentence of a fact is mostly a concatenation of two
-   sentences that are already there *)
+   sentences that are already there.  Pottier hash-conses whole sentences
+   \<^cite>\<open>\<open>Sect.~3.3\<close> in "pottier2016-lr1-reachability"\<close>; here they share as trees of
+   concatenations *)
 datatype sentence =
   Eps
 | One of int
@@ -155,7 +159,8 @@ struct
     end;
 end;
 
-(* a queue of lists by priority, at most a few dozen in practice *)
+(* a queue of lists by priority, at most a few dozen in practice; an array indexed by
+   priority, as in \<^cite>\<open>\<open>Sect.~3.3\<close> in "pottier2016-lr1-reachability"\<close> *)
 structure Queue =
 struct
   type 'a T = {cells: 'a list array Unsynchronized.ref, at: int Unsynchronized.ref};
@@ -230,7 +235,7 @@ fun run {hide, seconds} ({nstates, nterms, nnts, start, finals, trans, prods, re
     val _ =
       Vector.appi (fn (p, (a, _)) => Array.update (by_lhs, a, p :: Array.sub (by_lhs, a))) prodv;
 
-    (* the stars of Sect. 2.4 as tries *)
+    (* the stars of \<^cite>\<open>\<open>Sect.~2.4\<close> in "pottier2016-lr1-reachability"\<close> as tries *)
     val count = Unsynchronized.ref 0;
     val store = Unsynchronized.ref (Array.array (4096, NONE: node option));
     fun node i = the (Array.sub (! store, i));
@@ -368,7 +373,7 @@ fun run {hide, seconds} ({nstates, nterms, nnts, start, finals, trans, prods, re
     val _ = List.app (fn r => List.app (fn z => push r z Eps) zs) roots;
     val complete = loop 1;
 
-    (* Sect. 3.5 *)
+    (* \<^cite>\<open>\<open>Sect.~3.5\<close> in "pottier2016-lr1-reachability"\<close> *)
     val nv = nstates * zcount;
     val dist = Array.array (nv, ~1);
     val from = Array.array (nv, NONE: (int * sentence) option);
@@ -472,7 +477,7 @@ fun confirm {driver, nterms, widths, columns, seconds} targets =
                 hits := Inttab.map_default (k, {state = st, look = tk, word = word})
                   (fn h => if shorter h then {state = st, look = tk, word = word} else h) (!hits);
           in tk <> nterms orelse idx < length w end
-      | _ => raise Fail "LR_Reach.confirm");
+      | _ => raise Fail \<^unchecked_name>\<open>LR_Reach.confirm\<close>);
     fun found s z = Inttab.defined (!hits) (key (s, z));
     val node_limit = 512;
     (* a run on columns, memoised: targets share their prefixes *)

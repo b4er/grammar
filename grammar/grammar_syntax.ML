@@ -1,3 +1,5 @@
+(* Author: Basil Fürer, Claude *)
+
 (* outer syntax of the grammar command: the specification as written (terminals,
    precedence declarations, productions with semantic actions), handed to
    Grammar_Command.grammar_cmd *)

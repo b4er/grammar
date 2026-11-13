@@ -1,3 +1,5 @@
+(* Author: Basil Fürer, Claude *)
+
 theory LR_Sparse
   imports LR_Fast "HOL-Library.IArray"
 begin
@@ -19,7 +21,9 @@ text \<open>A closure of \<^const>\<open>dclosure\<close> has one slot per produ
   \<^emph>\<open>coherent\<close>: items with the same production and dot have the same anchor
   set (\<open>coh\<close>), so a production that has a non-empty complete item has only
   non-empty ones.  Coherence needs the start production to be no production of
-  the grammar, which \<^const>\<open>fresh_name\<close> provides.\<close>
+  the grammar, which \<^const>\<open>fresh_name\<close> provides.  Items known to have the same
+  indentation set can share one representation \<^cite>\<open>\<open>Sect.~5.8\<close> in "adams2013"\<close>; coherence is
+  such a fact, used here only to drop empty items.\<close>
 
 subsection \<open>Productions as records\<close>
 
@@ -965,10 +969,10 @@ definition sgood :: \<open>'n list \<Rightarrow> ('n, 't) sym \<Rightarrow> bool
   \<open>sgood ns X \<longleftrightarrow> (\<forall>Y. symid ns Y = symid ns X \<longrightarrow> Y = X)\<close>
 
 lemma sgood_Tm [simp]: \<open>sgood ns (Tm a)\<close>
-  unfolding sgood_def by (intro allI impI, case_tac Y) auto
+  unfolding sgood_def by (auto elim: symid.elims)
 
 lemma sgood_Nt: \<open>B \<in> set ns \<Longrightarrow> sgood ns (Nt B)\<close>
-  unfolding sgood_def by (intro allI impI, case_tac Y) (auto simp: ntidx_eq_iff)
+  unfolding sgood_def by (auto elim!: symid.elims simp: eq_commute[of \<open>ntidx ns B\<close>] ntidx_eq_iff)
 
 lemma swf_ConsD:
   assumes \<open>swf ps ((r, m, R) # xs)\<close>
@@ -1210,8 +1214,8 @@ proof -
   let ?f = \<open>\<lambda>k. SReduce (s_recs T !! k)\<close> and ?g = \<open>\<lambda>(r :: ('n, 't) prec, m :: nat, R :: indrep). rpid r\<close>
   have sub: \<open>set (map ?f (filter P (remdups (map ?g (filter Q CL))))) \<subseteq> ?f ` ?g ` set CL\<close> for P Q
     unfolding set_map
-    by (rule image_mono, rule order_trans[OF filter_is_subset], simp only: set_remdups set_map,
-        rule image_mono, rule filter_is_subset)
+    by (intro image_mono order_trans[OF filter_is_subset])
+      (simp only: set_remdups set_map, intro image_mono filter_is_subset)
   have S: \<open>set (sdcands T i cells CL gc) \<subseteq> insert SShift (?f ` ?g ` set CL)\<close>
   proof (cases \<open>Xs = []\<close>)
     case False

@@ -1,3 +1,5 @@
+(* Author: Basil Fürer, Claude *)
+
 theory Same_Terms
   imports Regression_Tests Prec_Surface_Tests
 begin
@@ -55,7 +57,7 @@ fun parse text =
 fun check ctxt =
   let
     val thy = Proof_Context.theory_of ctxt;
-    val path = Path.append (Resources.master_directory thy) (Path.basic "same_terms.txt");
+    val path = Path.append (Resources.master_directory thy) \<^path>\<open>same_terms.txt\<close>;
     val es = entries thy;
   in
     if Config.get ctxt update orelse not (File.exists path) then

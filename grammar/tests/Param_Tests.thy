@@ -1,5 +1,7 @@
+(* Author: Basil Fürer, Claude *)
+
 theory Param_Tests
-  imports TIGER_LR.LR_Prec_Parse Parser_Check
+  imports TIGER_Grammar.LR_Prec_Parse Parser_Check
 begin
 
 section \<open>Templates and operators\<close>
@@ -307,7 +309,7 @@ grammar pmsg_sep =
     T :: \<open>nat\<close> = MKw Sep1(pmsg.Item, ",") ";"? \<Rightarrow> \<open>\<lambda>_ xs. length xs\<close>
 
 ML \<open>
-  \<^assert> ((nts_of \<^theory> "pmsg_sep" |> map #1) = ["T", "Sep1(pmsg.Item, ,)", ";?", "pmsg.Item"]);
+  \<^assert> ((nts_of \<^theory> "pmsg_sep" |> map #1) = ["T", "Sep1(pmsg.Item, ,)", ";?", \<^unchecked_name>\<open>pmsg.Item\<close>]);
 \<close>
 
 parser (diagnostics) pmsg_sep_diag for pmsg_sep
@@ -328,7 +330,7 @@ grammar (relation) pcomp =
 
 ML \<open>
   \<^assert> ((nts_of \<^theory> "pcomp" |> map #1) =
-    ["Top", "pblk.File+", "pblk.File", "pblk.Block(Decl)", "pblk.Decl+", "pblk.Decl",
+    ["Top", "pblk.File+", \<^unchecked_name>\<open>pblk.File\<close>, "pblk.Block(Decl)", "pblk.Decl+", \<^unchecked_name>\<open>pblk.Decl\<close>,
      "pblk.Sep1(Decl, ;)"]);
   \<^assert> ((nts_of \<^theory> "pcomp" |> map #2) =
     ["Top", "pblk_File_list1", "pblk_File", "pblk_Block_Decl", "pblk_Decl_list1", "pblk_Decl",
@@ -346,7 +348,7 @@ grammar ptmpl =
 
 ML \<open>
   \<^assert> ((nts_of \<^theory> "ptmpl" |> map #1) =
-    ["Top", "Item", "Block(Item)", "Item+", "Sep1(Item, ;)", "pblk.Decl", "pblk.Block(Decl)",
+    ["Top", "Item", "Block(Item)", "Item+", "Sep1(Item, ;)", \<^unchecked_name>\<open>pblk.Decl\<close>, "pblk.Block(Decl)",
      "pblk.Decl+", "pblk.Sep1(Decl, ;)"]);
 \<close>
 

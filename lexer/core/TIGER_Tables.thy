@@ -1,12 +1,14 @@
-theory Tables
-  imports Driver Intervals "HOL-Library.Char_ord" "HOL-Library.IArray"
+(* Author: Basil Fürer, Claude *)
+
+theory TIGER_Tables
+  imports TIGER_Driver TIGER_Intervals "HOL-Library.Char_ord" "HOL-Library.IArray"
 begin
 
 section \<open>Tables by evaluation\<close>
 
 text \<open>The generator runs once, at definition time. Its output becomes nullary constants
   whose code equations \<open>eval\<close> produces, and the run-time lexer only indexes them
-  \<^cite>\<open>\<open>Sect. 17\<close> in "paxson2026-flex-manual"\<close>. The transition and acceptance
+  \<^cite>\<open>\<open>Sect.~17\<close> in "paxson2026-flex-manual"\<close>. The transition and acceptance
   tables are immutable arrays (\<^typ>\<open>'a iarray\<close>). On the interval instance a character
   finds its minterm by binary search in the intervals of all minterms, sorted by their
   lower ends.

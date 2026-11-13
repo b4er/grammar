@@ -1,5 +1,7 @@
+(* Author: Basil Fürer, Claude *)
+
 theory Ast_Tests
-  imports TIGER_LR.LR_Prec_Parse Parser_Check
+  imports TIGER_Grammar.LR_Prec_Parse Parser_Check
 begin
 
 section \<open>\<^theory_text>\<open>parser (ast)\<close>: the tree, no decoder\<close>
@@ -51,10 +53,10 @@ thm ae_parse.sound ae_parse.complete ae_parse.sound_lang ae_parse.complete_lang
   ae_parse_recover.no_error
 
 ML_val \<open>
-  \<^assert> (nprems \<^context> "ae_parse.sound" = 1);
-  \<^assert> (nprems \<^context> "ae_parse.complete" = 2);
-  \<^assert> (nprems \<^context> "ae_parse.complete_lang" = 1);
-  \<^assert> (nprems \<^context> "ae_parse_recover.no_error" = 2);
+  \<^assert> (nprems \<^context> \<^unchecked_name>\<open>ae_parse.sound\<close> = 1);
+  \<^assert> (nprems \<^context> \<^unchecked_name>\<open>ae_parse.complete\<close> = 2);
+  \<^assert> (nprems \<^context> \<^unchecked_name>\<open>ae_parse.complete_lang\<close> = 1);
+  \<^assert> (nprems \<^context> \<^unchecked_name>\<open>ae_parse_recover.no_error\<close> = 2);
 \<close>
 
 parser_check \<open>map_option shape (ae_parse (toks 0 [AId, APlus, AId])) =
@@ -88,8 +90,8 @@ grammar ab =
 parser (ast, no_diagnostics) ab_parse for ab
 
 ML_val \<open>
-  \<^assert> (nprems \<^context> "ab_parse.sound" = 1);
-  \<^assert> (nprems \<^context> "ab_parse.complete" = 2);
+  \<^assert> (nprems \<^context> \<^unchecked_name>\<open>ab_parse.sound\<close> = 1);
+  \<^assert> (nprems \<^context> \<^unchecked_name>\<open>ab_parse.complete\<close> = 2);
 \<close>
 
 text \<open>The column decides the tree: the second \<open>AId\<close> in column 0 is a declaration of
@@ -120,8 +122,8 @@ parser (ast) ap_parse for ap
 thm ap_parse.sound ap_parse.complete
 
 ML_val \<open>
-  \<^assert> (nprems \<^context> "ap_parse.sound" = 1);
-  \<^assert> (nprems \<^context> "ap_parse.complete" = 3);
+  \<^assert> (nprems \<^context> \<^unchecked_name>\<open>ap_parse.sound\<close> = 1);
+  \<^assert> (nprems \<^context> \<^unchecked_name>\<open>ap_parse.complete\<close> = 3);
 \<close>
 
 parser_check \<open>map_option shape (ap_parse (toks 0 [ANum, APlus, ANum, AStar, ANum])) =
