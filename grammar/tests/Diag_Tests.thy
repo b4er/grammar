@@ -50,12 +50,12 @@ ML \<open>
       fun eqns c =
         map (XML.content_of o YXML.parse_body o Pretty.unformatted_string_of)
           (Code.pretty_cert thy (Code.get_cert ctxt [] c));
-      val from = raw_explode plain;
+      val from = map String.str (String.explode plain);
       fun go [] = []
         | go (cs as c :: rest) =
             if is_prefix (op =) from cs then diag :: go (drop (length from) cs)
             else c :: go rest;
-      val rename = implode o go o raw_explode;
+      val rename = implode o go o map String.str o String.explode;
       val ps = consts_of plain;
       val ds = consts_of diag;
       val renamed = map rename ps;

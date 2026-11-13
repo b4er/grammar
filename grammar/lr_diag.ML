@@ -157,7 +157,7 @@ fun template_holes text =
           if Symbol.is_ascii_digit d then (ord d - ord "0") :: go rest else go (d :: rest)
       | go (_ :: rest) = go rest
       | go [] = [];
-  in go (raw_explode text) end;
+  in go (map String.str (String.explode text)) end;
 
 (** coverage of the error states \<^cite>\<open>\<open>Sect.~3.5\<close> in "pottier2016-lr1-reachability"\<close>, LR_Reach **)
 

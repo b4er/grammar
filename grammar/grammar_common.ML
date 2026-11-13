@@ -419,7 +419,7 @@ fun put_prec prec
 
 (* the name a nonterminal of a restricted grammar comes from: \<open>orig_name\<close> on strings *)
 fun orig_string s =
-  let val cs = rev (raw_explode s) in
+  let val cs = rev (map String.str (String.explode s)) in
     if member (op =) cs "#" then implode (rev (drop 1 (drop_prefix (fn c => c <> "#") cs)))
     else s
   end;
