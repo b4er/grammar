@@ -42,7 +42,7 @@ jobs:
         run: |
           sudo apt-get update -qq
           sudo apt-get install -y -qq --no-install-recommends \
-            texlive-luatex texlive-latex-extra texlive-plain-generic texlive-science texlive-fonts-recommended > /dev/null
+            texlive-luatex texlive-latex-extra texlive-plain-generic texlive-bibtex-extra texlive-science texlive-fonts-recommended > /dev/null
 
       - name: Fetch Isabelle dev + AFP devel
         run: |
