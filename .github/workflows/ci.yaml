@@ -35,7 +35,8 @@ jobs:
       - name: Setup toolchain
         run: |
           apt-get update -qq
-          apt-get install -y -qq --no-install-recommends ca-certificates curl git > /dev/null
+          apt-get install -y -qq --no-install-recommends ca-certificates curl git \
+            texlive-luatex texlive-latex-extra texlive-science texlive-fonts-recommended > /dev/null
           echo /home/isabelle/Isabelle/bin >> "$GITHUB_PATH"
 
       - uses: actions/checkout@v7
