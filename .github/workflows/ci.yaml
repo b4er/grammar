@@ -66,10 +66,12 @@ jobs:
           restore-keys: heaps-${{env.AFP}}-
 
       # every session of every bench/*/thys, each exporting to bench/*/isabelle
+      # timeout_scale: the bench sessions run next to the tests on 2 cores, so a cold
+      # cache can double the tests' wall time (TIGER_Grammar_Tests hit its 1200 s)
       - name: Build sessions
         run: |
           dirs=(); for d in bench/*/thys; do dirs+=(-D "$d"); done
-          isabelle build -b -e -v -j 2 -o document=pdf -o document_output="$PWD/output" \
+          isabelle build -b -e -v -j 2 -o timeout_scale=2 -o document=pdf -o document_output="$PWD/output" \
             -d . -d afp/thys "${dirs[@]}" \
             TIGER TIGER_Grammar_Tests TIGER_Grammar_Tests_Slow TIGER_Lexer_Tests
 
