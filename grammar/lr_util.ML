@@ -8,6 +8,14 @@ struct
 
 fun timed lthy label = Grammar_Common.timed lthy "parser" label;
 
+(* `fresh_name G Shn` by the simplifier on its list form (fresh_name_list_all), falling
+   back to fresh_name_def; on fresh_name_def alone it takes minutes for a large grammar *)
+fun fresh_name_tac ctxt gram_def =
+  SOLVED' (resolve_tac ctxt @{thms fresh_name_list_all[THEN iffD2]} THEN'
+    simp_tac (ctxt |> Simplifier.add_simps [@{thm is_cfg.make_def}, gram_def])) ORELSE'
+  SOLVED' (asm_full_simp_tac
+    (ctxt |> Simplifier.add_simps (@{thms fresh_name_def is_cfg.make_def} @ [gram_def])));
+
 fun dest_tuple 1 t = [t]
   | dest_tuple n t =
       let val (a, b) = HOLogic.dest_prod t in a :: dest_tuple (n - 1) b end;

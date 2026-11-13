@@ -351,11 +351,10 @@ fun lr_discharge
     fun paths_term () =
       Syntax.check_term ctxt (Term.list_comb (Const (\<^const_name>\<open>explain_paths\<close>, dummyT),
         [gram_t, Grammar_Common.fresh_term gram shn, conflicts_term \<^const_name>\<open>rlalr_conflicts\<close>]));
-    val fresh_simps = @{thms fresh_name_def is_cfg.make_def} @ [gram_def_th];
     val fresh_tac =
       (case #restricted arts of
         SOME {fresh, ...} => resolve_tac ctxt [fresh]
-      | NONE => SOLVED' (asm_full_simp_tac (ctxt |> Simplifier.add_simps fresh_simps)));
+      | NONE => fresh_name_tac ctxt gram_def_th);
     (* the reports walk the tables, so they read the productions the tables have *)
     val report_gram = Lazy.lazy (fn () => Grammar_Common.report_grammar gram);
 

@@ -114,8 +114,22 @@ fun lr_build_parse
     val key_words =
       if null on_error_reduce andalso Config.get lthy parser_errors_budget <= 0
       then map #3 err_words else [];
-    val ((checks_l, checks_th), given_keys) =
-      if null key_words then (eval_lit lthy true "(checks)" checks_t, NONE)
+    (* without errors-block keys the simple driver's values come with the checks:
+       \<^const>\<open>lr_checks_simple\<close> takes them from the same tables, the token numbers
+       and, under parser_literal_tables, its start state and action table *)
+    val literal = Config.get lthy parser_literal_tables;
+    val ((checks_l, checks_th), given_keys, simple_given) =
+      if null key_words then
+        let
+          val (all_l, all_th) =
+            eval_lit lthy true "(checks)"
+              (app \<^const_name>\<open>lr_checks_simple\<close>
+                [gram_t, shn_t, ctrs_t, if literal then \<^term>\<open>True\<close> else \<^term>\<open>False\<close>]);
+          val (checks_l, simple_l) = HOLogic.dest_prod all_l;
+        in
+          ((checks_l, @{thm lr_checks_simple_checks} OF [all_th]), NONE,
+           SOME (dest_option simple_l, all_th))
+        end
       else
         let
           val keys_t =
@@ -131,11 +145,11 @@ fun lr_build_parse
                 val ks = map ints (HOLogic.dest_list kl);
               in
                 ((cl, prove_lit lthy "(checks)" checks_t cl),
-                 if length ks = length key_words then SOME ks else NONE)
+                 if length ks = length key_words then SOME ks else NONE, NONE)
               end
           | Exn.Exn exn =>
               if Exn.is_interrupt exn then Exn.reraise exn
-              else (eval_lit lthy true "(checks)" checks_t, NONE))
+              else (eval_lit lthy true "(checks)" checks_t, NONE, NONE))
         end;
     val checks_eq = @{thm trans} OF [@{thm lr_checks_eq} RS @{thm sym}, checks_th];
     val (rlalr_l, acc_l, ii_l, wany_l, vnums_l) =
@@ -149,22 +163,53 @@ fun lr_build_parse
 
     (* the simple driver of LR_Simple applies when the grammar has no layout
        annotations, the determinism check is empty, and no reduce cell that
-       names a token constrains its width; its further value is evaluated now
-       as well *)
+       names a token constrains its width; its further values came with the
+       checks, else they are evaluated now *)
     val simple =
       is_const \<^const_name>\<open>True\<close> ii_l andalso
       is_const \<^const_name>\<open>List.list.Nil\<close> rlalr_l andalso
       is_const \<^const_name>\<open>True\<close> wany_l;
-    val simple_checks =
-      if simple then
-        SOME (eval_lit lthy false "(simple checks)"
-          (app \<^const_name>\<open>lr_simple_checks\<close> [gram_t, shn_t, ctrs_t]))
-      else NONE;
+    fun simple_fail () = raise Fail "lr_build_parse: simple checks literal";
+    val (simple_checks, simple_tabs) =
+      if not simple then
+        (case simple_given of
+          SOME (SOME _, _) => simple_fail ()
+        | _ => (NONE, NONE))
+      else
+        (case simple_given of
+          SOME (SOME v, all_th) =>
+            let val (nums_l, tabs_l) = HOLogic.dest_prod v in
+              (SOME (nums_l, @{thm lr_checks_simple_nums} OF [all_th]),
+               Option.map (fn lits_l => (lits_l, @{thm lr_checks_simple_tables} OF [all_th]))
+                 (dest_option tabs_l))
+            end
+        | SOME (NONE, _) => simple_fail ()
+        | NONE =>
+            (SOME (eval_lit lthy false "(simple checks)"
+               (app \<^const_name>\<open>lr_simple_checks\<close> [gram_t, shn_t, ctrs_t])),
+             if literal
+             then
+               SOME (eval_lit lthy false "(simple tables)"
+                 (app \<^const_name>\<open>lr_simple_tables\<close> [gram_t, shn_t]))
+             else NONE));
 
-    (* under parser_literal_tables the six tables are evaluated literals, from one
-       evaluation of \<^const>\<open>lr_tables\<close> *)
+    (* under parser_literal_tables the tables the code names are evaluated literals:
+       the six tables, from one evaluation of \<^const>\<open>lr_tables\<close>, and for the simple
+       driver its action table, from \<^const>\<open>lr_simple_tables\<close>.  Without diagnostics,
+       which name the six, the simple driver's code names only its start state, also
+       from \<^const>\<open>lr_simple_tables\<close>, and lr_tables is not evaluated *)
+    val simple_lits =
+      if literal andalso simple then
+        (case simple_tabs of
+          SOME (lits_l, lits_th) =>
+            split_tuple_eq 2 (@{thm trans} OF [@{thm lr_simple_tables_eq} RS @{thm sym}, lits_th])
+              ~~ dest_tuple 2 lits_l
+        | NONE => simple_fail ())
+      else [];
     val literal_tabs =
-      if Config.get lthy parser_literal_tables then
+      if literal andalso simple andalso not (member (op =) options "diagnostics")
+      then SOME [("i0", hd simple_lits)]
+      else if literal then
         let
           val (bundle_l, bundle_th) =
             eval_lit lthy false "(tables)" (app \<^const_name>\<open>lr_tables\<close> [gram_t, shn_t]);
@@ -206,7 +251,9 @@ fun lr_build_parse
       (case literal_tabs of
         NONE => define_term parse_bind nm rhs lthy
       | SOME tab =>
-          define_literal parse_bind nm (the (AList.lookup (op =) tab nm)) prior lthy);
+          (case AList.lookup (op =) tab nm of
+            SOME lit => define_literal parse_bind nm lit prior lthy
+          | NONE => define_term parse_bind nm rhs lthy));
     val define = define_term parse_bind;
 
     val (states_eq, lthy) = table "states" states_t [] lthy;
@@ -236,14 +283,13 @@ fun lr_build_parse
     fun simple_tables (nums_l, nums_th) lthy =
       let
         val arts = Grammar_Common.artifacts_of gram;
-        val fresh_simps = @{thms fresh_name_def is_cfg.make_def} @ [#gram_def arts];
         val fresh_th =
           (case #restricted arts of
             SOME {fresh, ...} => fresh
           | NONE =>
               Goal.prove_sorry lthy [] []
                 (HOLogic.mk_Trueprop (app \<^const_name>\<open>fresh_name\<close> [gram_t, shn_t]))
-                (fn {context, ...} => HEADGOAL (asm_full_simp_tac (context |> Simplifier.add_simps fresh_simps))));
+                (fn {context, ...} => HEADGOAL (fresh_name_tac context (#gram_def arts))));
         val static_th =
           @{thm sstaticI} OF
             [ii_eq RS @{thm eqTrueE}, rlalr_eq, fresh_th, wany_eq RS @{thm eqTrueE}];
@@ -276,7 +322,12 @@ fun lr_build_parse
               val (ktabs_eq, lthy) =
                 define "ktabs" (app' lthy \<^const_name>\<open>ktabs_of\<close> [rhs_of_eq jtabs_eq]) lthy;
               val (ptabs_eq, lthy) =
-                define "ptabs" (app' lthy \<^const_name>\<open>ptabs_of\<close> [rhs_of_eq ktabs_eq]) lthy;
+                (case simple_lits of
+                  [_, lit] =>
+                    define_literal parse_bind "ptabs" lit
+                      [states_eq, gtab_eq, redtab_eq, pc_eq, pf_eq, ltabs_eq, jtabs_eq, ktabs_eq]
+                      lthy
+                | _ => define "ptabs" (app' lthy \<^const_name>\<open>ptabs_of\<close> [rhs_of_eq ktabs_eq]) lthy);
               (* the evaluated \<^const>\<open>lr_simple_checks\<close> over the constants: its let
                  chain unfolded, then every table term rewritten to its constant *)
               val nums_e =
@@ -322,8 +373,6 @@ fun lr_build_parse
           let
             fun nts (p: Grammar_Common.prod) =
               #lhs p :: map_filter (fn (Grammar_Common.RN n, _) => SOME n | _ => NONE) (#rhs p);
-            val fresh_simps =
-              @{thms fresh_name_def is_cfg.make_def} @ [#gram_def (Grammar_Common.artifacts_of gram)];
           in
             if not (#nat_labels gram) andalso
               (shn = start_nt orelse member (op =) (maps nts (#prods gram)) shn)
@@ -333,7 +382,8 @@ fun lr_build_parse
             else
               SOME (Goal.prove_sorry lthy [] []
                 (HOLogic.mk_Trueprop (app \<^const_name>\<open>fresh_name\<close> [gram_t, shn_t]))
-                (fn {context, ...} => HEADGOAL (asm_full_simp_tac (context |> Simplifier.add_simps fresh_simps))))
+                (fn {context, ...} =>
+                  HEADGOAL (fresh_name_tac context (#gram_def (Grammar_Common.artifacts_of gram)))))
           end;
       in
         (* without a cycle the driver keeps no history: linear on reduce chains.  With
