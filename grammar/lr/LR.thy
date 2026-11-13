@@ -1,4 +1,4 @@
-(* Author: Basil Fürer, Dmitriy Traytel, Claude *)
+(* Author: Basil Fürer, Dmitriy Traytel *)
 
 theory LR
   imports TIGER_Grammar_Model.Indentation_Sensitive "HOL-Library.While_Combinator" "HOL-Library.RBT"

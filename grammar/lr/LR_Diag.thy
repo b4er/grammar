@@ -1,4 +1,4 @@
-(* Author: Basil Fürer, Claude *)
+(* Author: Basil Fürer *)
 
 theory LR_Diag
   imports LR_Plain LR_Sparse LR_Vec

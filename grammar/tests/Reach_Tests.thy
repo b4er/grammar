@@ -1,4 +1,4 @@
-(* Author: Basil Fürer, Claude *)
+(* Author: Basil Fürer *)
 
 theory Reach_Tests
   imports TIGER_Grammar.LR_Parser Parser_Check
@@ -69,7 +69,7 @@ parser (diagnostics) p for g
   errors
     LP RP \<Rightarrow> \<open>m\<close>
 
-ML_val \<open>\<^assert> (brute \<^context> \<^const_name>\<open>p\<close> 8 = (28, 254))\<close>
+ML \<open>\<^assert> (brute \<^context> \<^const_name>\<open>p\<close> 8 = (28, 254))\<close>
 
 parser_error_states p
 parser_error_states (token) p
@@ -84,7 +84,7 @@ fun skeleton_of ctxt name by_token =
   in LR_Diagnostics.skeleton (#spelled cov) by_token (filter_out (LR_Diagnostics.covered (#keys cov)) hits) end;
 \<close>
 
-ML_val \<open>
+ML \<open>
   \<^assert> (skeleton_of \<^context> \<^const_name>\<open>p\<close> false = cat_lines
     ["errors",
      "    \"X\" \"X\" \<Rightarrow> \<open>TODO state 3\<close>",
@@ -113,7 +113,7 @@ grammar g2 =
 
 parser (diagnostics) p2 for g2
 
-ML_val \<open>\<^assert> (brute \<^context> \<^const_name>\<open>p2\<close> 9 = (66, 47))\<close>
+ML \<open>\<^assert> (brute \<^context> \<^const_name>\<open>p2\<close> 9 = (66, 47))\<close>
 
 text \<open>The error token: states only it reaches are no error states.\<close>
 
@@ -128,7 +128,7 @@ grammar g3 =
 
 parser (diagnostics) p3 for g3 recover Err3
 
-ML_val \<open>\<^assert> (brute \<^context> \<^const_name>\<open>p3\<close> 9 = (11, 53))\<close>
+ML \<open>\<^assert> (brute \<^context> \<^const_name>\<open>p3\<close> 9 = (11, 53))\<close>
 
 parser_error_states p3
 
@@ -146,7 +146,7 @@ parser (diagnostics) p_full for g
   | "Num" "RP" \<Rightarrow> \<open>a ')' without '('\<close>
   | \<open>[]\<close> \<Rightarrow> \<open>the input is empty\<close>
 
-ML_val \<open>\<^assert> (length (#keys (the (LR_Backend.get_coverage \<^context> \<^const_name>\<open>p_full\<close>))) = 9)\<close>
+ML \<open>\<^assert> (length (#keys (the (LR_Backend.get_coverage \<^context> \<^const_name>\<open>p_full\<close>))) = 9)\<close>
 
 text \<open>The same with a key for each pair, and a key that does not count.\<close>
 
@@ -155,7 +155,7 @@ parser (diagnostics) p_key for g
     LP RP (token) \<Rightarrow> \<open>m\<close>
   | LP RP (shift) \<Rightarrow> \<open>n\<close>
 
-ML_val \<open>
+ML \<open>
   let val c = the (LR_Backend.get_coverage \<^context> \<^const_name>\<open>p_key\<close>)
   in \<^assert> (length (#keys c) = 1 andalso #shifts c = 1) end\<close>
 
@@ -216,7 +216,7 @@ fun brute_columns ctxt name len =
   in (length listed, length (!seen), subtract (op =) listed (!seen)) end;
 \<close>
 
-ML_val \<open>\<^assert> (#3 (brute_columns \<^context> \<^const_name>\<open>py_p\<close> 6) = [])\<close>
+ML \<open>\<^assert> (#3 (brute_columns \<^context> \<^const_name>\<open>py_p\<close> 6) = [])\<close>
 
 section \<open>\<open>on_error_reduce\<close>\<close>
 
@@ -231,7 +231,7 @@ parser (diagnostics) py_o for py
   errors
     "while"@1 Id@7 ":"@8 Id@3 ":"@9 \<Rightarrow> \<open>after a suite\<close>
 
-thm py_o_diag.Inr_iff
+ML \<open>val _ = @{thms py_o_diag.Inr_iff}\<close>
 
 definition py_w where \<open>py_w = [col 1 While, col 7 Id, col 8 Colon, col 3 Id, col 9 Colon]\<close>
 

@@ -1,4 +1,4 @@
-(* Author: Basil Fürer, Claude *)
+(* Author: Basil Fürer *)
 
 theory LR_Prec_Parse
   imports LR_Parser TIGER_Grammar.LR_Prec

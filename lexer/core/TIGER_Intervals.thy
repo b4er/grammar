@@ -1,4 +1,4 @@
-(* Author: Basil Fürer, Claude *)
+(* Author: Basil Fürer *)
 
 theory TIGER_Intervals
   imports TIGER_Pred_Algebra

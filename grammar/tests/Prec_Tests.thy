@@ -1,4 +1,4 @@
-(* Author: Basil Fürer, Claude *)
+(* Author: Basil Fürer *)
 
 theory Prec_Tests
   imports TIGER_Grammar.LR_Prec_Parse Parser_Check

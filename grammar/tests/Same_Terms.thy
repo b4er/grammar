@@ -1,4 +1,4 @@
-(* Author: Basil Fürer, Claude *)
+(* Author: Basil Fürer *)
 
 theory Same_Terms
   imports Regression_Tests Prec_Surface_Tests

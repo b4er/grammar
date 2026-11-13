@@ -1,4 +1,4 @@
-(* Author: Basil Fürer, Claude *)
+(* Author: Basil Fürer *)
 
 theory Lexer_Command
   imports TIGER_Pattern TIGER_Rules

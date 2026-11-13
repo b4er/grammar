@@ -1,4 +1,4 @@
-(* Author: Basil Fürer, Claude *)
+(* Author: Basil Fürer *)
 
 (* the definitions behind a grammar, continued: the inductive relation family
    (one definition per strongly connected component) with its language theorem;

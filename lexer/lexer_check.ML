@@ -1,4 +1,4 @@
-(* Author: Basil Fürer, Claude *)
+(* Author: Basil Fürer *)
 
 (* the test command lexer_check (grammar's tests/parser_check.ML, renamed): closed boolean
    terms evaluated in the ML compiler with the code of their constants compiled once per

@@ -1,4 +1,4 @@
-(* Author: Basil Fürer, Claude *)
+(* Author: Basil Fürer *)
 
 theory TIGER_Codepoints
   imports TIGER_Tables "HOL-Library.Code_Target_Nat"

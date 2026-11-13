@@ -1,4 +1,4 @@
-(* Author: Basil Fürer, Dmitriy Traytel, Claude *)
+(* Author: Basil Fürer, Dmitriy Traytel *)
 
 theory LR_Parser
   imports TIGER_Grammar.LR_Plain TIGER_Grammar.LR_Sparse TIGER_Grammar.LR_Vec TIGER_Grammar.LR_Diag TIGER_Grammar.LR_Recover Grammar_Command

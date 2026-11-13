@@ -1,4 +1,4 @@
-(* Author: Basil Fürer, Dmitriy Traytel, Claude *)
+(* Author: Basil Fürer, Dmitriy Traytel *)
 
 (* shared by the grammar and parser commands: the surface syntax types,
    the grammar record and its morphism, name checks and registration,

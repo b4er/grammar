@@ -73,7 +73,7 @@ jobs:
           dirs=(); for d in bench/*/thys; do dirs+=(-D "$d"); done
           isabelle build -b -e -v -j 2 -o timeout_scale=2 -o document=pdf -o document_output="$PWD/output" \
             -d . -d afp/thys "${dirs[@]}" \
-            TIGER TIGER_Grammar_Tests TIGER_Grammar_Tests_Slow TIGER_Lexer_Tests
+            TIGER_Lexer_Parser TIGER_Grammar_Tests TIGER_Grammar_Tests_Slow TIGER_Lexer_Tests
 
       - if: ${{!cancelled() && steps.heaps.outputs.cache-hit != 'true'}}
         uses: actions/cache/save@v6

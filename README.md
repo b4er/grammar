@@ -6,20 +6,20 @@ grammars in Isabelle/HOL. The grammars follow Adams,
 
 ## Documentation
 
-The documentation a single manual for both lexer and grammar/parser commands,
-[`output/document.pdf`](output/document.pdf), built by the session `TIGER`:
+The documentation is a single manual for both lexer and grammar/parser commands,
+[`output/document.pdf`](output/document.pdf), built by the session `TIGER_Lexer_Parser`:
 
 ```shell
-isabelle build -o document=pdf -d . TIGER
+isabelle build -o document=pdf -d . TIGER_Lexer_Parser
 ```
 
 ## Sessions
 
 The sessions are defined in `ROOT`. Lexer and parser generator share only
-`TIGER_Token`; neither imports the other, and `TIGER` imports both.
+`TIGER_Token`; neither imports the other, and `TIGER_Lexer_Parser` imports both.
 
 ```
-TIGER_Token ─┬─ TIGER_Grammar_Model ── TIGER_Grammar ─┬─ TIGER
+TIGER_Token ─┬─ TIGER_Grammar_Model ── TIGER_Grammar ─┬─ TIGER_Lexer_Parser
              └─ TIGER_Lexer ──────────────────────────┘
 ```
 
@@ -30,9 +30,9 @@ TIGER_Token ─┬─ TIGER_Grammar_Model ── TIGER_Grammar ─┬─ TIGER
 | `TIGER_Grammar` | `grammar/`, `grammar/lr/` | the LR tables, drivers and static condition (`lr/`, proofs only); the `grammar` and `parser` commands, their ML, the backend |
 | `TIGER_Grammar_Tests` | `grammar/tests/` | one theory per feature, a few minutes in batch |
 | `TIGER_Grammar_Tests_Slow` | `grammar/tests/slow/` | recovery and repair (`Recover_Tests`, `Repair_Tests`, `Repair_Code_Tests`) |
-| `TIGER_Lexer` | `lexer/`, `lexer/core/` | regexes, the lexer spec, the table generator and the runner (`core/`); the `pattern`, `lexer` and `lexer_check` commands; see `lexer/README.md` |
+| `TIGER_Lexer` | `lexer/`, `lexer/core/` | regexes, the lexer spec, the table generator and the runner (`core/`); the `pattern`, `lexer` and `lexer_check` commands (manual, Sect. 2) |
 | `TIGER_Lexer_Tests` | `lexer/tests/` | the lexer's tests |
-| `TIGER` | `.` | the manual, `TIGER.thy`, on both packages |
+| `TIGER_Lexer_Parser` | `.` | the manual, `TIGER.thy`, on both packages |
 
 The tests are split by cost: the parsers with recovery and repair are in
 `TIGER_Grammar_Tests_Slow`, which runs once per change of the error path. `TIGER_Grammar_Tests`

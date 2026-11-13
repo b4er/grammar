@@ -1,4 +1,4 @@
-(* Author: Basil Fürer, Claude *)
+(* Author: Basil Fürer *)
 
 (* the pattern sublanguage of the lexer commands: a lexer over the symbols of a
    cartouche, a parser, and elaboration to nat cls and nat cls rexp terms *)

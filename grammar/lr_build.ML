@@ -1,4 +1,4 @@
-(* Author: Basil Fürer, Claude *)
+(* Author: Basil Fürer *)
 
 (* the LR backend, the build step: the parse body over the table constants, the
    diagnostics and recovery constants, and the static checks *)

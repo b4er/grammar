@@ -1,4 +1,4 @@
-(* Author: Basil Fürer, Claude *)
+(* Author: Basil Fürer *)
 
 theory TIGER_Spec
   imports TIGER_Regex TIGER_Lexed

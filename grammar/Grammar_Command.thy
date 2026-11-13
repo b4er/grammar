@@ -1,4 +1,4 @@
-(* Author: Basil Fürer, Dmitriy Traytel, Claude *)
+(* Author: Basil Fürer, Dmitriy Traytel *)
 
 theory Grammar_Command
   imports TIGER_Grammar_Model.Grammar_Base

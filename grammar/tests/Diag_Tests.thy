@@ -1,4 +1,4 @@
-(* Author: Basil Fürer, Claude *)
+(* Author: Basil Fürer *)
 
 theory Diag_Tests
   imports TIGER_Grammar.LR_Parser Parser_Check
@@ -69,7 +69,7 @@ ML \<open>
     end
 \<close>
 
-ML_val \<open>same_code \<^context> "lay_plain" "lay_parse" ["_coverage", "_diag", "_info", "_probe", "_render", "_terminals"]\<close>
+ML \<open>same_code \<^context> "lay_plain" "lay_parse" ["_coverage", "_diag", "_info", "_probe", "_render", "_terminals"]\<close>
 
 lemma \<open>lay_parse_diag w = Inr x \<longleftrightarrow> lay_S w x\<close>
   using lay_parse_diag.Inr_iff lay_parse.sound lay_parse.complete by blast
@@ -157,7 +157,7 @@ ML \<open>
     end
 \<close>
 
-ML_val \<open>
+ML \<open>
   check_oracle \<^context> "lay"
     \<^term>\<open>brute_mismatches lay_parse lay_parse_diag [LX, LNum, LPlus, LSemi, LLP, LRP] [LX, LRP] 4 6\<close>
 \<close>
@@ -270,7 +270,7 @@ parser_check \<open>(case br_parse_diag [tu 1 BLB ''['', tu 2 BInt ''1'', tu 3 B
       [tu 1 BLB ''['', tu 2 BInt ''1'', tu 3 BRP '')''] of Some (DStuck _ _ sh) \<Rightarrow> sh))
   | Inr _ \<Rightarrow> False)\<close>
 
-ML_val \<open>
+ML \<open>
   check_oracle \<^context> "br"
     \<^term>\<open>brute_mismatches br_parse br_parse_diag [BInt, BPlus, BComma, BLP, BRP, BLB, BRB]
       [BInt, BRP, BRB] 4 6\<close>
@@ -419,7 +419,7 @@ parser (diagnostics) py_parse2 for py_suite
 text \<open>The option leaves the code equations of the set-anchored parser and its
   tables as they are.\<close>
 
-ML_val \<open>same_code \<^context> "py_plain" "py_parse2" ["_coverage", "_diag", "_info", "_probe", "_render", "_terminals"]\<close>
+ML \<open>same_code \<^context> "py_plain" "py_parse2" ["_coverage", "_diag", "_info", "_probe", "_render", "_terminals"]\<close>
 
 text \<open>The one pass of the vector driver agrees with the parser and a second run of
   the diagnosis on the sparse driver on every word up to length \<open>4\<close> over tokens at
@@ -521,21 +521,21 @@ ML \<open>
     end
 \<close>
 
-ML_val \<open>
+ML \<open>
   check_cols \<^context> "do"
     \<^term>\<open>col_check (sdstep_dact do_parse2_stab) (sgfinal do_parse2_stab)
       do_parse2_sinit do_parse2_sclos do_parse2_i0
       [DDo, DId] [] [0, 1, 2, 4, 6] 4 12\<close>
 \<close>
 
-ML_val \<open>
+ML \<open>
   check_cols \<^context> "do, nested"
     \<^term>\<open>col_check (sdstep_dact do_parse2_stab) (sgfinal do_parse2_stab)
       do_parse2_sinit do_parse2_sclos do_parse2_i0
       [DDo, DId] [(DDo, 1), (DDo, 4)] [1, 3, 4, 5, 7, 9] 3 14\<close>
 \<close>
 
-ML_val \<open>
+ML \<open>
   check_cols \<^context> "hask_case"
     \<^term>\<open>col_check (sdstep_dact hask_case_parse2_stab) (sgfinal hask_case_parse2_stab)
       hask_case_parse2_sinit hask_case_parse2_sclos hask_case_parse2_i0
@@ -543,7 +543,7 @@ ML_val \<open>
       [(HCase, 1), (HId, 6), (HOf, 8)] [2, 3, 4, 9] 3 14\<close>
 \<close>
 
-ML_val \<open>
+ML \<open>
   check_cols \<^context> "py_suite"
     \<^term>\<open>col_check (sdstep_dact py_parse2_stab) (sgfinal py_parse2_stab)
       py_parse2_sinit py_parse2_sclos py_parse2_i0
@@ -551,7 +551,7 @@ ML_val \<open>
       [(PWhile, 1), (PId, 7), (PColon, 8)] [0, 2, 3, 4, 6] 3 14\<close>
 \<close>
 
-ML_val \<open>
+ML \<open>
   check_cols \<^context> "iswim"
     \<^term>\<open>col_check (sdstep_dact iswim_parse2_stab) (sgfinal iswim_parse2_stab)
       iswim_parse2_sinit iswim_parse2_sclos iswim_parse2_i0
@@ -559,7 +559,7 @@ ML_val \<open>
       [] [0, 2, 4] 3 10\<close>
 \<close>
 
-ML_val \<open>
+ML \<open>
   check_cols \<^context> "iswim, where"
     \<^term>\<open>col_check (sdstep_dact iswim_parse2_stab) (sgfinal iswim_parse2_stab)
       iswim_parse2_sinit iswim_parse2_sclos iswim_parse2_i0
@@ -851,7 +851,7 @@ text \<open>The added constants are \<open>_messages\<close> and \<open>_probe\<
 
 parser (no_diagnostics) m_br_plain for m_br
 
-ML_val \<open>same_code \<^context> "m_br_plain" "m_br_parse"
+ML \<open>same_code \<^context> "m_br_plain" "m_br_parse"
   ["_coverage", "_diag", "_info", "_messages", "_probe", "_render", "_terminals"]\<close>
 
 text \<open>A layout grammar, on the vector driver: \<open>@\<close> gives a token's column, and

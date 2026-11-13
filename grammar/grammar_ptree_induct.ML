@@ -1,4 +1,4 @@
-(* Author: Basil Fürer, Dmitriy Traytel, Claude *)
+(* Author: Basil Fürer, Dmitriy Traytel *)
 
 (* induction over wf_ptree with one property per nonterminal, through a fixed
    selector P with one local equation per nonterminal:

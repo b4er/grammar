@@ -1,4 +1,4 @@
-(* Author: Basil Fürer, Claude *)
+(* Author: Basil Fürer *)
 
 theory LR_Sparse
   imports LR_Fast "HOL-Library.IArray"

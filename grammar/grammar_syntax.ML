@@ -1,4 +1,4 @@
-(* Author: Basil Fürer, Claude *)
+(* Author: Basil Fürer *)
 
 (* outer syntax of the grammar command: the specification as written (terminals,
    precedence declarations, productions with semantic actions), handed to

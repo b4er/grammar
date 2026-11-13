@@ -1,4 +1,4 @@
-(* Author: Basil Fürer, Claude *)
+(* Author: Basil Fürer *)
 
 theory Param_Tests
   imports TIGER_Grammar.LR_Prec_Parse Parser_Check
@@ -86,7 +86,7 @@ ML \<open>
   \<^assert> ((nts_of \<^theory> "popt" |> map #2) = ["S", "I", "J", "I_list1", "S_1", "J_opt"]);
 \<close>
 
-thm popt_def
+ML \<open>val _ = @{thms popt_def}\<close>
 
 parser popt_parse for popt
 
@@ -146,7 +146,7 @@ grammar (relation) pblk_hand =
   and
     DItems :: \<open>nat list\<close> = Decl \<Rightarrow> \<open>\<lambda>x. [x]\<close> | DItems ";" Decl \<Rightarrow> \<open>\<lambda>xs x. xs @ [x]\<close>
 
-thm pblk_def
+ML \<open>val _ = @{thms pblk_def}\<close>
 
 ML \<open>
   \<^assert> ((nts_of \<^theory> "pblk" |> map #1) =
@@ -183,8 +183,8 @@ parser_check \<open>pblk_hand_parse w_aligned = Some [1, 1]\<close>
 
 text \<open>The relation of an instance is the hand-written one.\<close>
 
-term pblk_Block_Decl
-thm pblk.intros
+ML \<open>val _ = \<^const_name>\<open>pblk_Block_Decl\<close>\<close>
+ML \<open>val _ = @{thms pblk.intros}\<close>
 
 
 subsection \<open>The prelude\<close>
@@ -337,7 +337,7 @@ ML \<open>
      "pblk_Sep1_Decl_x3B"]);
 \<close>
 
-thm pcomp.pblk_File_iff
+ML \<open>val _ = @{thms pcomp.pblk_File_iff}\<close>
 
 grammar ptmpl =
   tokens \<open>p_tok\<close>
@@ -374,7 +374,7 @@ fun rejected frag src =
       if String.isSubstring frag msg then () else error ("unexpected: " ^ msg));
 \<close>
 
-ML_val \<open>
+ML \<open>
   val _ = \<^assert> (is_none (command_error
     "grammar ok = tokens p_tok productions S :: \<open>nat list\<close> = List(I) and I :: nat = PId \<Rightarrow> \<open>\<lambda>_. 1\<close>"));
   val _ = rejected "Undefined template \"Lst\""

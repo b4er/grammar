@@ -1,4 +1,4 @@
-(* Author: Basil Fürer, Claude *)
+(* Author: Basil Fürer *)
 
 theory Recover_Tests
   imports TIGER_Grammar_Tests.Diag_Tests TIGER_Grammar_Tests.Parser_Check
@@ -42,9 +42,9 @@ parser (no_diagnostics) rc_plain for rc
 
 parser (diagnostics) rc_parse for rc recover RErr
 
-ML_val \<open>same_code \<^context> "rc_plain" "rc_parse" ["_coverage", "_diag", "_info", "_probe", "_recover", "_render", "_repair", "_terminals"]\<close>
+ML \<open>same_code \<^context> "rc_plain" "rc_parse" ["_coverage", "_diag", "_info", "_probe", "_recover", "_render", "_repair", "_terminals"]\<close>
 
-thm rc_parse_recover.clean rc_parse_recover.no_error
+ML \<open>val _ = @{thms rc_parse_recover.clean rc_parse_recover.no_error}\<close>
 
 text \<open>A good word goes through untouched.\<close>
 
@@ -114,7 +114,7 @@ text \<open>An entry: the facts are about the grammar of the entry.\<close>
 
 parser (diagnostics) rc_exp for rc (E) recover RErr
 
-thm rc_exp_recover.no_error
+ML \<open>val _ = @{thms rc_exp_recover.no_error}\<close>
 
 parser_check \<open>snd (rc_exp_recover (toks 0 [RNum, RPlus, RRP])) = Some (EAdd ENum EBad)\<close>
 
@@ -186,7 +186,7 @@ parser (no_diagnostics) ly_plain for ly
 
 parser (diagnostics) ly_parse for ly recover LErr
 
-ML_val \<open>same_code \<^context> "ly_plain" "ly_parse" ["_coverage", "_diag", "_info", "_probe", "_recover", "_render", "_repair", "_terminals"]\<close>
+ML \<open>same_code \<^context> "ly_plain" "ly_parse" ["_coverage", "_diag", "_info", "_probe", "_recover", "_render", "_repair", "_terminals"]\<close>
 
 definition lw where \<open>lw xs = map (\<lambda>(l, c, x). tr l c x) xs\<close>
 

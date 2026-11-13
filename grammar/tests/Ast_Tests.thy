@@ -1,4 +1,4 @@
-(* Author: Basil Fürer, Claude *)
+(* Author: Basil Fürer *)
 
 theory Ast_Tests
   imports TIGER_Grammar.LR_Prec_Parse Parser_Check
@@ -49,10 +49,9 @@ grammar (relation) ae =
 
 parser (ast) ae_parse for ae recover AErr and ae_t for ae (T)
 
-thm ae_parse.sound ae_parse.complete ae_parse.sound_lang ae_parse.complete_lang
-  ae_parse_recover.no_error
+ML \<open>val _ = @{thms ae_parse.sound ae_parse.complete ae_parse.sound_lang ae_parse.complete_lang ae_parse_recover.no_error}\<close>
 
-ML_val \<open>
+ML \<open>
   \<^assert> (nprems \<^context> \<^unchecked_name>\<open>ae_parse.sound\<close> = 1);
   \<^assert> (nprems \<^context> \<^unchecked_name>\<open>ae_parse.complete\<close> = 2);
   \<^assert> (nprems \<^context> \<^unchecked_name>\<open>ae_parse.complete_lang\<close> = 1);
@@ -72,10 +71,10 @@ text \<open>The decoding parser of the same grammar is unchanged.\<close>
 parser ae_value for ae
 
 parser_check \<open>ae_value (toks 0 [AId, APlus, AId]) = Some 2\<close>
-thm ae_value.sound
+ML \<open>val _ = @{thms ae_value.sound}\<close>
 
 parser_check \<open>map_option shape (ae_t (toks 0 [AId])) = Some (TN ''T'' [TL AId])\<close>
-thm ae_t.sound ae_t.complete
+ML \<open>val _ = @{thms ae_t.sound ae_t.complete}\<close>
 
 
 subsection \<open>Layout\<close>
@@ -89,7 +88,7 @@ grammar ab =
 
 parser (ast, no_diagnostics) ab_parse for ab
 
-ML_val \<open>
+ML \<open>
   \<^assert> (nprems \<^context> \<^unchecked_name>\<open>ab_parse.sound\<close> = 1);
   \<^assert> (nprems \<^context> \<^unchecked_name>\<open>ab_parse.complete\<close> = 2);
 \<close>
@@ -119,9 +118,9 @@ grammar ap =
 
 parser (ast) ap_parse for ap
 
-thm ap_parse.sound ap_parse.complete
+ML \<open>val _ = @{thms ap_parse.sound ap_parse.complete}\<close>
 
-ML_val \<open>
+ML \<open>
   \<^assert> (nprems \<^context> \<^unchecked_name>\<open>ap_parse.sound\<close> = 1);
   \<^assert> (nprems \<^context> \<^unchecked_name>\<open>ap_parse.complete\<close> = 3);
 \<close>

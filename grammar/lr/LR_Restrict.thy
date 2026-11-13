@@ -1,4 +1,4 @@
-(* Author: Basil Fürer, Claude *)
+(* Author: Basil Fürer *)
 
 theory LR_Restrict
   imports TIGER_Grammar_Model.Grammar_Base "HOL-Library.While_Combinator"

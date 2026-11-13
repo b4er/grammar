@@ -63,10 +63,10 @@ jobs:
       - name: Package entry
         run: |
           mkdir dist
-          git archive -o dist/TIGER.tar.gz --prefix=TIGER/ HEAD \
+          git archive -o dist/TIGER_Lexer_Parser.tar.gz --prefix=TIGER_Lexer_Parser/ HEAD \
             ROOT TIGER.thy document token lexer grammar
-          tar -xzf dist/TIGER.tar.gz -C dist
-          echo TIGER > dist/ROOTS
+          tar -xzf dist/TIGER_Lexer_Parser.tar.gz -C dist
+          echo TIGER_Lexer_Parser > dist/ROOTS
 
       - name: Check ROOT
         run: isabelle afp_check_roots -d afp/thys -D dist
@@ -86,9 +86,9 @@ jobs:
       - if: github.event_name != 'schedule'
         uses: actions/upload-artifact@v7
         with:
-          name: afp-entry-TIGER
+          name: afp-entry-TIGER_Lexer_Parser
           path: |
-            dist/TIGER.tar.gz
+            dist/TIGER_Lexer_Parser.tar.gz
             dist/output/*.pdf
           if-no-files-found: error
           retention-days: 90

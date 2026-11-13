@@ -1,5 +1,5 @@
 (*  Title:      tests/parser_check.ML
-    Author:     Basil Fürer, Claude
+    Author:     Basil Fürer
 
 The test command parser_check: a closed boolean term is evaluated in the ML
 compiler, like "by eval", but proves nothing.

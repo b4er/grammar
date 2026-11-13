@@ -1,4 +1,4 @@
-(* Author: Basil Fürer, Dmitriy Traytel, Claude *)
+(* Author: Basil Fürer, Dmitriy Traytel *)
 
 theory Regression_Tests
   imports TIGER_Grammar.LR_Parser Parser_Check
@@ -80,7 +80,7 @@ parser cyc_parse for cyc
 text \<open>The code equation runs on the action table over the states, and
   numbers the tokens by a case distinction.\<close>
 
-term \<open>cyc_parse_ptabs\<close>
+ML \<open>val _ = \<^const_name>\<open>cyc_parse_ptabs\<close>\<close>
 parser_check \<open>cyc_parse_tnum DId = pnum cyc_parse_ptabs DId\<close>
 
 parser_check \<open>acc_conflicts cyc ''!'' \<noteq> []\<close>
@@ -110,7 +110,7 @@ declare [[parser_int_tables]]
 parser cyc_parse_int for cyc
 declare [[parser_int_tables = false]]
 
-term cyc_parse_int_ztabs
+ML \<open>val _ = \<^const_name>\<open>cyc_parse_int_ztabs\<close>\<close>
 
 parser_check \<open>cyc_parse_int [tu 1 DId ''x''] = Some 0\<close> \<open>cyc_parse_int [tu 1 DDo ''do''] = None\<close>
 
@@ -412,7 +412,7 @@ subsection \<open>Backend default, idempotence, input validation\<close>
 
 parser term_first_parse2 for term_first   \<comment> \<open>a second parser for the same grammar\<close>
 
-ML_val \<open>
+ML \<open>
   val ctxt = \<^context>;
   val thy = Proof_Context.theory_of ctxt;
   (* registering a backend does not change the default *)
@@ -810,7 +810,7 @@ lemma \<open>toy_parse_file \<equiv>
     \<lambda>w. Option.bind (dparse (toy\<lparr>istart := ''TyFile''\<rparr>) ''!'' w) toy__dec_TyFile\<close>
   by (fact toy_parse_file_def)
 
-ML_val \<open>
+ML \<open>
   val consts = map #1 (#constants (Consts.dest (Sign.consts_of \<^theory>)));
   fun own p = filter (fn c => Long_Name.base_name c = p orelse
     String.isPrefix (p ^ "_") (Long_Name.base_name c)) consts |> map Long_Name.base_name;
@@ -823,7 +823,7 @@ ML_val \<open>
 
 text \<open>Without the option a parser has its diagnostics, which is the default.\<close>
 
-term do_parse2_diag
+ML \<open>val _ = \<^const_name>\<open>do_parse2_diag\<close>\<close>
 
 text \<open>A start that is not a nonterminal, a name declared twice, and a second
   grammar in one command are rejected before anything is defined.\<close>
@@ -1060,7 +1060,7 @@ grammar (relation) kwg =
   productions
     S :: \<open>nat\<close> = "if" KNum "then" KNum \<Rightarrow> \<open>\<lambda>_ _. 0\<close>
 
-ML_val \<open>
+ML \<open>
   val ctxt = \<^context>;
   val g = snd (Grammar_Common.check_grammar ctxt ("kwg", Position.none));
   val _ =
@@ -1102,7 +1102,7 @@ grammar (relation) lay =
   and
     N :: \<open>nat\<close> = LX \<Rightarrow> \<open>\<lambda>_. 1\<close> | LNum \<Rightarrow> \<open>\<lambda>_. 2\<close>
 
-ML_val \<open>
+ML \<open>
   val g = snd (Grammar_Common.check_grammar \<^context> ("lay", Position.none));
   val _ =
     Grammar_Defs.components g = [["N"], ["E", "T"], ["S"]]

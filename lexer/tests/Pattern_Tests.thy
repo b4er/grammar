@@ -1,4 +1,4 @@
-(* Author: Basil Fürer, Claude *)
+(* Author: Basil Fürer *)
 
 theory Pattern_Tests
   imports TIGER_Lexer.TIGER_Pattern "Regular-Sets.Equivalence_Checking"

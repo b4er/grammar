@@ -1,4 +1,4 @@
-(* Author: Basil Fürer, Claude *)
+(* Author: Basil Fürer *)
 
 theory Span_Tests
   imports TIGER_Grammar.LR_Prec_Parse Parser_Check
@@ -74,7 +74,7 @@ grammar (relation) spr =
       | "(" @span E ")" \<Rightarrow> \<open>\<lambda>sp e. Par (s_col sp) (s_txt sp) e\<close>
       | "()" @span \<Rightarrow> \<open>\<lambda>sp. Unit (s_len sp)\<close>
 
-thm spr.intros
+ML \<open>val _ = @{thms spr.intros}\<close>
 
 parser spr_parse for spr
 
@@ -147,7 +147,7 @@ fun rejected frag src =
       if String.isSubstring frag msg then () else error ("unexpected: " ^ msg));
 \<close>
 
-ML_val \<open>
+ML \<open>
   val _ = rejected "whose yield can be empty, \<open>S = @span\<close>"
     "grammar bad = tokens s_tok productions S :: nat = @span \<Rightarrow> \<open>\<lambda>sp. s_len sp\<close>";
   val _ = rejected "whose yield can be empty, \<open>S = O @span\<close>"

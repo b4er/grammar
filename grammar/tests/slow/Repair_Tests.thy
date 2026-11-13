@@ -1,4 +1,4 @@
-(* Author: Basil Fürer, Claude *)
+(* Author: Basil Fürer *)
 
 theory Repair_Tests
   imports Recover_Tests
@@ -24,7 +24,7 @@ parser (no_diagnostics) rp_plain for rp
 parser (diagnostics) rp_parse for rp repair
 
 
-ML_val \<open>same_code \<^context> "rp_plain" "rp_parse" ["_coverage", "_diag", "_info", "_probe", "_recover", "_render", "_repair", "_terminals"]\<close>
+ML \<open>same_code \<^context> "rp_plain" "rp_parse" ["_coverage", "_diag", "_info", "_probe", "_recover", "_render", "_repair", "_terminals"]\<close>
 
 definition rrep :: \<open>('n, 't, unit, unit) perr list \<times> 'x \<Rightarrow> (nat \<times> 't rop list) list \<times> 'x\<close> where
   \<open>rrep r = (map (\<lambda>e. (pe_index e, pe_repair e)) (fst r), snd r)\<close>

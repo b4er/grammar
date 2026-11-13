@@ -1,4 +1,4 @@
-(* Author: Basil Fürer, Claude *)
+(* Author: Basil Fürer *)
 
 theory Prec_Surface_Tests
   imports TIGER_Grammar.LR_Prec_Parse Parser_Check
@@ -40,7 +40,7 @@ grammar ep =
 
 parser ep_parse for ep
 
-thm ep_parse.sound ep_parse.complete ep_parse.sound_lang ep_parse.complete_lang
+ML \<open>val _ = @{thms ep_parse.sound ep_parse.complete ep_parse.sound_lang ep_parse.complete_lang}\<close>
 
 parser_check \<open>ep_parse (toks 0 [PNum, PPlus, PNum, PStar, PNum]) = Some (Add N (Mul N N))\<close>
 parser_check \<open>ep_parse (toks 0 [PNum, PStar, PNum, PPlus, PNum]) = Some (Add (Mul N N) N)\<close>
@@ -69,7 +69,7 @@ grammar eq =
 
 parser eq_s for eq and eq_e for eq (E)
 
-thm eq_e.sound eq_e.complete
+ML \<open>val _ = @{thms eq_e.sound eq_e.complete}\<close>
 
 parser_check \<open>eq_s (toks 0 [PNum, PPlus, PNum, PStar, PNum]) = Some (Add N (Mul N N))\<close>
 parser_check \<open>eq_e (toks 0 [PNum, PStar, PNum, PPlus, PNum]) = Some (Add (Mul N N) N)\<close>
@@ -114,7 +114,7 @@ grammar er =
 
 parser (diagnostics) er_parse for er recover PErr
 
-thm er_parse_recover.clean er_parse_recover.no_error er_parse.sound
+ML \<open>val _ = @{thms er_parse_recover.clean er_parse_recover.no_error er_parse.sound}\<close>
 
 parser_check \<open>er_parse_recover (toks 0 [PNum, PPlus, PNum, PStar, PNum]) =
     ([], Some (Add N (Mul N N)))\<close>
@@ -138,7 +138,7 @@ subsection \<open>Without layout the chains are \<^const>\<open>Any\<close>, and
 
 parser_check \<open>ii ep_parse_gram\<close>
 
-ML_val \<open>
+ML \<open>
   val ths = Proof_Context.get_thms \<^context> "ep_parse_ptabs_def"
   val _ = \<^assert> (not (null ths))
 \<close>
@@ -199,7 +199,7 @@ grammar (relation) ev =
 
 parser ev_parse for ev
 
-thm ev_parse.sound ev_parse.complete
+ML \<open>val _ = @{thms ev_parse.sound ev_parse.complete}\<close>
 
 subsection \<open>Errors of the declarations\<close>
 
@@ -223,7 +223,7 @@ fun rejected frag decls alts =
       if String.isSubstring frag msg then () else error ("unexpected: " ^ msg));
 \<close>
 
-ML_val \<open>
+ML \<open>
   val ok = decl_grammar "precedence left \"*\" > left \"+\"" "";
   val _ = \<^assert> (is_none (command_error ok));
   val _ = rejected "cyclic" "precedence left \"*\" > left \"+\" precedence left \"+\" > left \"*\"" "";
@@ -237,7 +237,7 @@ ML_val \<open>
 
 text \<open>A \<open>(prec NAME)\<close> without any declaration is accepted and ignored (expected warning).\<close>
 
-ML_val \<open>
+ML \<open>
   \<^assert> (is_none (command_error (decl_grammar "" " | \"*\" E (prec UMINUS) \<Rightarrow> \<open>\<lambda>a. Neg a\<close>")))
 \<close>
 
@@ -288,7 +288,7 @@ text \<open>The report names the productions of the grammar. A state whose evide
   those of \<open>G'\<close>, the grammar the tables are built from: 6 productions, where \<open>eh\<close> has 3.
   The two commands run one after the other, as each wraps the output hooks.\<close>
 
-ML_val \<open>
+ML \<open>
   val report = command_output \<^theory> "parser: \<open>eh_t\<close>" "parser eh_t for eh";
   val _ = \<^assert> (report = [cat_lines
     ["parser: \<open>eh_t\<close> (grammar \<open>eh\<close>, start \<open>E\<close>) has LR conflicts in 3 states (3 with a layout witness); \<open>mdet\<close> kept as an assumption on .complete",

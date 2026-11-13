@@ -1,4 +1,4 @@
-(* Author: Basil Fürer, Dmitriy Traytel, Claude *)
+(* Author: Basil Fürer, Dmitriy Traytel *)
 
 (* the bridge from a parser's language-level theorems to the relation
    family of the grammar: decoder soundness by wf_ptree induction and the

@@ -1,4 +1,4 @@
-(* Author: Basil Fürer, Claude *)
+(* Author: Basil Fürer *)
 
 (* the tables of a lexer spec by evaluation, one per distinct rule list, the executable
    lexer on them and its correctness theorem, and a warning for each rule that wins in no

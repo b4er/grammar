@@ -1,4 +1,4 @@
-(* Author: Basil Fürer, Dmitriy Traytel, Claude *)
+(* Author: Basil Fürer, Dmitriy Traytel *)
 
 (* the LR backend of the parser command (precise tables), with the build step in
    lr_build.ML, the diagnostics in lr_diag.ML and the helpers in lr_util.ML: the

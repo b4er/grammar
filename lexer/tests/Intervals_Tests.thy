@@ -1,4 +1,4 @@
-(* Author: Basil Fürer, Claude *)
+(* Author: Basil Fürer *)
 
 theory Intervals_Tests
   imports TIGER_Lexer.TIGER_Tables

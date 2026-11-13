@@ -79,7 +79,7 @@ session TIGER_Lexer_Tests in "lexer/tests" = TIGER_Lexer +
   document_files (in "../../document")
     "root.bib"
 
-session TIGER = TIGER_Grammar +
+session TIGER_Lexer_Parser = TIGER_Grammar +
   description "Lexers and indentation-sensitive LR parsers together."
   options [timeout = 300, document_bibliography]
   sessions TIGER_Lexer

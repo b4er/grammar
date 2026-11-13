@@ -1,4 +1,4 @@
-(* Author: Basil Fürer, Dmitriy Traytel, Claude *)
+(* Author: Basil Fürer, Dmitriy Traytel *)
 
 (* the generic `parser` command.  A backend contributes the body of the parse
    constant, its sound/complete theorems and tactics for its own premises;

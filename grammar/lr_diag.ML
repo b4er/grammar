@@ -1,4 +1,4 @@
-(* Author: Basil Fürer, Claude *)
+(* Author: Basil Fürer *)
 
 (* the LR backend, diagnostics: the error driver of a parser, the errors block
    (sentences to messages), and the coverage of the error states *)

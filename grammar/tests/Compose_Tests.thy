@@ -1,4 +1,4 @@
-(* Author: Basil Fürer, Claude *)
+(* Author: Basil Fürer *)
 
 theory Compose_Tests
   imports TIGER_Grammar.LR_Prec_Parse Parser_Check
@@ -53,7 +53,7 @@ lemma \<open>cstm =
    ''S'' 0\<close>
   by (simp only: cstm_def)
 
-thm cstm.cexp_E_iff
+ML \<open>val _ = @{thms cstm.cexp_E_iff}\<close>
 
 lemma \<open>cstm_cexp_E w x \<longleftrightarrow> cexp_E w x\<close>
   by (fact cstm.cexp_E_iff)
@@ -134,7 +134,7 @@ grammar puse =
   productions
     P :: \<open>ex\<close> = "{" pexp.E "}"
 
-ML_val \<open>
+ML \<open>
   val (_, gr) = Grammar_Common.check_grammar \<^context> ("puse", Position.none);
   \<^assert> (#prec gr = SOME {chains = [[("left", [(1, false)]), ("left", [(2, false)])]],
     forbids = []})
@@ -246,7 +246,7 @@ parser_check \<open>(case cshadow_diag_diag (toks 0 [CLP, CNum, CNum]) of
   [''0:4: syntax error at '' @ squote ''CNum'',
    ''  expected: '' @ squote ''*'' @ '', '' @ squote '')'' @ '' or '' @ squote ''+'',
    ''  up to here: a T was recognised'']\<close>
-ML_val \<open>
+ML \<open>
   \<^assert> (Grammar_Common.display_names \<^context> ["S", \<^unchecked_name>\<open>cexp.E\<close>, \<^unchecked_name>\<open>cexp.T\<close>, "cexp.T+"] =
     [(\<^unchecked_name>\<open>cexp.E\<close>, "E"), (\<^unchecked_name>\<open>cexp.T\<close>, "T"), ("cexp.T+", "T+")]);
   \<^assert> (Grammar_Common.display_names \<^context> ["E", \<^unchecked_name>\<open>cexp.E\<close>, \<^unchecked_name>\<open>cexp.T\<close>, "Q(cexp.T, \";\")"] =
@@ -343,7 +343,7 @@ fun rejected frag src =
       if String.isSubstring frag msg then () else error ("unexpected: " ^ msg));
 \<close>
 
-ML_val \<open>
+ML \<open>
   val _ = \<^assert> (is_none (command_error
     "grammar ok = tokens c_tok productions X :: ex = cexp.E \<Rightarrow> \<open>\<lambda>e. e\<close>"));
   val _ = rejected "has no nonterminal \"Q\""

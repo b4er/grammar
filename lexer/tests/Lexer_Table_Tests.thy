@@ -1,4 +1,4 @@
-(* Author: Basil Fürer, Claude *)
+(* Author: Basil Fürer *)
 
 theory Lexer_Table_Tests
   imports Lexer_Command_Tests TIGER_Lexer.Lexer_Check

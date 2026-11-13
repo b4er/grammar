@@ -1,4 +1,4 @@
-(* Author: Basil Fürer, Claude *)
+(* Author: Basil Fürer *)
 
 theory TIGER_Tables
   imports TIGER_Driver TIGER_Intervals "HOL-Library.Char_ord" "HOL-Library.IArray"

@@ -1,4 +1,4 @@
-(* Author: Basil Fürer, Claude *)
+(* Author: Basil Fürer *)
 
 (* parametric nonterminals and EBNF operators, by desugaring: a template \<open>P(X, \<dots>)\<close> is
    instantiated once per distinct argument tuple as an ordinary nonterminal named

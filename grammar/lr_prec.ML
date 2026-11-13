@@ -1,4 +1,4 @@
-(* Author: Basil Fürer, Claude *)
+(* Author: Basil Fürer *)
 
 (* precedence declarations in the parser command: the declarations of a grammar become
    the constant `p_prec`, the grammar the constant `p_gram = restricted G p_prec`, which

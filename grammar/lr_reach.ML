@@ -1,4 +1,4 @@
-(* Author: Basil Fürer, Claude *)
+(* Author: Basil Fürer *)
 
 (* which states of an LR automaton can detect an error, each with a shortest sentence
    \<^cite>\<open>\<open>Sect.~3\<close> in "pottier2016-lr1-reachability"\<close>: the facts and edge facts of

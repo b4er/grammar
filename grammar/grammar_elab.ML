@@ -1,4 +1,4 @@
-(* Author: Basil Fürer, Claude *)
+(* Author: Basil Fürer *)
 
 (* the grammar command: elaboration of a specification (terminals, productions,
    semantic actions, precedence) into the grammar record, then the definitions

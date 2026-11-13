@@ -1,4 +1,4 @@
-(* Author: Basil Fürer, Claude *)
+(* Author: Basil Fürer *)
 
 (* the LR backend, shared helpers: evaluated literals, table constants defined by
    their terms, token numbering, the table options and size reports *)

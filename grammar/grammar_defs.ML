@@ -1,4 +1,4 @@
-(* Author: Basil Fürer, Dmitriy Traytel, Claude *)
+(* Author: Basil Fürer, Dmitriy Traytel *)
 
 (* the definitions behind a grammar: the grammar constant and the decoders;
    the relation family is in grammar_rel.ML *)

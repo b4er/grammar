@@ -1,4 +1,4 @@
-(* Author: Basil Fürer, Claude *)
+(* Author: Basil Fürer *)
 
 theory TIGER_Gen
   imports TIGER_Spec TIGER_Pred_Algebra "HOL-Library.While_Combinator"
