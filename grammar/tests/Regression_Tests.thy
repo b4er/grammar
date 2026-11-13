@@ -114,6 +114,25 @@ term cyc_parse_int_ztabs
 
 parser_check \<open>cyc_parse_int [tu 1 DId ''x''] = Some 0\<close> \<open>cyc_parse_int [tu 1 DDo ''do''] = None\<close>
 
+text \<open>The simple driver on evaluated tables (\<open>parser_literal_tables\<close>): the start
+  state and the action table its code equation names are literals, so that exported
+  code computes no table when it loads. Without diagnostics both come with the checks.\<close>
+
+declare [[parser_literal_tables]]
+parser cyc_parse_lit for cyc
+parser (no_diagnostics) cyc_parse_lit_nd for cyc
+declare [[parser_literal_tables = false]]
+
+ML \<open>
+  \<^assert> (forall (fn th => not (exists_Const (fn (c, _) =>
+      member (op =) [\<^const_name>\<open>ptabs_of\<close>, \<^const_name>\<open>st_find\<close>] c) (Thm.prop_of th)))
+    @{thms cyc_parse_lit_ptabs_def cyc_parse_lit_i0_def
+      cyc_parse_lit_nd_ptabs_def cyc_parse_lit_nd_i0_def})
+\<close>
+
+parser_check \<open>cyc_parse_lit [tu 1 DId ''x''] = Some 0\<close> \<open>cyc_parse_lit [tu 1 DDo ''do''] = None\<close>
+  \<open>cyc_parse_lit_nd [tu 1 DId ''x''] = Some 0\<close> \<open>cyc_parse_lit_nd [tu 1 DDo ''do''] = None\<close>
+
 subsection \<open>The rejection path: an ambiguous grammar keeps \<open>mdet\<close>\<close>
 
 text \<open>The ISWIM productions of \<^cite>\<open>\<open>Fig.~2\<close> in "adams2013"\<close>, with \<open>WExpr\<close>

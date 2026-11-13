@@ -704,6 +704,75 @@ definition lr_simple_checks :: \<open>('n, 't) is_cfg \<Rightarrow> 'n \<Rightar
           K = ktabs_of (jtabs_of (mk_ltabs gt sts redtab pc pf))
       in map (pnum (ptabs_of K)) ctrs)\<close>
 
+text \<open>Under \<^text>\<open>parser_literal_tables\<close>, the simple driver's code equation names
+  two tables beyond the token numbers: its start state and its action table.\<close>
+
+definition lr_simple_tables :: \<open>('n, 't) is_cfg \<Rightarrow> 'n \<Rightarrow> nat \<times> ('n, 't) ptabs\<close> where
+  \<open>lr_simple_tables G Shn =
+     (let sts = pr0_states G Shn; gt = pgtab G sts; redtab = red_buckets G Shn (length sts)
+      in (st_find sts (lr0_start G Shn),
+          ptabs_of (ktabs_of (jtabs_of (mk_ltabs gt sts redtab (pcomps G sts) (pfins Shn sts))))))\<close>
+
+lemma lr_simple_tables_eq:
+  \<open>lr_simple_tables G Shn =
+     (st_find (pr0_states G Shn) (lr0_start G Shn),
+      ptabs_of (ktabs_of (jtabs_of (mk_ltabs (pgtab G (pr0_states G Shn)) (pr0_states G Shn)
+        (red_buckets G Shn (length (pr0_states G Shn))) (pcomps G (pr0_states G Shn))
+        (pfins Shn (pr0_states G Shn))))))\<close>
+  by (simp add: lr_simple_tables_def Let_def)
+
+text \<open>The checks and the simple driver's values in one evaluation: the token numbers
+  and, if \<open>lit\<close>, the two tables above, only if the simple driver applies, from the
+  automaton, goto table and cells the checks have built. The evaluation of
+  \<^const>\<open>lr_simple_checks\<close> alone would build them again.\<close>
+
+definition lr_checks_simple :: \<open>('n, 't) is_cfg \<Rightarrow> 'n \<Rightarrow> 't list \<Rightarrow> bool \<Rightarrow>
+    (nat list \<times> nat list \<times> bool \<times> bool \<times> (nat \<times> ('n, 't) sym list option) list \<times>
+     nat list) \<times> (nat list \<times> (nat \<times> ('n, 't) ptabs) option) option\<close> where
+  \<open>lr_checks_simple G Shn ctrs lit =
+     (let sp = pr0_states G Shn; gp = pgtab G sp; L = la_fix_gen G Shn gp sp;
+          ants = anchored_nts G; wrs = map (wreach G) sp; fuel = ifuel wrs;
+          p0 = p0start G Shn; s0 = start_prod G Shn;
+          confs = filter (rlalr_conflict_at_gen Shn wrs gp ants fuel L) [0..<length sp];
+          redtab = cell_buckets L (length sp); iok = ii G; wok = wany_ok redtab
+      in ((confs,
+           filter (\<lambda>i. (s0, Suc 0) \<in> set (sp ! i) \<and>
+                     list_ex (\<lambda>(i', (pr, m), t, \<tau>). i' = i \<and> m = length (snd pr) \<and>
+                               t = None \<and> pr \<noteq> s0) L)
+             [0..<length sp],
+           iok, wok,
+           map (\<lambda>i. (i, path_bfs (\<lambda>j. if j < length gp then gp ! j else []) i
+                (Suc (length sp)) [] [(p0, [])])) confs,
+           map (ntidx (vtoks G redtab)) ctrs),
+          if iok \<and> confs = [] \<and> wok
+          then (let P = ptabs_of (ktabs_of (jtabs_of
+                          (mk_ltabs gp sp redtab (pcomps G sp) (pfins Shn sp))))
+                in Some (map (pnum P) ctrs,
+                         if lit then Some (st_find sp (lr0_start G Shn), P) else None))
+          else None))\<close>
+
+lemma lr_checks_simple_eq:
+  \<open>lr_checks_simple G Shn ctrs lit =
+     (lr_checks G Shn ctrs,
+      if ii G \<and> fst (lr_checks G Shn ctrs) = [] \<and>
+         wany_ok (red_buckets G Shn (length (pr0_states G Shn)))
+      then Some (lr_simple_checks G Shn ctrs, if lit then Some (lr_simple_tables G Shn) else None)
+      else None)\<close>
+  by (simp add: lr_checks_simple_def lr_checks_def lr_simple_checks_def lr_simple_tables_def
+        red_buckets_def la_fix_def Let_def)
+
+lemma lr_checks_simple_checks:
+  \<open>lr_checks_simple G Shn ctrs lit = (c, s) \<Longrightarrow> lr_checks G Shn ctrs = c\<close>
+  by (simp add: lr_checks_simple_eq)
+
+lemma lr_checks_simple_nums:
+  \<open>lr_checks_simple G Shn ctrs lit = (c, Some (ns, x)) \<Longrightarrow> lr_simple_checks G Shn ctrs = ns\<close>
+  by (simp add: lr_checks_simple_eq split: if_splits)
+
+lemma lr_checks_simple_tables:
+  \<open>lr_checks_simple G Shn ctrs lit = (c, Some (ns, Some t)) \<Longrightarrow> lr_simple_tables G Shn = t\<close>
+  by (simp add: lr_checks_simple_eq split: if_splits)
+
 text \<open>Under \<^text>\<open>parser_literal_tables\<close>, the tables of the state-indexed driver
   are evaluated as well, in one evaluation.\<close>
 
@@ -895,6 +964,15 @@ lemma lr_checks_keys_fst: \<open>fst (lr_checks_keys G Shn ctrs ts ws) = lr_chec
   by (simp add: lr_checks_keys_def lr_checks_def Let_def)
 
 section \<open>The LR backend of the \<^theory_text>\<open>parser\<close> command\<close>
+
+text \<open>The freshness of the start symbol as a list check: the simplifier proves this form for a
+  concrete grammar quickly, whereas \<^const>\<open>fresh_name\<close>'s image and bounded quantifiers over
+  the grammar's productions take it minutes on a large grammar.\<close>
+
+lemma fresh_name_list_all:
+  \<open>fresh_name G Shn \<longleftrightarrow> Shn \<noteq> istart G \<and>
+     list_all (\<lambda>(A, rhs). A \<noteq> Shn \<and> list_all (\<lambda>(X, r). X \<noteq> Nt Shn) rhs) (iprods G)\<close>
+  unfolding fresh_name_def list_all_iff by (auto simp: image_iff split: prod.splits) blast+
 
 ML_file \<open>lr_reach.ML\<close>
 ML_file \<open>lr_util.ML\<close>
