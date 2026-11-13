@@ -1,0 +1,102 @@
+name: CD
+# build entry against the newest Isabelle and AFP (devel mirrors),
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ROOT
+      - TIGER.thy
+      - document/**
+      - token/**
+      - lexer/**
+      - grammar/**
+      - .github/workflows/cd.yaml
+  schedule:
+    - cron: "17 3 * * 1"
+  workflow_dispatch:
+
+concurrency:
+  group: ${{github.workflow}}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  afp:
+    name: AFP entry (Isabelle dev, AFP devel)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 300
+    env:
+      LANG: C.UTF-8
+      LC_ALL: C.UTF-8
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Setup toolchain
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq --no-install-recommends \
+            texlive-latex-extra texlive-science texlive-fonts-recommended > /dev/null
+
+      - name: Fetch Isabelle dev + AFP devel
+        run: |
+          git clone --depth 1 https://github.com/isabelle-prover/mirror-isabelle isabelle
+          git clone --depth 1 https://github.com/isabelle-prover/mirror-afp-devel afp
+          echo "ISA_REV=$(git -C isabelle rev-parse HEAD)" >> "$GITHUB_ENV"
+          echo "AFP_REV=$(git -C afp rev-parse HEAD)" >> "$GITHUB_ENV"
+          echo "$PWD/isabelle/bin" >> "$GITHUB_PATH"
+
+      - id: isabelle
+        uses: actions/cache/restore@v6
+        with:
+          path: ~/.isabelle
+          key: isa-${{env.ISA_REV}}-afp-${{env.AFP_REV}}-${{hashFiles('ROOT', 'TIGER.thy', 'document/**', 'token/**', 'lexer/**', 'grammar/**')}}
+          restore-keys: |
+            isa-${{env.ISA_REV}}-afp-${{env.AFP_REV}}-
+            isa-${{env.ISA_REV}}-
+            isa-
+
+      - name: Init Isabelle (components + Scala)
+        run: |
+          isabelle/Admin/init
+          isabelle components -u "$PWD/afp"
+          isabelle version
+
+      - name: Package entry
+        run: |
+          mkdir dist
+          git archive -o dist/TIGER.tar.gz --prefix=TIGER/ HEAD \
+            ROOT TIGER.thy document token lexer grammar
+          tar -xzf dist/TIGER.tar.gz -C dist
+          echo TIGER > dist/ROOTS
+
+      - name: Check ROOT
+        run: isabelle afp_check_roots -d afp/thys -D dist
+
+      - name: Build entry
+        run: |
+          isabelle build -b -v -j 2 -o document_output="$PWD/dist/output" \
+            -o document=pdf -o document_variants="document:outline=/proof,/ML" \
+            -d afp/thys -D dist
+
+      - if: ${{!cancelled() && steps.isabelle.outputs.cache-hit != 'true'}}
+        uses: actions/cache/save@v6
+        with:
+          path: ~/.isabelle
+          key: ${{steps.isabelle.outputs.cache-primary-key}}
+
+      - if: github.event_name != 'schedule'
+        uses: actions/upload-artifact@v7
+        with:
+          name: afp-entry-TIGER
+          path: |
+            dist/TIGER.tar.gz
+            dist/output/*.pdf
+          if-no-files-found: error
+          retention-days: 90
