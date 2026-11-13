@@ -1,3 +1,5 @@
+(* Author: Basil Fürer, Dmitriy Traytel, Claude *)
+
 theory LR_Loop
   imports LR_Prod
 begin
@@ -7,11 +9,13 @@ section \<open>A cheaper loop check\<close>
 text \<open>\<^const>\<open>xrun_hist\<close> stops a run that revisits a stack between two shifts,
   by comparing the stack with all stacks since the last shift. The check only
   matters for the termination of the code: between shifts the input does not
-  change, so a revisit means that the run loops, and its result is \<open>None\<close> as
+  change, so a revisit means that the run loops (reduces of unit and empty
+  productions do not shrink the stack \<^cite>\<open>\<open>Sect.~2.5\<close> in "jourdan2012-validating-lr1"\<close>), and its result is \<open>None\<close> as
   the run without a check (\<open>nrun\<close>). Any check that fires only on a
   revisit gives the same result. \<open>brun\<close> keeps one stack of the
   current segment and compares only with it, saving the current stack after 1,
-  2, 4, \<open>\<dots>\<close> steps (Brent's cycle detection), which finds every cycle.\<close>
+  2, 4, \<open>\<dots>\<close> steps (Brent's cycle detection
+  \<^cite>\<open>"brent1980-monte-carlo-factorization"\<close>), which finds every cycle.\<close>
 
 partial_function (option) nrun ::
   \<open>('k list \<times> 'w list \<Rightarrow> (('n, 't) dact \<times> 'k list \<times> 'w list) option) \<Rightarrow>
@@ -52,36 +56,35 @@ context
   assumes keep: \<open>\<And>stk v a stk' v'. ctl (stk, v) = Some (a, stk', v') \<Longrightarrow> a \<noteq> DShift \<Longrightarrow> v' = v\<close>
 begin
 
-abbreviation R where \<open>R \<equiv> cstep ctl fin\<close>
+abbreviation ctl_step where \<open>ctl_step \<equiv> cstep ctl fin\<close>
 
 lemma nocycle:
   assumes h: \<open>nrun ctl fin dec st = Some t\<close>
-  shows \<open>R\<^sup>*\<^sup>* (fst st, fst (snd st)) c' \<Longrightarrow> \<not> R\<^sup>+\<^sup>+ c' c'\<close>
+  shows \<open>ctl_step\<^sup>*\<^sup>* (fst st, fst (snd st)) c' \<Longrightarrow> \<not> ctl_step\<^sup>+\<^sup>+ c' c'\<close>
 proof -
-  have \<open>ctl = ctl \<longrightarrow> fin = fin \<longrightarrow> (\<forall>c'. R\<^sup>*\<^sup>* (fst st, fst (snd st)) c' \<longrightarrow> \<not> R\<^sup>+\<^sup>+ c' c')\<close>
+  have \<open>ctl = ctl \<longrightarrow> fin = fin \<longrightarrow> (\<forall>c'. ctl_step\<^sup>*\<^sup>* (fst st, fst (snd st)) c' \<longrightarrow> \<not> ctl_step\<^sup>+\<^sup>+ c' c')\<close>
   proof (rule nrun.raw_induct[OF _ h, where P = \<open>\<lambda>ctl' fin' dec' st t. ctl' = ctl \<longrightarrow> fin' = fin \<longrightarrow>
-      (\<forall>c'. R\<^sup>*\<^sup>* (fst st, fst (snd st)) c' \<longrightarrow> \<not> R\<^sup>+\<^sup>+ c' c')\<close>], goal_cases)
+      (\<forall>c'. ctl_step\<^sup>*\<^sup>* (fst st, fst (snd st)) c' \<longrightarrow> \<not> ctl_step\<^sup>+\<^sup>+ c' c')\<close>], goal_cases)
     case (1 f ctl' fin' dec' st t)
     obtain stk v ts where st: \<open>st = (stk, v, ts)\<close> by (cases st)
     show ?case
     proof (intro impI allI notI)
       fix c'
-      assume c: \<open>ctl' = ctl\<close> and fi: \<open>fin' = fin\<close> and r: \<open>R\<^sup>*\<^sup>* (fst st, fst (snd st)) c'\<close>
-        and cyc: \<open>R\<^sup>+\<^sup>+ c' c'\<close>
-      have \<open>R\<^sup>+\<^sup>+ (stk, v) c'\<close> using rtranclp_tranclp_tranclp[OF r cyc] unfolding st by simp
-      then obtain c1 where s1: \<open>R (stk, v) c1\<close> and r1: \<open>R\<^sup>*\<^sup>* c1 c'\<close>
+      assume c: \<open>ctl' = ctl\<close> and fi: \<open>fin' = fin\<close> and r: \<open>ctl_step\<^sup>*\<^sup>* (fst st, fst (snd st)) c'\<close>
+        and cyc: \<open>ctl_step\<^sup>+\<^sup>+ c' c'\<close>
+      have \<open>ctl_step\<^sup>+\<^sup>+ (stk, v) c'\<close> using rtranclp_tranclp_tranclp[OF r cyc] unfolding st by simp
+      then obtain c1 where s1: \<open>ctl_step (stk, v) c1\<close> and r1: \<open>ctl_step\<^sup>*\<^sup>* c1 c'\<close>
         by (auto dest: tranclpD)
       from s1 obtain a where nf: \<open>\<not> fin (stk, v)\<close> and sc: \<open>ctl (stk, v) = Some (a, c1)\<close>
         unfolding cstep_def by blast
       obtain stk1 v1 where c1: \<open>c1 = (stk1, v1)\<close> by (cases c1)
-      from "1"(2) nf sc obtain t' where
-          rec: \<open>f ctl' fin' dec' (stk1, v1, xtree dec' a v ts) = Some t\<close>
+      from "1"(2) nf sc have rec: \<open>f ctl' fin' dec' (stk1, v1, xtree dec' a v ts) = Some t\<close>
         unfolding st c fi c1 by (auto simp: bind_eq_Some_conv)
-      have \<open>\<forall>c'. R\<^sup>*\<^sup>* (stk1, v1) c' \<longrightarrow> \<not> R\<^sup>+\<^sup>+ c' c'\<close> using "1"(1)[OF rec] c fi by simp
+      have \<open>\<forall>c'. ctl_step\<^sup>*\<^sup>* (stk1, v1) c' \<longrightarrow> \<not> ctl_step\<^sup>+\<^sup>+ c' c'\<close> using "1"(1)[OF rec] c fi by simp
       then show False using r1 cyc unfolding c1 by blast
     qed
   qed
-  then show \<open>R\<^sup>*\<^sup>* (fst st, fst (snd st)) c' \<Longrightarrow> \<not> R\<^sup>+\<^sup>+ c' c'\<close> by blast
+  then show \<open>ctl_step\<^sup>*\<^sup>* (fst st, fst (snd st)) c' \<Longrightarrow> \<not> ctl_step\<^sup>+\<^sup>+ c' c'\<close> by blast
 qed
 
 lemma x_imp_n:
@@ -116,16 +119,16 @@ qed
 
 lemma n_imp_x:
   assumes h: \<open>nrun ctl fin dec st = Some t\<close>
-  shows \<open>(\<forall>c'. R\<^sup>*\<^sup>* (fst st, fst (snd st)) c' \<longrightarrow> \<not> R\<^sup>+\<^sup>+ c' c') \<Longrightarrow>
-    \<forall>s \<in> set seen. R\<^sup>+\<^sup>+ (s, fst (snd st)) (fst st, fst (snd st)) \<Longrightarrow>
+  shows \<open>(\<forall>c'. ctl_step\<^sup>*\<^sup>* (fst st, fst (snd st)) c' \<longrightarrow> \<not> ctl_step\<^sup>+\<^sup>+ c' c') \<Longrightarrow>
+    \<forall>s \<in> set seen. ctl_step\<^sup>+\<^sup>+ (s, fst (snd st)) (fst st, fst (snd st)) \<Longrightarrow>
     xrun_hist ctl fin dec seen st = Some t\<close>
 proof -
-  have \<open>ctl = ctl \<longrightarrow> fin = fin \<longrightarrow> dec = dec \<longrightarrow> (\<forall>c'. R\<^sup>*\<^sup>* (fst st, fst (snd st)) c' \<longrightarrow> \<not> R\<^sup>+\<^sup>+ c' c') \<longrightarrow>
-      (\<forall>seen. (\<forall>s \<in> set seen. R\<^sup>+\<^sup>+ (s, fst (snd st)) (fst st, fst (snd st))) \<longrightarrow>
+  have \<open>ctl = ctl \<longrightarrow> fin = fin \<longrightarrow> dec = dec \<longrightarrow> (\<forall>c'. ctl_step\<^sup>*\<^sup>* (fst st, fst (snd st)) c' \<longrightarrow> \<not> ctl_step\<^sup>+\<^sup>+ c' c') \<longrightarrow>
+      (\<forall>seen. (\<forall>s \<in> set seen. ctl_step\<^sup>+\<^sup>+ (s, fst (snd st)) (fst st, fst (snd st))) \<longrightarrow>
         xrun_hist ctl fin dec seen st = Some t)\<close>
   proof (rule nrun.raw_induct[OF _ h, where P = \<open>\<lambda>ctl' fin' dec' st t. ctl' = ctl \<longrightarrow> fin' = fin \<longrightarrow>
-      dec' = dec \<longrightarrow> (\<forall>c'. R\<^sup>*\<^sup>* (fst st, fst (snd st)) c' \<longrightarrow> \<not> R\<^sup>+\<^sup>+ c' c') \<longrightarrow>
-      (\<forall>seen. (\<forall>s \<in> set seen. R\<^sup>+\<^sup>+ (s, fst (snd st)) (fst st, fst (snd st))) \<longrightarrow>
+      dec' = dec \<longrightarrow> (\<forall>c'. ctl_step\<^sup>*\<^sup>* (fst st, fst (snd st)) c' \<longrightarrow> \<not> ctl_step\<^sup>+\<^sup>+ c' c') \<longrightarrow>
+      (\<forall>seen. (\<forall>s \<in> set seen. ctl_step\<^sup>+\<^sup>+ (s, fst (snd st)) (fst st, fst (snd st))) \<longrightarrow>
         xrun_hist ctl fin dec seen st = Some t)\<close>], goal_cases)
     case (1 f ctl' fin' dec' st t)
     obtain stk v ts where st: \<open>st = (stk, v, ts)\<close> by (cases st)
@@ -133,8 +136,8 @@ proof -
     proof (intro impI allI)
       fix seen
       assume c: \<open>ctl' = ctl\<close> and fi: \<open>fin' = fin\<close> and d: \<open>dec' = dec\<close>
-        and nc: \<open>\<forall>c'. R\<^sup>*\<^sup>* (fst st, fst (snd st)) c' \<longrightarrow> \<not> R\<^sup>+\<^sup>+ c' c'\<close>
-        and inv: \<open>\<forall>s \<in> set seen. R\<^sup>+\<^sup>+ (s, fst (snd st)) (fst st, fst (snd st))\<close>
+        and nc: \<open>\<forall>c'. ctl_step\<^sup>*\<^sup>* (fst st, fst (snd st)) c' \<longrightarrow> \<not> ctl_step\<^sup>+\<^sup>+ c' c'\<close>
+        and inv: \<open>\<forall>s \<in> set seen. ctl_step\<^sup>+\<^sup>+ (s, fst (snd st)) (fst st, fst (snd st))\<close>
       show \<open>xrun_hist ctl fin dec seen st = Some t\<close>
       proof (cases \<open>fin (stk, v)\<close>)
         case True
@@ -144,17 +147,17 @@ proof -
         have ns: \<open>stk \<notin> set seen\<close>
         proof
           assume \<open>stk \<in> set seen\<close>
-          with inv have \<open>R\<^sup>+\<^sup>+ (stk, v) (stk, v)\<close> unfolding st by auto
+          with inv have \<open>ctl_step\<^sup>+\<^sup>+ (stk, v) (stk, v)\<close> unfolding st by auto
           with nc show False unfolding st by auto
         qed
         from False "1"(2) obtain a stk' v' where
             sc: \<open>ctl (stk, v) = Some (a, stk', v')\<close>
           and rec: \<open>f ctl' fin' dec' (stk', v', xtree dec' a v ts) = Some t\<close>
           unfolding st c fi by (auto simp: bind_eq_Some_conv)
-        have s1: \<open>R (stk, v) (stk', v')\<close> using False sc unfolding cstep_def by blast
-        have nc': \<open>\<forall>c'. R\<^sup>*\<^sup>* (stk', v') c' \<longrightarrow> \<not> R\<^sup>+\<^sup>+ c' c'\<close>
+        have s1: \<open>ctl_step (stk, v) (stk', v')\<close> using False sc unfolding cstep_def by blast
+        have nc': \<open>\<forall>c'. ctl_step\<^sup>*\<^sup>* (stk', v') c' \<longrightarrow> \<not> ctl_step\<^sup>+\<^sup>+ c' c'\<close>
           using nc s1 unfolding st by (auto intro: converse_rtranclp_into_rtranclp)
-        have inv': \<open>\<forall>s \<in> set (if a = DShift then [] else stk # seen). R\<^sup>+\<^sup>+ (s, v') (stk', v')\<close>
+        have inv': \<open>\<forall>s \<in> set (if a = DShift then [] else stk # seen). ctl_step\<^sup>+\<^sup>+ (s, v') (stk', v')\<close>
         proof (cases \<open>a = DShift\<close>)
           case False
           then have v': \<open>v' = v\<close> using keep[OF sc] by blast
@@ -167,8 +170,8 @@ proof -
       qed
     qed
   qed
-  then show \<open>(\<forall>c'. R\<^sup>*\<^sup>* (fst st, fst (snd st)) c' \<longrightarrow> \<not> R\<^sup>+\<^sup>+ c' c') \<Longrightarrow>
-    \<forall>s \<in> set seen. R\<^sup>+\<^sup>+ (s, fst (snd st)) (fst st, fst (snd st)) \<Longrightarrow>
+  then show \<open>(\<forall>c'. ctl_step\<^sup>*\<^sup>* (fst st, fst (snd st)) c' \<longrightarrow> \<not> ctl_step\<^sup>+\<^sup>+ c' c') \<Longrightarrow>
+    \<forall>s \<in> set seen. ctl_step\<^sup>+\<^sup>+ (s, fst (snd st)) (fst st, fst (snd st)) \<Longrightarrow>
     xrun_hist ctl fin dec seen st = Some t\<close> by blast
 qed
 
@@ -208,16 +211,16 @@ lemma fst_bupd: \<open>fst (bupd d stk) = Some stk \<or> fst (bupd d stk) = fst 
 
 lemma n_imp_b:
   assumes h: \<open>nrun ctl fin dec st = Some t\<close>
-  shows \<open>(\<forall>c'. R\<^sup>*\<^sup>* (fst st, fst (snd st)) c' \<longrightarrow> \<not> R\<^sup>+\<^sup>+ c' c') \<Longrightarrow>
-    (\<forall>s. fst d = Some s \<longrightarrow> R\<^sup>+\<^sup>+ (s, fst (snd st)) (fst st, fst (snd st))) \<Longrightarrow>
+  shows \<open>(\<forall>c'. ctl_step\<^sup>*\<^sup>* (fst st, fst (snd st)) c' \<longrightarrow> \<not> ctl_step\<^sup>+\<^sup>+ c' c') \<Longrightarrow>
+    (\<forall>s. fst d = Some s \<longrightarrow> ctl_step\<^sup>+\<^sup>+ (s, fst (snd st)) (fst st, fst (snd st))) \<Longrightarrow>
     brun ctl fin dec d st = Some t\<close>
 proof -
-  have \<open>ctl = ctl \<longrightarrow> fin = fin \<longrightarrow> dec = dec \<longrightarrow> (\<forall>c'. R\<^sup>*\<^sup>* (fst st, fst (snd st)) c' \<longrightarrow> \<not> R\<^sup>+\<^sup>+ c' c') \<longrightarrow>
-      (\<forall>d. (\<forall>s. fst d = Some s \<longrightarrow> R\<^sup>+\<^sup>+ (s, fst (snd st)) (fst st, fst (snd st))) \<longrightarrow>
+  have \<open>ctl = ctl \<longrightarrow> fin = fin \<longrightarrow> dec = dec \<longrightarrow> (\<forall>c'. ctl_step\<^sup>*\<^sup>* (fst st, fst (snd st)) c' \<longrightarrow> \<not> ctl_step\<^sup>+\<^sup>+ c' c') \<longrightarrow>
+      (\<forall>d. (\<forall>s. fst d = Some s \<longrightarrow> ctl_step\<^sup>+\<^sup>+ (s, fst (snd st)) (fst st, fst (snd st))) \<longrightarrow>
         brun ctl fin dec d st = Some t)\<close>
   proof (rule nrun.raw_induct[OF _ h, where P = \<open>\<lambda>ctl' fin' dec' st t. ctl' = ctl \<longrightarrow> fin' = fin \<longrightarrow>
-      dec' = dec \<longrightarrow> (\<forall>c'. R\<^sup>*\<^sup>* (fst st, fst (snd st)) c' \<longrightarrow> \<not> R\<^sup>+\<^sup>+ c' c') \<longrightarrow>
-      (\<forall>d. (\<forall>s. fst d = Some s \<longrightarrow> R\<^sup>+\<^sup>+ (s, fst (snd st)) (fst st, fst (snd st))) \<longrightarrow>
+      dec' = dec \<longrightarrow> (\<forall>c'. ctl_step\<^sup>*\<^sup>* (fst st, fst (snd st)) c' \<longrightarrow> \<not> ctl_step\<^sup>+\<^sup>+ c' c') \<longrightarrow>
+      (\<forall>d. (\<forall>s. fst d = Some s \<longrightarrow> ctl_step\<^sup>+\<^sup>+ (s, fst (snd st)) (fst st, fst (snd st))) \<longrightarrow>
         brun ctl fin dec d st = Some t)\<close>], goal_cases)
     case (1 f ctl' fin' dec' st t)
     obtain stk v ts where st: \<open>st = (stk, v, ts)\<close> by (cases st)
@@ -225,8 +228,8 @@ proof -
     proof (intro impI allI)
       fix d :: \<open>'k list option \<times> nat \<times> nat\<close>
       assume c: \<open>ctl' = ctl\<close> and fi: \<open>fin' = fin\<close> and dd: \<open>dec' = dec\<close>
-        and nc: \<open>\<forall>c'. R\<^sup>*\<^sup>* (fst st, fst (snd st)) c' \<longrightarrow> \<not> R\<^sup>+\<^sup>+ c' c'\<close>
-        and inv: \<open>\<forall>s. fst d = Some s \<longrightarrow> R\<^sup>+\<^sup>+ (s, fst (snd st)) (fst st, fst (snd st))\<close>
+        and nc: \<open>\<forall>c'. ctl_step\<^sup>*\<^sup>* (fst st, fst (snd st)) c' \<longrightarrow> \<not> ctl_step\<^sup>+\<^sup>+ c' c'\<close>
+        and inv: \<open>\<forall>s. fst d = Some s \<longrightarrow> ctl_step\<^sup>+\<^sup>+ (s, fst (snd st)) (fst st, fst (snd st))\<close>
       show \<open>brun ctl fin dec d st = Some t\<close>
       proof (cases \<open>fin (stk, v)\<close>)
         case True
@@ -236,25 +239,25 @@ proof -
         have ns: \<open>fst d \<noteq> Some stk\<close>
         proof
           assume \<open>fst d = Some stk\<close>
-          with inv have \<open>R\<^sup>+\<^sup>+ (stk, v) (stk, v)\<close> unfolding st by auto
+          with inv have \<open>ctl_step\<^sup>+\<^sup>+ (stk, v) (stk, v)\<close> unfolding st by auto
           with nc show False unfolding st by auto
         qed
         from False "1"(2) obtain a stk' v' where
             sc: \<open>ctl (stk, v) = Some (a, stk', v')\<close>
           and rec: \<open>f ctl' fin' dec' (stk', v', xtree dec' a v ts) = Some t\<close>
           unfolding st c fi by (auto simp: bind_eq_Some_conv)
-        have s1: \<open>R (stk, v) (stk', v')\<close> using False sc unfolding cstep_def by blast
-        have nc': \<open>\<forall>c'. R\<^sup>*\<^sup>* (stk', v') c' \<longrightarrow> \<not> R\<^sup>+\<^sup>+ c' c'\<close>
+        have s1: \<open>ctl_step (stk, v) (stk', v')\<close> using False sc unfolding cstep_def by blast
+        have nc': \<open>\<forall>c'. ctl_step\<^sup>*\<^sup>* (stk', v') c' \<longrightarrow> \<not> ctl_step\<^sup>+\<^sup>+ c' c'\<close>
           using nc s1 unfolding st by (auto intro: converse_rtranclp_into_rtranclp)
         have inv': \<open>\<forall>s. fst (if a = DShift then (None, 1, 1) else bupd d stk) = Some s \<longrightarrow>
-            R\<^sup>+\<^sup>+ (s, v') (stk', v')\<close>
+            ctl_step\<^sup>+\<^sup>+ (s, v') (stk', v')\<close>
         proof (cases \<open>a = DShift\<close>)
           case False
           then have v': \<open>v' = v\<close> using keep[OF sc] by blast
           show ?thesis using False inv s1 fst_bupd[of d stk] unfolding st v'
             by (auto intro: tranclp.trancl_into_trancl)
         qed simp
-        have ih: \<open>\<forall>d. (\<forall>s. fst d = Some s \<longrightarrow> R\<^sup>+\<^sup>+ (s, v') (stk', v')) \<longrightarrow>
+        have ih: \<open>\<forall>d. (\<forall>s. fst d = Some s \<longrightarrow> ctl_step\<^sup>+\<^sup>+ (s, v') (stk', v')) \<longrightarrow>
             brun ctl fin dec d (stk', v', xtree dec a v ts) = Some t\<close>
           using "1"(1)[OF rec] c fi dd nc' unfolding fst_conv snd_conv by blast
         have \<open>brun ctl fin dec (if a = DShift then (None, 1, 1) else bupd d stk) (stk', v', xtree dec a v ts) = Some t\<close>
@@ -263,8 +266,8 @@ proof -
       qed
     qed
   qed
-  then show \<open>(\<forall>c'. R\<^sup>*\<^sup>* (fst st, fst (snd st)) c' \<longrightarrow> \<not> R\<^sup>+\<^sup>+ c' c') \<Longrightarrow>
-    (\<forall>s. fst d = Some s \<longrightarrow> R\<^sup>+\<^sup>+ (s, fst (snd st)) (fst st, fst (snd st))) \<Longrightarrow>
+  then show \<open>(\<forall>c'. ctl_step\<^sup>*\<^sup>* (fst st, fst (snd st)) c' \<longrightarrow> \<not> ctl_step\<^sup>+\<^sup>+ c' c') \<Longrightarrow>
+    (\<forall>s. fst d = Some s \<longrightarrow> ctl_step\<^sup>+\<^sup>+ (s, fst (snd st)) (fst st, fst (snd st))) \<Longrightarrow>
     brun ctl fin dec d st = Some t\<close> by blast
 qed
 
@@ -279,7 +282,7 @@ proof (cases \<open>nrun ctl fin dec st\<close>)
   show ?thesis using x b by simp
 next
   case (Some t)
-  have nc: \<open>\<forall>c'. R\<^sup>*\<^sup>* (fst st, fst (snd st)) c' \<longrightarrow> \<not> R\<^sup>+\<^sup>+ c' c'\<close> using nocycle[OF Some] by blast
+  have nc: \<open>\<forall>c'. ctl_step\<^sup>*\<^sup>* (fst st, fst (snd st)) c' \<longrightarrow> \<not> ctl_step\<^sup>+\<^sup>+ c' c'\<close> using nocycle[OF Some] by blast
   show ?thesis using n_imp_x[OF Some nc] n_imp_b[OF Some nc] by simp
 qed
 

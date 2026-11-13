@@ -1,10 +1,12 @@
+(* Author: Basil Fürer, Claude *)
+
 theory Codepoint_Tests
-  imports Lexer.Codepoints
+  imports TIGER_Lexer.TIGER_Codepoints
 begin
 
 section \<open>Tests of the codepoint instance\<close>
 
-text \<open>Identifiers over ASCII and Greek letters as in CaraML's \<open>UnicodeLexer\<close>: a lower
+text \<open>Identifiers over ASCII and Greek letters: a lower
   case letter starts a value identifier, an upper case letter a constructor, and both
   continue with letters, digits, \<open>_\<close> and \<open>'\<close>. \<open>\<lambda>\<close> (\<open>U+03BB\<close>) is no letter, and
   \<open>U+03A2\<close> is unassigned. Operators are runs of \<open>U+2190 .. U+22FF\<close> (arrows and

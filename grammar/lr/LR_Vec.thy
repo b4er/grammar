@@ -1,3 +1,5 @@
+(* Author: Basil Fürer, Claude *)
+
 theory LR_Vec
   imports LR_Sparse
 begin
@@ -8,7 +10,10 @@ text \<open>The set-anchored drivers of \<^text>\<open>LR_Driver\<close> and \<^
   closure after every step as a fixpoint over the kernel's anchor sets.  The
   closure's \<^emph>\<open>shape\<close> is a property of the LR(0) state alone: which productions
   get a slot, and from which kernel item each slot's anchors descend, through
-  which chain of right-hand-side relations.  Only the anchor sets are
+  which chain of right-hand-side relations.  This follows Adams
+  \<^cite>\<open>\<open>Sect.~5.8\<close> in "adams2013"\<close>: only the items before the closure keep
+  indentation sets, and the closure items carry the relation that leads to
+  them.  Only the anchor sets are
   input-dependent, and a chain of relations acts on an anchor set as one of three
   transfers: the identity (\<^const>\<open>Eq\<close>), the up-set from the least anchor plus an
   offset (\<^const>\<open>Gt\<close>, \<^const>\<open>Ge\<close>), or the up-set from a constant
@@ -116,7 +121,10 @@ subsection \<open>Anchor-set transfers\<close>
 text \<open>A transfer is a join of up to three parts: the identity, the up-set from
   the least anchor shifted by \<open>d\<close>, and the up-set from a constant \<open>d\<close> (present only
   when the set is non-empty).  The relations of the grammar are transfers, and
-  transfers are closed under join and composition.\<close>
+  transfers are closed under join and composition.  They stand in for the
+  closure of the indentation relations under composition and union
+  \<^cite>\<open>\<open>Lemmas~2 and~3\<close> in "adams2013"\<close>, where a union holds each form at most once.
+  Unlike the relations there, a transfer acts on anchor sets.\<close>
 
 type_synonym eff = \<open>bool \<times> nat option \<times> nat option\<close>
 
@@ -578,7 +586,10 @@ subsection \<open>The saturated transfer table\<close>
 text \<open>For each source nonterminal \<open>b\<close>, a row with the join of the transfers of
   all paths from \<open>b\<close> to each nonterminal: the least fixpoint of the edges,
   reached by iteration, since the transfer order has no infinite ascending
-  chains.\<close>
+  chains.  The equations have the shape of Eq.~(4.1) of DeRemer and Pennello,
+  cf.~\<^cite>\<open>\<open>Sect.~4.1\<close> in "deremer1982-lalr-lookahead"\<close>, with transfers in place of
+  sets and a composition along each edge.  They are solved by plain iteration,
+  not by the traversal \<open>Digraph\<close> given there.\<close>
 
 definition hd_nt :: \<open>('n, 't) prec \<Rightarrow> (nat \<times> irel) option\<close> where
   \<open>hd_nt r = (case rrhs r of (Nt a, q) # _ \<Rightarrow> Some (a, q) | _ \<Rightarrow> None)\<close>

@@ -1,6 +1,8 @@
+(* Author: Basil Fürer, Claude *)
+
 theory Indentation_Sensitive
   imports
-    "TIGER_Token.Token"
+    "TIGER_Token.TIGER_Token"
     "Context_Free_Grammar.Parse_Tree"
     "Context_Free_Grammar.Epsilon_Elimination"
     "HOL-Library.Extended_Nat"
@@ -15,7 +17,7 @@ section \<open>Indentation-sensitive context-free grammars\<close>
 text \<open>
   A formalization of the grammar formalism of M. D. Adams, \<^emph>\<open>Principled
   Parsing for Indentation-Sensitive Languages: Revisiting Landin's Offside
-  Rule\<close>, POPL 2013. Section numbers below refer to that paper.
+  Rule\<close>, POPL 2013 \<^cite>\<open>"adams2013"\<close>. Section numbers below refer to that paper.
 
   In an IS-CFG every symbol on the right-hand side of a production carries an
   indentation relation, one of \<^text>\<open>=\<close>, \<^text>\<open>>\<close>,
@@ -33,7 +35,7 @@ text \<open>
   Symbols, ordinary context-free grammars, their derivation relations and their
   parse trees are those of \<^theory>\<open>Context_Free_Grammar.Parse_Tree\<close> and its
   parent: \<^const>\<open>Nt\<close> and \<^const>\<open>Tm\<close>, here over the tokens of theory
-  \<^theory>\<open>TIGER_Token.Token\<close>, \<^const>\<open>derive\<close> and \<^const>\<open>deriver\<close> over a
+  \<^theory>\<open>TIGER_Token.TIGER_Token\<close>, \<^const>\<open>derive\<close> and \<^const>\<open>deriver\<close> over a
   production set, and \<^const>\<open>parse_tree\<close>.
 
   Not all of this is used by the LR development and the \<^text>\<open>grammar\<close>
@@ -41,13 +43,13 @@ text \<open>
   their lemmas is used downstream. They are kept as the formal reading of the paper.
   \<^item> Soundness and completeness of the executable parser against parse trees,
     and the correctness of the top-level parser.
-  \<^item> Rightmost derivations and handles (Sect. 5.3), item-set completeness
-    (Definition 9, Lemma 10), and LR(k) grammars (Sect. 5.6).
+  \<^item> Rightmost derivations and handles \<^cite>\<open>\<open>Sect.~5.3\<close> in "adams2013"\<close>, item-set completeness
+    \<^cite>\<open>\<open>Def.~9, Lemma~10\<close> in "adams2013"\<close>, and LR(k) grammars \<^cite>\<open>\<open>Sect.~5.6\<close> in "adams2013"\<close>.
   \<^item> Factored item sets, the factored operations, and the bisimulation of the
-    factored machine with Algorithm 8 (Sect. 5.5, 5.7).
+    factored machine with Algorithm 8 \<^cite>\<open>\<open>Alg.~8; Sects.~5.5, 5.7\<close> in "adams2013"\<close>.
   Item cores, the correctness of Algorithm 8, and the language-level
   corollaries are paper-only but for one or a few facts each, and about half of
-  the first-token desugaring (Sect. 2) is. The model (the rewrite relation,
+  the first-token desugaring \<^cite>\<open>\<open>Sect.~2\<close> in "adams2013"\<close> is. The model (the rewrite relation,
   parse trees, the erased grammar) and the executable GLR machine at the end
   are what the LR theories build on.
 \<close>
@@ -55,8 +57,10 @@ text \<open>
 subsection \<open>Indentation relations\<close>
 
 text \<open>
-  The paper's four relations, fixed as a datatype so that grammars stay
-  executable. \<^text>\<open>irel_sat r j i\<close> is the paper's
+  The paper's four relations \<^cite>\<open>\<open>Sects.~2, 4\<close> in "adams2013"\<close>, fixed as a
+  datatype so that grammars stay executable. The paper allows any subset of
+  \<^text>\<open>\<nat> \<times> \<nat>\<close> in principle but restricts itself to these four, as
+  does this datatype. \<^text>\<open>irel_sat r j i\<close> is the paper's
   \<^text>\<open>j \<Zrres> i\<close>: the child indentation \<^text>\<open>j\<close> relates by
   \<^text>\<open>r\<close> to the parent indentation \<^text>\<open>i\<close>.
 \<close>
@@ -76,7 +80,10 @@ text \<open>
   Productions are lists so that grammars are executable (the semantics
   only reads \<^term>\<open>set (iprods G)\<close>).
 
-  The start symbol comes with a fixed start indentation.
+  The start symbol comes with a fixed start indentation, as in the paper's
+  four-tuple, whose start symbol is a pair of a non-terminal and an
+  indentation \<^cite>\<open>\<open>Sect.~4\<close> in "adams2013"\<close>. The terminal and
+  non-terminal sets are left to the types.
 \<close>
 
 type_synonym ('n, 'tok) rhs = \<open>(('n, 'tok) sym \<times> irel) list\<close>
@@ -96,7 +103,9 @@ text \<open>
   Sentential forms are sequences of indentation-annotated symbols, input words
   sequences of indentation-annotated terminals. A rewrite step expands one
   annotated non-terminal by a production, choosing for each rhs symbol an
-  indentation compatible with the parent's.
+  indentation compatible with the parent's. This is the paper's rewrite relation
+  \<^cite>\<open>\<open>Sect.~4\<close> in "adams2013"\<close>, with \<^text>\<open>iderives\<close> its reflexive,
+  transitive closure.
 \<close>
 
 type_synonym ('n, 'tok) sform = \<open>(('n, 'tok) sym \<times> nat) list\<close>
@@ -112,10 +121,10 @@ inductive istep :: \<open>('n, 'tok) is_cfg \<Rightarrow> ('n, 'tok) sform \<Rig
 abbreviation iderives :: \<open>('n, 'tok) is_cfg \<Rightarrow> ('n, 'tok) sform \<Rightarrow> ('n, 'tok) sform \<Rightarrow> bool\<close> where
   \<open>iderives G \<equiv> (istep G)\<^sup>*\<^sup>*\<close>
 
-subsection \<open>The ordinary-CFG model (Sect. 5.2) and Lemma 6\<close>
+subsection \<open>The ordinary-CFG model and Lemma 6 \<^cite>\<open>\<open>Sect.~5.2, Lemma~6\<close> in "adams2013"\<close>\<close>
 
 text \<open>
-  Sect. 5.2 of the paper reads an IS-CFG over non-terminals \<^text>\<open>N\<close> as an
+  The paper \<^cite>\<open>\<open>Sect.~5.2\<close> in "adams2013"\<close> reads an IS-CFG over non-terminals \<^text>\<open>N\<close> as an
   ordinary, indentation-insensitive CFG over the infinite non-terminal set
   \<^text>\<open>N \<times> \<nat>\<close> and terminal set \<^text>\<open>\<Sigma> \<times> \<nat>\<close>, carrying a production
   \<^text>\<open>A\<^sup>i \<rightarrow> X\<^sub>1\<^sup>j\<^sup>1 \<dots> X\<^sub>n\<^sup>j\<^sup>n\<close> for every admissible choice of the \<^text>\<open>j\<^sub>k\<close>.
@@ -123,7 +132,7 @@ text \<open>
   \<^const>\<open>derive\<close> takes a production \<^typ>\<open>('n, 't) Prods\<close> as a set, so the infinite
   model is expressible.
 
-  Lemma 6, that the two rewrite relations agree, is proved here and lets the
+  Lemma 6 \<^cite>\<open>\<open>Lemma~6\<close> in "adams2013"\<close>, that the two rewrite relations agree, is proved here and lets the
   development use the library's \<^const>\<open>derive\<close>, \<^const>\<open>deriver\<close>, \<^const>\<open>Lang\<close> and
   parse trees instead of a private theory of indentation-annotated derivations.
 \<close>
@@ -140,7 +149,7 @@ definition infG :: \<open>('n, 'tok) is_cfg \<Rightarrow> ('n \<times> nat, 'tok
   }\<close>
 
 lemma inj_annsym: \<open>inj annsym\<close>
-  by (rule injI; case_tac x rule: annsym.cases; case_tac y rule: annsym.cases) auto
+  by (rule injI) (auto elim!: annsym.elims)
 
 lemmas map_annsym_injective = map_injective[OF _ inj_annsym]
 
@@ -217,7 +226,7 @@ qed (fastforce dest: map_annsym_injective)
 
 text \<open>
   The language of an IS-CFG, taken as that of the model read through the column
-  projection \<^const>\<open>tcols\<close>. Lemma 6 recovers the paper's reading, the
+  projection \<^const>\<open>tcols\<close>. Lemma 6 \<^cite>\<open>\<open>Lemma~6\<close> in "adams2013"\<close> recovers the paper's reading, the
   annotated terminal words derivable from the start symbol at the start
   indentation.
 \<close>
@@ -266,7 +275,7 @@ lemma derelI: \<open>(A, rhs) \<in> set (iprods G) \<Longrightarrow> (A, map fst
   unfolding derel_def by force
 
 lemma unann_annsym_fst[simp]: \<open>unann \<circ> annsym = fst\<close>
-  by (rule ext; case_tac x; simp)
+  by (rule ext) (auto elim: annsym.elims)
 
 lemma infG_unann:
   assumes \<open>(A\<^sub>i, arhs) \<in> infG G\<close>
@@ -303,7 +312,7 @@ lemma derives_unann:
   by (induction rule: rtranclp_induct) (auto intro: rtranclp.rtrancl_into_rtrancl derive_unann)
 
 subsection \<open>Indentation-insensitive grammars\<close>
-thm derives_unann
+
 text \<open>
   A grammar whose relations are all \<^const>\<open>Any\<close> is an ordinary CFG in disguise: its
   language is exactly the set of words whose token projection the erased grammar
@@ -312,6 +321,11 @@ text \<open>
   a parse tree of the erased grammar with arbitrary indentations. \<open>is_cfg_of\<close>
   embeds the library's \<^typ>\<open>('n, 'tok) cfg\<close>, so its results and the parsers below
   apply to plain CFGs.
+
+  Both directions are the paper's \<^cite>\<open>\<open>Sect.~4\<close> in "adams2013"\<close>: an
+  II-CFG becomes an IS-CFG by annotating every symbol with
+  \<^text>\<open>\<star>\<close>, which is \<open>is_cfg_of\<close>, and erasing the relations of an
+  IS-CFG gives an II-CFG, which is \<open>cfg_of\<close>.
 \<close>
 
 definition ii :: \<open>('n, 'tok) is_cfg \<Rightarrow> bool\<close> where
@@ -342,7 +356,10 @@ text \<open>
   Parse trees annotate every node with an indentation: leaves with the column
   of their terminal, inner nodes with their own. A tree is well-formed when each
   inner node expands by a production of the grammar and the indentation of each
-  child relates to the node's as that production prescribes.
+  child relates to the node's as that production prescribes. The paper defines
+  parse trees as for II-CFGs but over its rewrite relation
+  \<^cite>\<open>\<open>Sect.~4\<close> in "adams2013"\<close>, and draws them with an indentation on
+  every node \<^cite>\<open>\<open>Figs.~1, 3\<close> in "adams2013"\<close>.
 \<close>
 
 datatype ('m, 'ch, 'n, 'tok) ptree =
@@ -424,7 +441,7 @@ lemma ast_of_iprods_cong:
 subsection \<open>Feasible-indentation intervals\<close>
 
 text \<open>
-  Lemma 4 of the paper: the set of indentations at which a fixed parse of a
+  Lemma 4 of the paper \<^cite>\<open>\<open>Lemma~4\<close> in "adams2013"\<close>: the set of indentations at which a fixed parse of a
   fixed word is well-formed is \<^text>\<open>\<nat>\<close>, a singleton, or bounded. For
   the four relations these sets are half-open intervals \<^text>\<open>[lo, hi)\<close>
   with \<^text>\<open>hi \<le> \<infinity>\<close>, closed under the two operations the parser
@@ -468,9 +485,21 @@ lemma iv_nonempty_iff: \<open>iv_nonempty I \<longleftrightarrow> (\<exists>i. i
 lemma iv_mem_parent:
   assumes \<open>iv_nonempty J\<close>
   shows \<open>iv_mem i (iv_parent r J) \<longleftrightarrow> (\<exists>j. iv_mem j J \<and> irel_sat r j i)\<close>
-  using assms
-  by (cases r; cases J; cases \<open>snd J\<close>;
-      auto simp: iv_nonempty_def iv_mem_def iv_full_def one_enat_def; presburger)
+proof -
+  obtain lo hi where J: \<open>J = (lo, hi)\<close> by fastforce
+  with assms have lo: \<open>enat lo < hi\<close> by (simp add: iv_nonempty_def)
+  show ?thesis
+  proof (cases r)
+    case Gt
+    with lo show ?thesis
+      by (cases hi) (auto simp: J iv_mem_def one_enat_def intro: exI[of _ \<open>max lo (Suc i)\<close>])
+  next
+    case Ge
+    with lo show ?thesis
+      by (auto simp: J iv_mem_def max_def intro!: exI[of _ \<open>max lo i\<close>]
+          intro: le_less_trans[OF enat_ord_simps(1)[THEN iffD2]])
+  qed (use lo in \<open>auto simp: J iv_mem_def iv_full_def intro: exI[of _ lo]\<close>)
+qed
 
 subsection \<open>The parser\<close>
 
@@ -1076,12 +1105,12 @@ corollary parse_decides_lang:
   using parse_sound_lang parse_complete_lang
   by (metis ex_in_conv set_empty)
 
-section \<open>The first-token desugaring (Sect. 2)\<close>
+section \<open>The first-token desugaring \<^cite>\<open>\<open>Sect.~2\<close> in "adams2013"\<close>\<close>
 
 subsection \<open>Nullable symbols\<close>
 
 text \<open>
-  Definition 1 of the paper: a non-terminal is nullable if it derives
+  Definition 1 of the paper \<^cite>\<open>\<open>Def.~1\<close> in "adams2013"\<close>: a non-terminal is nullable if it derives
   \<^text>\<open>\<epsilon>\<close> at every indentation. Quantifying over all indentations
   lets \<^text>\<open>\<epsilon>\<close>-subtrees be rebuilt at a fresh indentation and costs
   nothing: an \<^text>\<open>\<epsilon>\<close>-tree has no leaves, so its indentation
@@ -1111,7 +1140,7 @@ lemma irel_wit_sat[simp]: \<open>irel_sat r (irel_wit r i) i\<close>
 lemma eps_tree_Tm[simp]:
   fixes G :: \<open>('n, 'tok) is_cfg\<close>
   shows \<open>\<not> eps_tree G (Tm t) i\<close>
-  unfolding eps_tree_def by (auto; case_tac pt; simp)
+  unfolding eps_tree_def by (auto elim: proot.elims)
 
 text \<open>An \<^text>\<open>\<epsilon>\<close>-tree has no leaves, so neither its indentation nor its
   spans matter: any well-formed empty-yield parse tree can be re-rooted at
@@ -1235,7 +1264,7 @@ text \<open>
   For every symbol \<^text>\<open>X\<close> of \<^text>\<open>G\<close> the desugared grammar has a
   non-terminal \<^text>\<open>|X|\<close> (constructor \<^text>\<open>Bar\<close>) behaving like
   \<^text>\<open>X\<close> anchored at the column of its first token, beside a copy of
-  \<^text>\<open>G\<close> itself (constructor \<^text>\<open>Plain\<close>). Following Sect. 2:
+  \<^text>\<open>G\<close> itself (constructor \<^text>\<open>Plain\<close>). Following the paper \<^cite>\<open>\<open>Sect.~2\<close> in "adams2013"\<close>:
 
     \<^item> \<^text>\<open>|t| \<rightarrow> t\<^sup>=\<close> for every terminal \<^text>\<open>t\<close>
       occurring in \<^text>\<open>G\<close>;
@@ -1545,8 +1574,8 @@ text \<open>
   \<^text>\<open>\<Zrres>\<^sub>m\<close> at the split position by \<^text>\<open>=\<close>,
   an \<^text>\<open>|X|\<close>-parse re-enters \<^text>\<open>G\<close> only where those relations
   tolerate equal indentations. \<^text>\<open>lead_refl\<close> is that condition as a
-  syntactic restriction on the grammar; it holds for the ISWIM (Fig. 2) and
-  Haskell (Fig. 5) grammars of the paper, whose split positions carry
+  syntactic restriction on the grammar; it holds for the ISWIM \<^cite>\<open>\<open>Fig.~2\<close> in "adams2013"\<close> and
+  Haskell \<^cite>\<open>\<open>Fig.~5\<close> in "adams2013"\<close> grammars of the paper, whose split positions carry
   \<^text>\<open>=\<close> or \<^text>\<open>\<ge>\<close>.
 \<close>
 
@@ -1640,32 +1669,34 @@ proof
     using bar_to_anchored[OF assms] by blast
 qed (use anchored_to_bar in fastforce)
 
-section \<open>LR(k) and GLR parsing (Sect. 5)\<close>
+section \<open>LR(k) and GLR parsing \<^cite>\<open>\<open>Sect.~5\<close> in "adams2013"\<close>\<close>
 
 text \<open>
-  Sect. 5 of the paper derives GLR and LR(k) parsers in layers, and this section
-  follows them: properties of the indentation relations (Sect. 5.1, Lemmas 2 and
-  3), rightmost derivations and handles (Sect. 5.3), items, lookaheads and the
-  LR(k) stack machine of Algorithm 8 (Sect. 5.4), item-set completeness
-  (Definition 9, Lemma 10), the factored item sets of Sect. 5.5 together with
-  their commutation theorems and a lockstep bisimulation with Algorithm 8, the
-  finite representation of indentation sets (Sect. 5.5, 5.6), and the LR(k)
-  condition with uniqueness of handles (Sect. 5.6).
+  The paper \<^cite>\<open>\<open>Sect.~5\<close> in "adams2013"\<close> derives GLR and LR(k) parsers in layers, and this
+  section follows them: properties of the indentation relations
+  \<^cite>\<open>\<open>Sect.~5.1, Lemmas~2--3\<close> in "adams2013"\<close>, rightmost derivations and handles
+  \<^cite>\<open>\<open>Sect.~5.3\<close> in "adams2013"\<close>, items, lookaheads and the LR(k) stack machine of
+  Algorithm 8 \<^cite>\<open>\<open>Sect.~5.4, Alg.~8\<close> in "adams2013"\<close>, item-set completeness
+  \<^cite>\<open>\<open>Def.~9, Lemma~10\<close> in "adams2013"\<close>, the factored item sets \<^cite>\<open>\<open>Sect.~5.5\<close> in "adams2013"\<close>
+  together with their commutation theorems and a lockstep bisimulation with
+  Algorithm 8, the finite representation of indentation sets
+  \<^cite>\<open>\<open>Sects.~5.5--5.6\<close> in "adams2013"\<close>, and the LR(k) condition with uniqueness of
+  handles \<^cite>\<open>\<open>Sect.~5.6\<close> in "adams2013"\<close>.
 
   Two results the paper does not prove are proved here: that Algorithm 8
   accepts the language, for every lookahead length, which the paper cites to
-  Knuth, and that the GLR machine at the end of Sect. 5.5 can be run as an
+  Knuth \<^cite>\<open>"knuth1965-lr-translation"\<close>, and that the GLR machine at the end of Sect. 5.5 can be run as an
   executable, certificate-checking machine that is sound and complete.  The
   executable machine has no lookahead (\<open>k = 0\<close>); the closing text of this
   section says where the parser's lookahead comes from instead.
 \<close>
 
-subsection \<open>Composition and closure of indentation relations (Lemmas 2 and 3)\<close>
+subsection \<open>Composition and closure of indentation relations \<^cite>\<open>\<open>Lemmas~2--3\<close> in "adams2013"\<close>\<close>
 
 text \<open>
   \<^text>\<open>path_rel rs k i\<close> composes the edge relations along a path from an
   ancestor at indentation \<^text>\<open>i\<close> down to a descendant at
-  \<^text>\<open>k\<close>, topmost edge first. Lemma 2: every such composition falls
+  \<^text>\<open>k\<close>, topmost edge first. Lemma 2 \<^cite>\<open>\<open>Lemma~2\<close> in "adams2013"\<close>: every such composition falls
   into one of six classes, represented by \<^text>\<open>cirel\<close>.
   \<^text>\<open>CGt n\<close> is \<^text>\<open>>\<^sup>n\<close>, i.e.
   \<^text>\<open>k \<ge> i + n\<close>; \<^text>\<open>CGtAny n\<close> is
@@ -1714,9 +1745,9 @@ fun ccomp :: \<open>cirel \<Rightarrow> cirel \<Rightarrow> cirel\<close> where
 | \<open>ccomp (CGtAny n) (CGt m) = CGtAny (n + m)\<close>
 
 lemma csat_ccomp: \<open>csat (ccomp c d) k i \<longleftrightarrow> (\<exists>j. csat d k j \<and> csat c j i)\<close>
-  by (cases c; cases d; auto; presburger)
+  by (induction c d rule: ccomp.induct) (auto intro: exI[of _ 0] le_add1, presburger+)
 
-text \<open>Lemma 2: composing along a path stays within the six classes.\<close>
+text \<open>Lemma 2 \<^cite>\<open>\<open>Lemma~2\<close> in "adams2013"\<close>: composing along a path stays within the six classes.\<close>
 
 fun cpath :: \<open>irel list \<Rightarrow> cirel\<close> where
   \<open>cpath [] = CEq\<close>
@@ -1726,11 +1757,11 @@ theorem path_rel_cpath: \<open>path_rel rs k i \<longleftrightarrow> csat (cpath
   by (induction rs arbitrary: i) (auto simp: csat_ccomp)
 
 text \<open>
-  Lemma 3: closing the relations under composition and arbitrary unions needs
+  Lemma 3 \<^cite>\<open>\<open>Lemma~3\<close> in "adams2013"\<close>: closing the relations under composition and arbitrary unions needs
   only finitely many classes, at most one of each kind, because
   \<^text>\<open>>\<^sup>n\<close> subsumes \<^text>\<open>>\<^sup>m\<close> for
   \<^text>\<open>n \<le> m\<close>, and likewise with \<^text>\<open>\<star>\<close>. This makes the
-  indentation sets of Sect. 5.5 and 5.6 finitely representable.
+  indentation sets \<^cite>\<open>\<open>Sects.~5.5--5.6\<close> in "adams2013"\<close> finitely representable.
 \<close>
 
 theorem cirel_union_finite:
@@ -1770,13 +1801,13 @@ proof -
   ultimately show ?thesis by blast
 qed
 
-subsection \<open>Rightmost derivations and handles (Sect. 5.3)\<close>
+subsection \<open>Rightmost derivations and handles \<^cite>\<open>\<open>Sect.~5.3\<close> in "adams2013"\<close>\<close>
 
 text \<open>
   LR(k) parsing runs a rightmost derivation backwards: each step expands the
   rightmost non-terminal, so everything right of the rewritten occurrence is
   terminal. That relation is \<^const>\<open>deriver\<close>, again over a production set,
-  so it applies to the infinite II-CFG of Sect. 5.2, and
+  so it applies to the infinite II-CFG \<^cite>\<open>\<open>Sect.~5.2\<close> in "adams2013"\<close>, and
   \<^text>\<open>derivers_iff_derives\<close> is the classical result that every derivation
   of a terminal word can be reordered into a rightmost one.
 \<close>
@@ -1787,11 +1818,11 @@ corollary ilang_derivers:
   by (simp add: ilang_derives derivers_iff_derives)
 
 text \<open>
-  Handles (Sect. 5.3): if
+  Handles \<^cite>\<open>\<open>Sect.~5.3\<close> in "adams2013"\<close>: if
   \<^text>\<open>S \<Rightarrow>\<^sup>*\<^sub>r\<^sub>m U (Nt A) V \<Rightarrow>\<^sub>r\<^sub>m U rhs V\<close>, the occurrence of
   \<^text>\<open>rhs\<close> at position \<^text>\<open>|U|\<close> is a handle of
   \<^text>\<open>U rhs V\<close>. LR parsing searches for a handle and reduces it, so
-  Algorithm 7 of the paper is the reflexive-transitive closure of reversed
+  Algorithm 7 of the paper \<^cite>\<open>\<open>Alg.~7\<close> in "adams2013"\<close> is the reflexive-transitive closure of reversed
   rightmost steps.
 
   A tail is terminal iff it has no non-terminals, which
@@ -1825,7 +1856,7 @@ theorem algorithm7:
   by (simp add: rtranclp_conversep)
 
 
-subsection \<open>Items and the LR(k) stack machine (Sect. 5.4, Algorithm 8)\<close>
+subsection \<open>Items and the LR(k) stack machine \<^cite>\<open>\<open>Sect.~5.4, Alg.~8\<close> in "adams2013"\<close>\<close>
 
 text \<open>
   An item \<^text>\<open>[A \<rightarrow> X\<^sub>1\<dots>X\<^sub>m . X\<^sub>m\<^sub>+\<^sub>1\<dots>X\<^sub>n; u]\<close> is a production, a
@@ -1837,7 +1868,7 @@ text \<open>
 
   Stacks grow to the left, so the head is the paper's \<^text>\<open>S\<^sub>n\<close>.
   Stack entries are kernel item sets, and the closure is taken whenever an
-  entry is consulted, as in step 1 of Algorithm 8.
+  entry is consulted, as in step 1 of Algorithm 8 \<^cite>\<open>\<open>Alg.~8, step~1\<close> in "adams2013"\<close>.
 \<close>
 
 type_synonym ('nn, 'tt) item = \<open>('nn, 'tt) prod \<times> nat \<times> 'tt list\<close>
@@ -1889,7 +1920,7 @@ definition igoto :: \<open>('nn, 'tt) item set \<Rightarrow> ('nn, 'tt) sym \<Ri
      ((A, rhs), m, u) \<in> S \<and> m < length rhs \<and> rhs ! m = Z}\<close>
 
 text \<open>
-  The acceptable-lookahead sets of steps 2 and 3 of Algorithm 8:
+  The acceptable-lookahead sets of steps 2 and 3 of Algorithm 8 \<^cite>\<open>\<open>Alg.~8, steps~2--3\<close> in "adams2013"\<close>:
   \<^text>\<open>Kset\<close> is the paper's \<^text>\<open>K\<close>, where any item may
   continue, and \<^text>\<open>Kprod\<close> the per-production reduce set given by the
   completed items.
@@ -1907,7 +1938,7 @@ lemma Kprod_iff: \<open>u \<in> Kprod S (A, rhs) \<longleftrightarrow> ((A, rhs)
   unfolding Kprod_def by simp
 
 text \<open>
-  Algorithm 8. A configuration is a stack of kernel item sets together with the
+  Algorithm 8 \<^cite>\<open>\<open>Alg.~8\<close> in "adams2013"\<close>. A configuration is a stack of kernel item sets together with the
   remaining input, whose first \<^text>\<open>k\<close> symbols form the lookahead. A
   shift pushes \<^text>\<open>GOTO(S', t)\<close>; a reduce for
   \<^text>\<open>A \<rightarrow> rhs\<close> pops \<^text>\<open>|rhs|\<close> entries and pushes
@@ -2014,14 +2045,15 @@ lemma infG_alt:
   by (auto simp: infG_def annotates_iff_map)
 
 
-subsection \<open>Item-set completeness (Definition 9) and Lemma 10\<close>
+subsection \<open>Item-set completeness and Lemma 10 \<^cite>\<open>\<open>Def.~9, Lemma~10\<close> in "adams2013"\<close>\<close>
 
 text \<open>
-  Definition 9 of the paper: an item set over \<^term>\<open>infG G\<close> is
+  Definition 9 of the paper \<^cite>\<open>\<open>Def.~9\<close> in "adams2013"\<close>: an item set over \<^term>\<open>infG G\<close> is
   \<^emph>\<open>complete\<close> if, for every item whose right-hand side is an annotated
   instance of an original production, every re-annotation of the part after the
   dot is present too, with the same lookahead and the same pre-dot part. Lemma
-  10 states that closure and GOTO, hence every step of Algorithm 8, preserve
+  10 \<^cite>\<open>\<open>Lemma~10\<close> in "adams2013"\<close> states that closure and GOTO, hence every step of
+  Algorithm 8 \<^cite>\<open>\<open>Alg.~8\<close> in "adams2013"\<close>, preserve
   completeness of all stack entries. This licenses factoring the post-dot
   indentations out of the representation.
 \<close>
@@ -2096,7 +2128,7 @@ proof (intro allI impI)
     unfolding igoto_def pre by (auto simp: len\<^sub>0 nth_append)
 qed
 
-text \<open>Lemma 10: every step of Algorithm 8 preserves completeness of
+text \<open>Lemma 10 \<^cite>\<open>\<open>Lemma~10\<close> in "adams2013"\<close>: every step of Algorithm 8 preserves completeness of
   the stack.\<close>
 
 theorem lemma10:
@@ -2138,7 +2170,7 @@ qed (blast intro: lemma10)
 subsection \<open>Item cores: pre-dot indentations are irrelevant\<close>
 
 text \<open>
-  Sect. 5.5 observes that the indentations left of the dot do not affect parsing.
+  The paper \<^cite>\<open>\<open>Sect.~5.5\<close> in "adams2013"\<close> observes that the indentations left of the dot do not affect parsing.
   The \<^emph>\<open>core\<close> of an item makes that precise: it keeps the annotated
   left-hand side, the lookahead, the dot and the annotated post-dot part, and
   strips the annotations of the pre-dot part. All machine operations are
@@ -2278,7 +2310,7 @@ proof -
 qed
 
 
-subsection \<open>Factored item sets (Sect. 5.5)\<close>
+subsection \<open>Factored item sets \<^cite>\<open>\<open>Sect.~5.5\<close> in "adams2013"\<close>\<close>
 
 text \<open>
   A \<^emph>\<open>factored item\<close> \<^text>\<open>[A \<rightarrow> X\<^sub>1\<dots>X\<^sub>m . X\<^sub>m\<^sub>+\<^sub>1\<dots>X\<^sub>n; L]\<close>
@@ -2362,16 +2394,16 @@ lemma wf_iset_fconcs: \<open>wf_fitems FS \<Longrightarrow> wf_iset (fconcs FS)\
   unfolding wf_iset_def wf_fitems_def fconcs_def fconc_def
   by (fastforce dest: annotates_length)
 
-subsection \<open>The factored operations model Algorithm 8 (Sect. 5.5, 5.7)\<close>
+subsection \<open>The factored operations model Algorithm 8 \<^cite>\<open>\<open>Alg.~8; Sects.~5.5, 5.7\<close> in "adams2013"\<close>\<close>
 
 text \<open>
   The lookahead sets and the closure commute with concretization. GOTO commutes
   up to core-equivalence: the concrete GOTO records the indentation of the
   symbol just moved over the dot where the factored one forgets it, sound
   because pre-dot annotations do not matter. At this semantic level the
-  factored representation loses nothing, settling the concern of Sect. 5.7 for
+  factored representation loses nothing, settling the concern of \<^cite>\<open>\<open>Sect.~5.7\<close> in "adams2013"\<close> for
   the indentation-and-lookahead sets; over-approximation enters only with the
-  finite representation of lookaheads in Sect. 5.6.
+  finite representation of lookaheads \<^cite>\<open>\<open>Sect.~5.6\<close> in "adams2013"\<close>.
 \<close>
 
 theorem fKset_correct: \<open>Kset (infG G) k (fconcs FS) = fKset G k FS\<close>
@@ -2535,14 +2567,14 @@ proof -
 qed
 
 
-subsection \<open>The factored machine and its bisimulation with Algorithm 8\<close>
+subsection \<open>The factored machine and its bisimulation with Algorithm 8 \<^cite>\<open>\<open>Alg.~8\<close> in "adams2013"\<close>\<close>
 
 text \<open>
   The factored machine works on stacks of factored item sets, in lockstep
-  bisimulation with Algorithm 8 on the infinite II-CFG: related stacks, meaning
+  bisimulation with Algorithm 8 \<^cite>\<open>\<open>Alg.~8\<close> in "adams2013"\<close> on the infinite II-CFG: related stacks, meaning
   entrywise core-equivalent concretizations that are all well-formed, admit the
   same shift and reduce steps and stay related. This is the formal content of
-  the claim in Sect. 5.5 that the algorithm models the same item sets as
+  the claim \<^cite>\<open>\<open>Sect.~5.5\<close> in "adams2013"\<close> that the algorithm models the same item sets as
   Algorithm 8.
 \<close>
 
@@ -2737,12 +2769,12 @@ proof -
 qed
 
 
-subsection \<open>Finite representation of indentation sets (Sect. 5.5, 5.6)\<close>
+subsection \<open>Finite representation of indentation sets \<^cite>\<open>\<open>Sects.~5.5--5.6\<close> in "adams2013"\<close>\<close>
 
 text \<open>
   For the GLR case \<^text>\<open>k = 0\<close>, where lookaheads are trivial, the
   indentation sets occurring in the machine are always a finite set, or a finite
-  set together with an upward-closed one, in line with Lemma 3.
+  set together with an upward-closed one, in line with Lemma 3 \<^cite>\<open>\<open>Lemma~3\<close> in "adams2013"\<close>.
   \<^text>\<open>indrep\<close> realizes that class, with executable membership, union, the
   constraint filter used by \<^const>\<open>fgoto\<close> and the relational image used by
   \<^const>\<open>fclosure\<close>. That the machine preserves the class is the paper's
@@ -2933,13 +2965,13 @@ next
 qed
 
 
-subsection \<open>LR(k) grammars (Sect. 5.6)\<close>
+subsection \<open>LR(k) grammars \<^cite>\<open>\<open>Sect.~5.6\<close> in "adams2013"\<close>\<close>
 
 text \<open>
-  Knuth's LR(k) condition: two rightmost derivation steps that agree up to the
+  Knuth's LR(k) condition \<^cite>\<open>\<open>Sect.~I\<close> in "knuth1965-lr-translation"\<close>: two rightmost derivation steps that agree up to the
   end of the handle plus \<^text>\<open>k\<close> symbols are the same step. In an LR(k)
   grammar every sentential form has at most one handle, which removes the
-  nondeterminism from Algorithm 8 in Sect. 5.6.
+  nondeterminism from Algorithm 8 \<^cite>\<open>\<open>Alg.~8, Sect.~5.6\<close> in "adams2013"\<close>.
 \<close>
 
 definition lrk :: \<open>('nn, 'tt) Prods \<Rightarrow> 'nn \<Rightarrow> nat \<Rightarrow> bool\<close> where
@@ -2980,7 +3012,7 @@ proof -
 qed
 
 
-subsection \<open>Correctness of Algorithm 8: the canonical stack\<close>
+subsection \<open>Correctness of Algorithm 8 \<^cite>\<open>\<open>Alg.~8\<close> in "adams2013"\<close>: the canonical stack\<close>
 
 text \<open>
   The canonical machine stack of a \<^emph>\<open>viable prefix\<close>
@@ -2988,7 +3020,7 @@ text \<open>
   reached from the initial kernel \<^text>\<open>I\<close> by GOTO along
   \<^text>\<open>\<gamma>\<close>, on closures, and \<^text>\<open>lr_frames\<close> is the stack
   holding the states of all prefixes of \<^text>\<open>\<gamma>\<close>, that of
-  \<^text>\<open>\<gamma>\<close> itself on top. Every reachable configuration of Algorithm 8
+  \<^text>\<open>\<gamma>\<close> itself on top. Every reachable configuration of Algorithm 8 \<^cite>\<open>\<open>Alg.~8\<close> in "adams2013"\<close>
   has this shape.
 \<close>
 
@@ -3164,7 +3196,7 @@ qed
 
 
 text \<open>
-  Every reachable configuration of Algorithm 8 is the canonical stack of some
+  Every reachable configuration of Algorithm 8 \<^cite>\<open>\<open>Alg.~8\<close> in "adams2013"\<close> is the canonical stack of some
   viable prefix \<^text>\<open>\<gamma>\<close>, and \<^text>\<open>\<gamma>\<close> derives the consumed
   input in the augmented grammar. Soundness follows: at acceptance, freshness
   pins \<^text>\<open>\<gamma>\<close> to \<^text>\<open>[Nt St]\<close>.
@@ -3379,10 +3411,10 @@ theorem lr_accepts_iff:
 
 text \<open>
   Instantiation at the infinite II-CFG: a fresh non-terminal name yields fresh
-  annotated start symbols, so Algorithm 8 over \<^term>\<open>infG G\<close> accepts the
+  annotated start symbols, so Algorithm 8 \<^cite>\<open>\<open>Alg.~8\<close> in "adams2013"\<close> over \<^term>\<open>infG G\<close> accepts the
   language of the IS-grammar \<^term>\<open>G\<close>, for every lookahead length
   \<^text>\<open>k\<close> and any end marker. This is the LR(k) correctness theorem for
-  indentation-sensitive grammars that the paper cites to Knuth.
+  indentation-sensitive grammars that the paper cites to Knuth \<^cite>\<open>"knuth1965-lr-translation"\<close>.
 \<close>
 
 definition fresh_name :: \<open>('n, 'tok) is_cfg \<Rightarrow> 'n \<Rightarrow> bool\<close> where
@@ -3416,7 +3448,7 @@ theorem lr_lang:
 subsection \<open>An executable GLR machine (k = 0)\<close>
 
 text \<open>
-  The GLR parser at the end of Sect. 5.5, made executable: an item is a triple
+  The GLR parser at the end of Sect. 5.5 \<^cite>\<open>\<open>Sect.~5.5\<close> in "adams2013"\<close>, made executable: an item is a triple
   of an original production, a dot, and an indentation set represented by
   \<^typ>\<open>indrep\<close>, the lookahead component being trivial at
   \<^text>\<open>k = 0\<close>. Two further executable operations on
@@ -3726,7 +3758,7 @@ text \<open>
   reduction, the production and the indentation of the reduced non-terminal.
   Every side condition is checked, stability of the
   fuelled closure included, so a successful run is a verified parse: it maps
-  step by step onto Algorithm 8 on the infinite II-CFG.
+  step by step onto Algorithm 8 \<^cite>\<open>\<open>Alg.~8\<close> in "adams2013"\<close> on the infinite II-CFG.
 \<close>
 
 datatype ('n, 'tok) gaction =
@@ -3787,7 +3819,7 @@ definition gaccepts ::
                     irep_mem (istart_ind G) R) (hd Xs))\<close>
 
 text \<open>The initial stacks are related: the executable initial item
-  concretizes to the initial item of Algorithm 8.\<close>
+  concretizes to the initial item of Algorithm 8 \<^cite>\<open>\<open>Alg.~8\<close> in "adams2013"\<close>.\<close>
 
 lemma xinit_conc:
   fixes G :: \<open>('n, 'tok) is_cfg\<close> and dm :: \<open>'tok \<times> nat\<close>
@@ -3877,7 +3909,7 @@ proof -
 qed
 
 text \<open>Every successful step of the executable machine is a step of
-  Algorithm 8 on the infinite II-CFG and preserves the stack relation.\<close>
+  Algorithm 8 \<^cite>\<open>\<open>Alg.~8\<close> in "adams2013"\<close> on the infinite II-CFG and preserves the stack relation.\<close>
 
 lemma gstep_to_lr:
   assumes rel: \<open>stack_rel Ss (map xset Xs)\<close>
@@ -4168,7 +4200,7 @@ proof (intro allI impI)
   qed (use eq in \<open>auto simp: xconc_triple\<close>)
 qed
 
-text \<open>Conversely, every step of Algorithm 8 is matched by the
+text \<open>Conversely, every step of Algorithm 8 \<^cite>\<open>\<open>Alg.~8\<close> in "adams2013"\<close> is matched by the
   executable machine under a suitable action, with the fuel supplied by
   \<^text>\<open>xcls_stable_ex\<close>, preserving the stack relation.\<close>
 
@@ -4365,7 +4397,7 @@ qed
 
 text \<open>
   What this section provides, and what it does not.  Three machines exist.
-  Algorithm 8 (\<^const>\<open>lr_step\<close>, \<^const>\<open>lr_accepts\<close>) is the paper's LR(k)
+  Algorithm 8 \<^cite>\<open>\<open>Alg.~8\<close> in "adams2013"\<close> (\<^const>\<open>lr_step\<close>, \<^const>\<open>lr_accepts\<close>) is the paper's LR(k)
   machine for every \<open>k\<close>, with the lookahead sets \<^const>\<open>Hk\<close> as sets;
   \<^text>\<open>lr_lang\<close> proves it accepts exactly \<^const>\<open>ilang\<close>, but nothing
   computes \<^const>\<open>Hk\<close>, so it is a specification.  The factored machine
@@ -4377,9 +4409,9 @@ text \<open>
   acceptor, i.e. it asks whether \<^emph>\<open>some\<close> action sequence accepts rather
   than choosing one.
 
-  Lookahead is not computed in this theory.  The paper's Sect. 5.6 compresses
+  Lookahead is not computed in this theory.  The paper \<^cite>\<open>\<open>Sect.~5.6\<close> in "adams2013"\<close> compresses
   the lookahead components into finite tuples, over-approximating them
-  (the conflicts Sect. 5.7 discusses), and omits the \<open>k \<ge> 1\<close> lookahead
+  (the conflicts discussed in \<^cite>\<open>\<open>Sect.~5.7\<close> in "adams2013"\<close>), and omits the \<open>k \<ge> 1\<close> lookahead
   computation as intricate.  This development takes a different route to the
   same effect: theory \<^text>\<open>LR\<close> propagates one token of LALR-style
   lookahead, with the layout relation attached, over the LR(0) automaton of
@@ -4388,7 +4420,7 @@ text \<open>
   layout constraints, not the canonical LR(1) instance of Algorithm 8: its
   static conflict check is stronger than the LR(1) condition of Sect. 5.6,
   and no theorem yet relates the cells to \<^const>\<open>Hk\<close> at \<open>k = 1\<close>.
-  Sect. 5.8 is an efficiency discussion with no formal content.
+  Sect. 5.8 \<^cite>\<open>\<open>Sect.~5.8\<close> in "adams2013"\<close> is an efficiency discussion with no formal content.
 \<close>
 
 end

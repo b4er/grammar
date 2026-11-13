@@ -1,3 +1,5 @@
+(* Author: Basil Fürer, Dmitriy Traytel, Claude *)
+
 (* the definitions behind a grammar: the grammar constant and the decoders;
    the relation family is in grammar_rel.ML *)
 
@@ -160,13 +162,13 @@ fun body_of_prod_dec (gram: Grammar_Common.grammar)
     val span_args =
       if #span p then
         [Const (\<^const_name>\<open>yield_span\<close>,
-            astListT --> Type (\<^type_name>\<open>Token.span_ext\<close>, [chT, \<^typ>\<open>unit\<close>]))
+            astListT --> Type (\<^type_name>\<open>TIGER_Token.span_ext\<close>, [chT, \<^typ>\<open>unit\<close>]))
           $ HOLogic.mk_list astT cs]
       else [];
     val outOptT = mk_optionT outT;
     val classify = classify_of gram;
     val slots = cs ~~ map (fn (s, _) => classify s) (#rhs p);
-    val Tok_tok_c = Const (\<^const_name>\<open>Token.tok\<close>, tokenT --> tokT);
+    val Tok_tok_c = Const (\<^const_name>\<open>TIGER_Token.tok\<close>, tokenT --> tokT);
     val none = mk_None outT;
 
     fun leaf_arm x_v inner =

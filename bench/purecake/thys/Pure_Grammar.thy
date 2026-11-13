@@ -1,5 +1,5 @@
 theory Pure_Grammar
-  imports TIGER_LR.LR_Parser Pure_AST
+  imports TIGER_Grammar.LR_Parser Pure_AST
 begin
 
 section \<open>PureCake's PEG as an indentation-sensitive CFG\<close>

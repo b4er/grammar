@@ -1,3 +1,5 @@
+(* Author: Basil Fürer, Claude *)
+
 theory LR_Driver
   imports LR
 begin
@@ -13,6 +15,17 @@ text \<open>
   is exact, and no anchor is guessed.  Reduce licensing tests the LALR cell's
   width relation against that anchor set, so the remaining nondeterminism is
   the layout/LALR nondeterminism of the grammar.
+
+  The driver follows Knuth's parsing method
+  \<^cite>\<open>\<open>Sect.~II, Eqs.~(17)--(23)\<close> in "knuth1965-lr-translation"\<close>: a stack of
+  state sets, a closure, a shift or a reduce, and the next state set.  The
+  items are those of Adams' finite representation for indentation-sensitive
+  grammars \<^cite>\<open>\<open>Sects.~5.5--5.6\<close> in "adams2013"\<close>.  Adams keeps one
+  indentation set per item, and annotates closure items with the relation that
+  leads to them \<^cite>\<open>\<open>Sect.~5.8\<close> in "adams2013"\<close>; the anchor sets and the
+  cached closures below do the same.  Adams removes the nondeterminism by
+  restricting to LR(k) grammars (Sect.~5.6); here that restriction is the
+  operational hypothesis \<open>mdet\<close> of the completeness proof.
 \<close>
 
 subsection \<open>Closure-cached machine steps\<close>
@@ -342,7 +355,14 @@ text \<open>Candidate actions at state index \<open>i\<close> with its reduce ce
   \<open>pr\<close> is offered when the closure completes \<open>pr\<close> with a non-empty anchor set
   \<open>RS\<close> and some cell for \<open>(i, pr)\<close> names the current token (or end of input)
   with a width relation that some anchor in \<open>RS\<close> satisfies against the token's
-  column. The shift comes first whenever input remains.\<close>
+  column. The shift comes first whenever input remains.
+
+  The candidates are the moves an LR automaton offers in DeRemer and
+  Pennello's formulation \<^cite>\<open>\<open>Sect.~2.2\<close> in "deremer1982-lalr-lookahead"\<close>:
+  a read where \<open>Next\<close> is defined and the reduces in \<open>Reduce\<close>, here restricted by
+  the LALR cells and the anchor sets.  Unlike there, the shift is offered
+  without a table lookup, and \<open>dpick\<close> below takes the first candidate
+  whose machine step succeeds with a live successor.\<close>
 
 definition dlic :: \<open>nat \<Rightarrow> ('n, 't) lacell list \<Rightarrow> ('t \<times> nat) list \<Rightarrow>
     'n \<times> ('n, 't) rhs \<Rightarrow> indrep \<Rightarrow> bool\<close> where
@@ -367,6 +387,14 @@ fun dpick :: \<open>('n, 't) is_cfg \<Rightarrow> ('n, 't) xitem list list \<Rig
      (case mstep_cached G cstk gc act of
         Some gc' \<Rightarrow> (if dlive gc' then Some (act, gc') else dpick G cstk gc acts)
       | None \<Rightarrow> dpick G cstk gc acts)\<close>
+
+text \<open>One driver step.  A shift consumes a token; a reduce pops one entry per
+  right-hand side symbol, as in Knuth's Eq.~(21)
+  \<^cite>\<open>\<open>Sect.~II\<close> in "knuth1965-lr-translation"\<close>.  Both then push the state
+  reached under the new symbol, as in Knuth's Step~3, Eq.~(23).  The reduce
+  is the reduce action of the interpreter of Jourdan, Pottier and Leroy
+  \<^cite>\<open>\<open>Sect.~2.5\<close> in "jourdan2012-validating-lr1"\<close>, with the tree stack
+  in place of their semantic values.\<close>
 
 definition dstep :: \<open>('n, 't) is_cfg \<Rightarrow> (('n, 't) sym \<times> nat) list list \<Rightarrow>
     ('n, 't) citem list list \<Rightarrow> ('n, 't) lacell list list \<Rightarrow>
@@ -804,6 +832,18 @@ qed
 
 subsection \<open>The driver invariant and soundness\<close>
 
+text \<open>The invariant has the parts of Barthwal's stack invariants for her SLR
+  parser \<^cite>\<open>\<open>Defs.~5.4.2--5.4.4\<close> in "barthwal2010-thesis-cfl-hol4"\<close>:
+  \<open>dshape\<close> says that each frame is the goto of the frame below it under the
+  symbol pushed on it (\<open>validItem_inv\<close>, Def.~5.4.3); \<open>realizes\<close> says that each
+  tree on the stack is a wellformed tree for its symbol (\<open>validptree_inv\<close>,
+  Def.~5.4.2); and the last conjunct says that the yields of the trees followed
+  by the remaining input give the whole input (\<open>leaves_eq_inv\<close>, Def.~5.4.4).
+  Jourdan, Pottier and Leroy state the last two as one relation between stack
+  and consumed word \<^cite>\<open>\<open>Sect.~3.1\<close> in "jourdan2012-validating-lr1"\<close>.
+  The closure cache, the state indices and the anchor sets \<open>RAs\<close> have no
+  counterpart there.\<close>
+
 definition dinv :: \<open>('n, 't) is_cfg \<Rightarrow> 'n \<Rightarrow> ('m, 'ch, 't) tword \<Rightarrow> ('m, 'ch, 'n, 't) dst \<Rightarrow> bool\<close> where
   \<open>dinv G Shn w st \<longleftrightarrow> (case st of (gc, cstk, istk, v, tstk) \<Rightarrow> (case gc of (Xs, w') \<Rightarrow>
      cstk_ok G Xs cstk \<and> length istk = length Xs \<and> w' = tcols v \<and>
@@ -1068,6 +1108,13 @@ theorem dparse\<^sub>n_sound_ast:
 
 subsection \<open>The fuel-free driver\<close>
 
+text \<open>\<^const>\<open>drun\<close> takes fuel, like the interpreter of Jourdan, Pottier and
+  Leroy \<^cite>\<open>\<open>Sect.~2.5\<close> in "jourdan2012-validating-lr1"\<close>; \<^const>\<open>drun\<^sub>w\<^sub>f\<close>
+  has none.  Every result of \<^const>\<open>drun\<^sub>w\<^sub>f\<close> is a result of \<^const>\<open>drun\<close>
+  for some fuel, so soundness carries over.  Their completeness theorem states
+  that enough fuel exists \<^cite>\<open>\<open>Sect.~3.3, Thm.~3\<close> in "jourdan2012-validating-lr1"\<close>;
+  completeness here is stated for \<^const>\<open>dparse\<close>, which takes no fuel.\<close>
+
 lemma drun\<^sub>w\<^sub>f_imp_drun_ex:
   assumes \<open>drun\<^sub>w\<^sub>f G Shn gt sts redtab st = Some t\<close>
   shows \<open>\<exists>n. drun G Shn gt sts redtab n st = Some t\<close>
@@ -1110,7 +1157,9 @@ text \<open>\<^const>\<open>drun\<^sub>w\<^sub>f\<close> is a least fixed point:
   The control part of a state is everything but the tree stack, and two
   states between the same shifts share the input, so only the stacks are
   compared.  A chain of reduces that grows the stack without bound is not
-  caught.\<close>
+  caught.  Jourdan, Pottier and Leroy point to the same cause, unit and empty
+  productions that do not shrink the stack, and bound their interpreter by
+  fuel instead \<^cite>\<open>\<open>Sect.~2.5\<close> in "jourdan2012-validating-lr1"\<close>.\<close>
 
 type_synonym ('m, 'ch, 'n, 't) dctrl_t =
   \<open>('n, 't) gconfig \<times> ('n, 't) xitem list list \<times> nat list \<times> ('m, 'ch, 't) tword\<close>
@@ -1457,7 +1506,10 @@ text \<open>The history costs a whole-stack comparison against every configurati
   its own name, so that it can carry the unfolding as its code equation.
   It equals \<^const>\<open>drun\<^sub>w\<^sub>f\<close> for every grammar; only the termination of
   the generated code depends on the grammar check, and that check is not
-  proved.\<close>
+  proved.  Termination on inputs outside the language is also left open for
+  the validated LR(1) parsers of Jourdan, Pottier and Leroy
+  \<^cite>\<open>\<open>Sect.~7\<close> in "jourdan2012-validating-lr1"\<close> and for Barthwal's SLR
+  parser \<^cite>\<open>\<open>Sect.~7.1\<close> in "barthwal2010-thesis-cfl-hol4"\<close>.\<close>
 
 partial_function (option) drun_nh ::
   \<open>('n, 't) is_cfg \<Rightarrow> 'n \<Rightarrow> (('n, 't) sym \<times> nat) list list \<Rightarrow>
@@ -1539,7 +1591,10 @@ section \<open>Completeness\<close>
 subsection \<open>Traces of parse trees\<close>
 
 text \<open>The action trace of a wellformed parse tree: a leaf shifts, a node runs
-  its children and reduces by its production.\<close>
+  its children and reduces by its production.  This is the depth-first
+  traversal in the proof idea of the completeness theorem of Jourdan, Pottier
+  and Leroy \<^cite>\<open>\<open>Sect.~3.3, Thm.~3\<close> in "jourdan2012-validating-lr1"\<close>, where
+  a shift visits a leaf and a reduce visits a node.\<close>
 
 inductive mtrace :: \<open>('n, 't) is_cfg \<Rightarrow> ('m, 'ch, 'n, 't) ptree \<Rightarrow> ('n, 't) dact list \<Rightarrow> bool\<close>
   for G where
@@ -1647,7 +1702,18 @@ text \<open>What the completeness proof needs from the three tables: the start
   state is present, the state list is closed under goto through the reachable
   closure \<^const>\<open>creach\<close>, the goto table resolves every symbol after a dot
   of a reachable item, and the cell table contains the start cell and is
-  closed under \<^const>\<open>la_cell\<close>.\<close>
+  closed under \<^const>\<open>la_cell\<close>.
+
+  The first three play the part of conditions 2 and 4--6 of the completeness
+  validator of Jourdan, Pottier and Leroy
+  \<^cite>\<open>\<open>Sect.~3.3\<close> in "jourdan2012-validating-lr1"\<close>: the start items are in
+  the initial state, item sets are closed, and the successor under a symbol
+  holds the items with the dot moved past it.  The correspondence is loose.
+  Their states carry LR(1) items and a goto entry may be undefined; here the
+  states are LR(0) cores, the goto table must resolve every symbol after a
+  reachable dot, and lookahead lives in the cell table.  The contract is not
+  checked by a validator: \<open>tables_ok_concrete\<close> proves it for the tables the
+  driver uses.\<close>
 
 definition tables_ok :: \<open>('n, 't) is_cfg \<Rightarrow> 'n \<Rightarrow> ('n, 't) citem list list \<Rightarrow>
     (('n, 't) sym \<times> nat) list list \<Rightarrow> ('n, 't) lacell list \<Rightarrow> bool\<close> where
@@ -2249,6 +2315,15 @@ text \<open>
   reference to a static report: at a reachable configuration no two distinct
   candidates may both have live successors. A conflict report is a sufficient
   condition for this, not its definition.
+
+  The static conditions in the literature are of that kind: Knuth requires the
+  shift set \<open>Z\<close> and the reduce sets \<open>Z\<^sub>p\<close> of
+  \<^cite>\<open>\<open>Sect.~II, Eqs.~(19)--(20)\<close> in "knuth1965-lr-translation"\<close> to be
+  disjoint, and DeRemer and Pennello call a state inconsistent when it has a
+  read-reduce or a reduce-reduce conflict
+  \<^cite>\<open>\<open>Sect.~2.2\<close> in "deremer1982-lalr-lookahead"\<close>.  Both are conditions on
+  states; \<open>mdet\<close> is a condition on reachable configurations, which
+  include the anchor sets and the input columns.
 \<close>
 
 definition mdet :: \<open>('n, 't) is_cfg \<Rightarrow> 'n \<Rightarrow> bool\<close> where
@@ -3454,7 +3529,16 @@ text \<open>\<^const>\<open>dparse\<close> is sound unconditionally and complete
   The static sufficient condition for \<^const>\<open>mdet\<close> from a conflict
   report is the subject of
   \<^text>\<open>LR_Det\<close>; the backend \<^text>\<open>LR_Parser\<close> uses
-  \<^const>\<open>dparse\<close> through \<^text>\<open>dparse_via_tables\<close>.\<close>
+  \<^const>\<open>dparse\<close> through \<^text>\<open>dparse_via_tables\<close>.
+
+  Compare Barthwal's soundness and completeness theorems for her SLR parser
+  \<^cite>\<open>\<open>Thms.~5.4.3--5.4.4\<close> in "barthwal2010-thesis-cfl-hol4"\<close> and those of
+  Jourdan, Pottier and Leroy for validated LR(1) automata
+  \<^cite>\<open>\<open>Thms.~1 and~3\<close> in "jourdan2012-validating-lr1"\<close>.  Barthwal's
+  theorems both assume that the SLR conflict check passed, and Jourdan et
+  al.'s soundness, like \<^text>\<open>dparse_sound\<close>, assumes nothing about the
+  automaton.  Their completeness assumes a validator check and enough fuel;
+  completeness here assumes \<^const>\<open>mdet\<close> and needs no fuel.\<close>
 
 
 end

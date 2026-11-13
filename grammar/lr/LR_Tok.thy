@@ -1,3 +1,5 @@
+(* Author: Basil Fürer, Dmitriy Traytel, Claude *)
+
 theory LR_Tok
   imports LR_Trie
 begin

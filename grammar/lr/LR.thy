@@ -1,5 +1,7 @@
+(* Author: Basil Fürer, Dmitriy Traytel, Claude *)
+
 theory LR
-  imports TIGER_Grammar.Indentation_Sensitive "HOL-Library.While_Combinator" "HOL-Library.RBT"
+  imports TIGER_Grammar_Model.Indentation_Sensitive "HOL-Library.While_Combinator" "HOL-Library.RBT"
     "HOL-Library.IArray"
 begin
 
@@ -9,9 +11,9 @@ text \<open>
   The table layer: the LR(0) automaton over the cores of the \<open>k = 0\<close>
   frames, the column-relative first table, and per-item LALR(1) lookahead
   cells relating the token's column to the item's anchor.  The cells stand
-  in for the paper's Sect. 5.6 lookahead tuples: the parser of
+  in for the lookahead tuples of \<^cite>\<open>\<open>Sect.~5.6\<close> in "adams2013"\<close>: the parser of
   \<^text>\<open>LR_Driver\<close> is LALR(1)-style, not the canonical LR(1) instance of
-  Algorithm 8; \<^text>\<open>LR_Det\<close> shows that the cells cover its lookahead.
+  \<^cite>\<open>\<open>Alg.~8\<close> in "adams2013"\<close>; \<^text>\<open>LR_Det\<close> shows that the cells cover its lookahead.
 
   The GLR machine of \<^text>\<open>Indentation_Sensitive\<close> section 5 is a
   checker whose steps carry explicit closure fuel.  This section removes the
@@ -114,9 +116,9 @@ text \<open>
 \<close>
 
 
-text \<open>After Knuth (1965, Sect. II step 3: the state sets), DeRemer and
-  Pennello (1982, Sect. 2.2: the LR(0) automaton \<open>(K, Next, Reduce)\<close>) and
-  Barthwal (2010, Sect. 5.3 and Def. 5.5.4: the worklist \<open>visit\<close>, with the
+text \<open>After Knuth \<^cite>\<open>\<open>Sect.~II, Steps~1 and~3\<close> in "knuth1965-lr-translation"\<close> (the state sets), DeRemer and
+  Pennello \<^cite>\<open>\<open>Sect.~2.2\<close> in "deremer1982-lalr-lookahead"\<close> (the LR(0) automaton \<open>(K, Next, Reduce)\<close>) and
+  Barthwal \<^cite>\<open>\<open>Sect.~5.5.1, Def.~5.5.4\<close> in "barthwal2010-thesis-cfl-hol4"\<close> (the worklist \<open>visit\<close>, with the
   unseen part of the finite universe as measure).\<close>
 subsection \<open>Cores of frames\<close>
 
@@ -418,7 +420,11 @@ text \<open>\<^const>\<open>cclosure\<close> adds a dot-\<^text>\<open>0\<close>
   \<^text>\<open>\<epsilon>\<close>-production looks completed in every state.  Conflict diagnostics
   need the classic \<^emph>\<open>reachable\<close> closure: only productions of nonterminals
   that occur after a dot.  One production can be added per round, so
-  \<^term>\<open>length (iprods G)\<close> rounds saturate.\<close>
+  \<^term>\<open>length (iprods G)\<close> rounds saturate.
+
+  This is the \<open>Closure\<close> of DeRemer and Pennello
+  \<^cite>\<open>\<open>Sect.~2.2\<close> in "deremer1982-lalr-lookahead"\<close> and the closure of Knuth's Step~1
+  \<^cite>\<open>\<open>Sect.~II, Eq.~(18)\<close> in "knuth1965-lr-translation"\<close> without its lookahead strings.\<close>
 
 definition creach_step :: \<open>('n, 't) is_cfg \<Rightarrow> ('n, 't) citem list \<Rightarrow> ('n, 't) citem list\<close> where
   \<open>creach_step G cs = remdups (cs @ concat (map (\<lambda>pr.
@@ -566,10 +572,28 @@ text \<open>
     \<^item> \<^text>\<open>nullables\<close>: executable nullability, complete against the
       derivations of the infinite grammar \<^const>\<open>infG\<close>;
     \<^item> \<^text>\<open>ffix\<close>: the first-token table, one saturation fixpoint,
-      complete for \<^term>\<open>fHk G 1\<close>.
+      complete against the derivations of \<^const>\<open>infG\<close>: every first token
+      an annotated right-hand side derives is found, with a relation its
+      column satisfies (\<open>fscan_complete\<close> below).
+
+  A nonterminal \<open>A\<close> is nullable in \<^cite>\<open>\<open>Def.~1\<close> in "adams2013"\<close> if
+  \<open>A\<^sub>i \<Rightarrow>\<^sup>* \<epsilon>\<close> for all \<open>i\<close>; \<open>nullables_complete\<close> asks for a derivation at
+  one indentation only.  The first table is Knuth's \<open>H\<^sub>k\<close>
+  \<^cite>\<open>\<open>Sect.~II\<close> in "knuth1965-lr-translation"\<close> at \<open>k = 1\<close>, with a column
+  relation on each token.  As in Jourdan et al.
+  \<^cite>\<open>\<open>Sect.~3.3\<close> in "jourdan2012-validating-lr1"\<close>, first and nullable are least
+  fixpoints of the standard equations; here they are computed, not checked as part of a
+  certificate.
 \<close>
 
 subsection \<open>Widening composed relations\<close>
+
+text \<open>By \<^cite>\<open>\<open>Lemma~2\<close> in "adams2013"\<close> a composition of relations is one of six
+  classes, but \<open>>\<^sup>n\<close> and \<open>>\<^sup>n\<star>\<close> carry a number, so there are
+  infinitely many.  \<open>cwiden\<close> keeps four: \<open>>\<^sup>n\<close> becomes
+  \<open>>\<^sup>1\<close> (or \<open>\<ge>\<close> when \<open>n = 0\<close>) and \<open>>\<^sup>n\<star>\<close> becomes
+  \<open>\<star>\<close>.  Lemma~2 is exact; the widening only weakens
+  (\<open>csat_cwiden\<close>).\<close>
 
 fun cwiden :: \<open>cirel \<Rightarrow> cirel\<close> where
   \<open>cwiden (CGt n) = (if n = 0 then CGe else CGt 1)\<close>
@@ -1127,6 +1151,10 @@ text \<open>
   core: embedding, inversion and composition only weaken, and
   \<^text>\<open>wdisjoint\<close> detects only disjoint pairs, so pruning a conflict
   pair is justified.
+
+  Adams \<^cite>\<open>\<open>Sect.~5.8\<close> in "adams2013"\<close> observes that the items of one state can
+  carry different indentation sets, so one set shared by the whole state is not enough.
+  The common anchor shares no set: each item keeps its own relation to the anchor.
 \<close>
 
 subsection \<open>The two-directional class algebra\<close>
@@ -1182,12 +1210,12 @@ lemma wcomp_sound:
   by (cases \<tau>\<^sub>1; cases \<tau>\<^sub>2) auto
 
 fun wdisjoint :: \<open>wrel \<Rightarrow> wrel \<Rightarrow> bool\<close> where
-  \<open>wdisjoint WEq WGt = True\<close> | \<open>wdisjoint WGt WEq = True\<close>
-| \<open>wdisjoint WEq WLt = True\<close> | \<open>wdisjoint WLt WEq = True\<close>
-| \<open>wdisjoint WGt WLt = True\<close> | \<open>wdisjoint WLt WGt = True\<close>
-| \<open>wdisjoint WGt WLe = True\<close> | \<open>wdisjoint WLe WGt = True\<close>
-| \<open>wdisjoint WGe WLt = True\<close> | \<open>wdisjoint WLt WGe = True\<close>
-| \<open>wdisjoint \<tau>\<^sub>1 \<tau>\<^sub>2 = False\<close>
+  \<open>wdisjoint WEq \<tau> \<longleftrightarrow> \<tau> = WGt \<or> \<tau> = WLt\<close>
+| \<open>wdisjoint WGt \<tau> \<longleftrightarrow> \<tau> = WEq \<or> \<tau> = WLt \<or> \<tau> = WLe\<close>
+| \<open>wdisjoint WLt \<tau> \<longleftrightarrow> \<tau> = WEq \<or> \<tau> = WGt \<or> \<tau> = WGe\<close>
+| \<open>wdisjoint WLe \<tau> \<longleftrightarrow> \<tau> = WGt\<close>
+| \<open>wdisjoint WGe \<tau> \<longleftrightarrow> \<tau> = WLt\<close>
+| \<open>wdisjoint WAny \<tau> \<longleftrightarrow> False\<close>
 
 lemma wdisjoint_sound:
   \<open>wsat \<tau>\<^sub>1 c l \<Longrightarrow> wsat \<tau>\<^sub>2 c l \<Longrightarrow> \<not> wdisjoint \<tau>\<^sub>1 \<tau>\<^sub>2\<close>
@@ -1198,7 +1226,10 @@ subsection \<open>Anchored reachable closures\<close>
 text \<open>Items with a \<^typ>\<open>wrel\<close> relating the state's incoming goto label to
   the item's left-hand-side indentation.  Kernel items read it off their
   just-dotted symbol; closure children compose through the position's
-  relation.  Like \<^const>\<open>creach\<close>, a diagnostic computation.\<close>
+  relation.  Like \<^const>\<open>creach\<close>, a diagnostic computation.
+  This is the technique of \<^cite>\<open>\<open>Sect.~5.8\<close> in "adams2013"\<close>: indentation information is
+  kept for the items before the closure, and an item the closure adds is annotated with the
+  relation that leads to it.\<close>
 
 type_synonym ('n, 't) witem = \<open>('n \<times> ('n, 't) rhs) \<times> nat \<times> wrel\<close>
 
@@ -1247,6 +1278,13 @@ text \<open>
   Cells are seeded at the start item, flow through closures (re-anchored
   through the occurrence's relation) and through gotos unchanged, in one
   saturation over the automaton, LALR-style.
+
+  The tokens of the cells of a completed item \<open>A \<rightarrow> \<omega>\<close> at state \<open>q\<close> play the
+  role of the set \<open>LA(q, A \<rightarrow> \<omega>)\<close> of DeRemer and Pennello
+  \<^cite>\<open>\<open>Sect.~3\<close> in "deremer1982-lalr-lookahead"\<close>, each with a column relation.  The
+  cells are found by propagation over items until nothing changes, the approach of the
+  algorithms that \<^cite>\<open>\<open>Sect.~6.3\<close> in "deremer1982-lalr-lookahead"\<close> compares against,
+  not by their \<open>Digraph\<close> over nonterminal transitions.
 \<close>
 
 definition anch :: \<open>'n \<times> ('n, 't) rhs \<Rightarrow> nat \<Rightarrow> wrel\<close> where
@@ -1734,7 +1772,7 @@ proof -
   proof (rule while_option_commute_invariant[where P = \<open>la_fast_inv ?ts\<close>])
     show \<open>la_fast_inv ?ts (?c s)\<close> if \<open>la_fast_inv ?ts s\<close> for s
       using la_wl_fast_commute(1)[OF that] .
-    show \<open>?b s = (case la_fast_abs s of (dn, wk) \<Rightarrow> wk \<noteq> [])\<close> for s
+    show \<open>?b s = (case la_fast_abs s of (dn, wk) \<Rightarrow> wk \<noteq> [])\<close> for s :: \<open>('n, 't) la_fast\<close>
       by (cases s) (auto simp: la_fast_abs_def)
     show \<open>la_fast_abs (?c s) = la_wl G (ffix G) (nullables G) gt sts (la_fast_abs s)\<close>
       if \<open>la_fast_inv ?ts s\<close> and \<open>?b s\<close> for s
@@ -1818,7 +1856,14 @@ text \<open>Reduce lookahead comes from the canonical cells, the anchoring to th
   every dot-0 item to \<^const>\<open>WAny\<close>, and \<^const>\<open>wdisjoint\<close> could never
   separate them. A completed cell whose item has several \<^const>\<open>wreach\<close>
   instances is tested against each; an item without one falls back to
-  \<^const>\<open>anch\<close>.\<close>
+  \<^const>\<open>anch\<close>.
+
+  A state is inconsistent \<^cite>\<open>\<open>Sect.~2.2\<close> in "deremer1982-lalr-lookahead"\<close> if a token
+  allows both a shift and a reduction, or two reductions; Knuth's Step~2
+  \<^cite>\<open>\<open>Sect.~II, Eqs.~(19)--(20)\<close> in "knuth1965-lr-translation"\<close> asks the shift set
+  \<open>Z\<close> and the reduce sets \<open>Z\<^sub>p\<close> to be disjoint.  \<open>ConfSR\<close> and \<open>ConfRR\<close>
+  below are these two kinds of overlap, kept only when \<^const>\<open>wdisjoint\<close> cannot
+  separate the two anchor relations.\<close>
 
 text \<open>The test itself takes the state collection and its cell table as
   parameters, since it runs over two automata: the coarse one the machine
@@ -1901,7 +1946,8 @@ text \<open>\<^const>\<open>cclosure\<close> predicts every production in every 
   a meeting from a conflict.
 
   The precise automaton rebuilds the states with \<^const>\<open>creach\<close> in place
-  of \<^const>\<open>cclosure\<close>, giving the classical viable-prefix states;
+  of \<^const>\<open>cclosure\<close>, giving the classical viable-prefix states, the LR(0) parse
+  tables \<open>PT(G)\<close> of \<^cite>\<open>\<open>Sect.~2.2\<close> in "deremer1982-lalr-lookahead"\<close>;
   \<^text>\<open>LR_Det\<close> runs its rigid-point conflict analysis over them.
   Nothing on the parsing path changes: the machine keeps the coarse frames,
   whose \<^typ>\<open>indrep\<close>s prune per input what the precise automaton

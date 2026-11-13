@@ -1,5 +1,7 @@
+(* Author: Basil Fürer, Claude *)
+
 theory Span_Tests
-  imports TIGER_LR.LR_Prec_Parse Parser_Check
+  imports TIGER_Grammar.LR_Prec_Parse Parser_Check
 begin
 
 section \<open>The span of a yield: \<open>@span\<close>\<close>

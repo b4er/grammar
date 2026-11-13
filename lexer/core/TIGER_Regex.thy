@@ -1,4 +1,6 @@
-theory Regex
+(* Author: Basil Fürer, Claude *)
+
+theory TIGER_Regex
   imports "Regular-Sets.Derivatives"
 begin
 
@@ -6,7 +8,7 @@ section \<open>Symbolic regular expressions\<close>
 
 text \<open>A symbolic regular expression is a \<^typ>\<open>'p rexp\<close> of \<^session>\<open>Regular-Sets\<close> whose
   atoms are syntactic predicates. A denotation \<open>sem :: 'p \<Rightarrow> 'ch \<Rightarrow> bool\<close> says which
-  characters a predicate holds for \<^cite>\<open>\<open>Sect. 2\<close> in
+  characters a predicate holds for \<^cite>\<open>\<open>Sect.~2\<close> in
   "dantoni2014-minimization-symbolic-automata"\<close>. We reuse the datatype rather than copy it
   (its \<^const>\<open>nullable\<close>, \<^const>\<open>atoms\<close> and partial derivatives then apply unchanged).
 
@@ -56,7 +58,7 @@ primrec deriv :: \<open>'ch \<Rightarrow> 'p rexp \<Rightarrow> 'p rexp\<close> 
 | \<open>deriv c (Star r) = Times (deriv c r) (Star r)\<close>
 
 text \<open>The derivative of \<open>r\<close> by \<open>c\<close> denotes the words \<open>w\<close> with \<open>c # w \<in> lang r\<close>
-  \<^cite>\<open>\<open>Thm. 3.1\<close> in "brzozowski1964-derivatives-regular-expressions"\<close>:\<close>
+  \<^cite>\<open>\<open>Thm.~3.1\<close> in "brzozowski1964-derivatives-regular-expressions"\<close>:\<close>
 
 lemma Deriv_Pred[simp]: \<open>Deriv c {[d] | d. P d} = (if P c then {[]} else {})\<close>
   by (auto simp: Deriv_def)
@@ -81,7 +83,7 @@ primrec pderivs :: \<open>'ch list \<Rightarrow> 'p rexp \<Rightarrow> 'p rexp s
 | \<open>pderivs (c # w) r = \<Union> (pderivs w ` pderiv c r)\<close>
 
 text \<open>The partial derivatives of \<open>r\<close> by \<open>c\<close> are a set of regexes whose union denotes
-  the derivative \<^cite>\<open>\<open>Def. 2.8, Prop. 2.10\<close> in "antimirov1996-partial-derivatives"\<close>.
+  the derivative \<^cite>\<open>\<open>Def.~2.8, Prop.~2.10\<close> in "antimirov1996-partial-derivatives"\<close>.
   The proofs follow \<^session>\<open>Regular-Sets\<close> (\<open>Derivatives\<close>, @{thm [source]
   Derivatives.Deriv_pderiv} and @{thm [source] Derivatives.Derivs_pderivs}):\<close>
 
@@ -104,7 +106,7 @@ subsection \<open>Partial derivatives by a predicate class\<close>
 
 text \<open>A class is a set \<open>S\<close> of predicates, read as the characters for which exactly the
   predicates in \<open>S\<close> hold (so it needs no denotation). The partial derivative by a class
-  treats every atom in \<open>S\<close> as true \<^cite>\<open>\<open>Def. 13, Thm. 12\<close> in "keil2014-symbolic-regex-inequalities"\<close>:\<close>
+  treats every atom in \<open>S\<close> as true \<^cite>\<open>\<open>Sect.~5.2, Thm.~12\<close> in "keil2014-symbolic-regex-inequalities"\<close>:\<close>
 
 primrec pderiv_cls :: \<open>'p set \<Rightarrow> 'p rexp \<Rightarrow> 'p rexp set\<close> where
   \<open>pderiv_cls S Zero = {}\<close>
@@ -148,7 +150,7 @@ lemma pderiv_eq_pderiv_cls: \<open>pderiv c r = pderiv_cls {p. sem p c} r\<close
   by (induct r) simp_all
 
 text \<open>Characters with the same signature have the same partial derivatives
-  \<^cite>\<open>\<open>Thm. 4.2\<close> in "owens2009-regex-derivatives-reexamined"\<close>, so the partial
+  \<^cite>\<open>\<open>Thm.~4.2\<close> in "owens2009-regex-derivatives-reexamined"\<close>, so the partial
   derivative by a class is the partial derivative by any of its characters:\<close>
 
 lemma pderiv_eq_pderiv_cls_sig: \<open>pderiv c r = pderiv_cls (sig r c) r\<close>
@@ -180,7 +182,7 @@ text \<open>The closure of \<open>r\<close> under partial derivatives by classes
   derivatives by all words. It is a subset of the \<^session>\<open>Regular-Sets\<close> partial
   derivatives of \<open>r\<close> over the alphabet of predicates, so @{thm [source]
   finite_pderivs_lang} and @{thm [source] card_pderivs_lang_UNIV_le_awidth} apply
-  unchanged and no proof is copied \<^cite>\<open>\<open>Thm. 3.4\<close> in "antimirov1996-partial-derivatives"\<close>:\<close>
+  unchanged and no proof is copied \<^cite>\<open>\<open>Thm.~3.4\<close> in "antimirov1996-partial-derivatives"\<close>:\<close>
 
 lemma pderivs_cls_subset_pderivs_lang: \<open>pderivs_cls Ss r \<subseteq> pderivs_lang UNIV r\<close>
 proof (induct Ss arbitrary: r)

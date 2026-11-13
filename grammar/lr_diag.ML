@@ -1,3 +1,5 @@
+(* Author: Basil Fürer, Claude *)
+
 (* the LR backend, diagnostics: the error driver of a parser, the errors block
    (sentences to messages), and the coverage of the error states *)
 
@@ -147,7 +149,8 @@ fun sentence_word ctxt (gram: Grammar_Common.grammar) mk_token label sentence =
               end))
   end;
 
-(* the hole digits of a template *)
+(* the hole digits of a template: $i stands for the source text of stack entry i, as in
+   the message templates of \<^cite>\<open>\<open>Sect.~5\<close> in "pottier2016-lr1-reachability"\<close> *)
 fun template_holes text =
   let
     fun go ("$" :: d :: rest) =
@@ -156,7 +159,7 @@ fun template_holes text =
       | go [] = [];
   in go (raw_explode text) end;
 
-(** coverage of the error states (Pottier, CC 2016; LR_Reach) **)
+(** coverage of the error states \<^cite>\<open>\<open>Sect.~3.5\<close> in "pottier2016-lr1-reachability"\<close>, LR_Reach **)
 
 val parser_errors_budget =
   Attrib.setup_config_int \<^binding>\<open>parser_errors_budget\<close> (K 0);
@@ -179,7 +182,7 @@ fun get_coverage ctxt name = Symtab.lookup (Coverage_Data.get (Context.Proof ctx
 
 fun evaluate_coverage ctxt cov_c ws =
   Code_Runtime.dynamic_value_strict
-    (LR_Reach_Cookie.get, LR_Reach_Cookie.put, "LR_Reach_Cookie.put")
+    (LR_Reach_Cookie.get, LR_Reach_Cookie.put, \<^unchecked_name>\<open>LR_Reach_Cookie.put\<close>)
     ctxt NONE (K I)
     (Syntax.check_term ctxt
       (HOLogic.mk_prod (cov_c, HOLogic.mk_list (HOLogic.listT \<^typ>\<open>integer\<close>) ws))) [];

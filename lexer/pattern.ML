@@ -1,3 +1,5 @@
+(* Author: Basil Fürer, Claude *)
+
 (* the pattern sublanguage of the lexer commands: a lexer over the symbols of a
    cartouche, a parser, and elaboration to nat cls and nat cls rexp terms *)
 
@@ -97,7 +99,7 @@ fun scan_hex pos ss =
       end
   | _ => err pos "malformed escape \\u{...}");
 
-(* after a backslash: in a class, any other symbol stands for itself *)
+(* after a backslash: in a class, any other symbol but a blank stands for itself *)
 fun scan_escape in_class pos ss =
   (case ss of
     ("n", _) :: rest => (10, rest)
@@ -105,7 +107,9 @@ fun scan_escape in_class pos ss =
   | ("r", _) :: rest => (13, rest)
   | ("u", _) :: ("{", _) :: rest => scan_hex pos rest
   | (s, p) :: rest =>
-      if in_class orelse s = "\\" orelse s = "\"" then (cp_of (s, p), rest)
+      if in_class andalso Symbol.is_blank s then
+        err pos "escaped blank in a class (a blank in a class stands for itself)"
+      else if in_class orelse s = "\\" orelse s = "\"" then (cp_of (s, p), rest)
       else err pos ("unknown escape \\" ^ s)
   | [] => err pos "backslash at the end");
 
@@ -117,6 +121,7 @@ fun scan_string pos acc ss =
   | s :: rest => scan_string pos (cp_of s :: acc) rest
   | [] => err pos "unterminated string");
 
+(* as in flex \<^cite>\<open>\<open>Sect.~6\<close> in "paxson2026-flex-manual"\<close>, every symbol of a class but \, ] and - stands for itself, blanks included *)
 datatype item = Char of int * Position.T | Dash of Position.T;
 
 fun scan_items pos acc ss =
@@ -125,9 +130,8 @@ fun scan_items pos acc ss =
   | ("\\", p) :: rest =>
       let val (c, rest') = scan_escape true p rest in scan_items pos (Char (c, p) :: acc) rest' end
   | ("-", p) :: rest => scan_items pos (Dash p :: acc) rest
-  | (s, p) :: rest =>
-      if Symbol.is_blank s then scan_items pos acc rest
-      else scan_items pos (Char (cp_of (s, p), p) :: acc) rest
+  | ("\n", p) :: _ => err p "newline in a class (write \\n)"
+  | (s, p) :: rest => scan_items pos (Char (cp_of (s, p), p) :: acc) rest
   | [] => err pos "unterminated class");
 
 (* a dash at either end stands for itself *)
@@ -195,7 +199,7 @@ fun reports_of_tok ((Lit _, range): tok) = [(Position.range_position range, Mark
 
 (** parser **)
 
-(*precedence as in flex: postfix, concatenation, #, |*)
+(*precedence: postfix, concatenation, #, |; the first, second and fourth levels as in flex \<^cite>\<open>\<open>Sect.~6\<close> in "paxson2026-flex-manual"\<close>, which has no #*)
 datatype ast =
     Lit_A of int list
   | Cls_A of bool * (int * int) list

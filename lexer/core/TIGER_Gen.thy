@@ -1,23 +1,38 @@
-theory Gen
-  imports Spec Pred_Algebra "HOL-Library.While_Combinator"
+(* Author: Basil Fürer, Claude *)
+
+theory TIGER_Gen
+  imports TIGER_Spec TIGER_Pred_Algebra "HOL-Library.While_Combinator"
 begin
 
 section \<open>The DFA of a mode\<close>
 
 text \<open>One DFA per mode reads all rules of the mode at once (regular vectors
-  \<^cite>\<open>\<open>Sect. 6\<close> in "brzozowski1964-derivatives-regular-expressions"\<close>). A state is a
+  \<^cite>\<open>\<open>Sect.~6\<close> in "brzozowski1964-derivatives-regular-expressions"\<close>
+  \<^cite>\<open>\<open>Sect.~4.3\<close> in "owens2009-regex-derivatives-reexamined"\<close>). Verbatim++
+  builds one DFA per rule and names one DFA for all rules as future work
+  \<^cite>\<open>\<open>Sect.~8.2\<close> in "egolf2022-verbatim-plus-plus"\<close>. A state is a
   finite set of pairs of a rule index and a partial derivative. It is the subset
-  construction over partial derivatives \<^cite>\<open>\<open>Prop. 4.3\<close> in
+  construction over partial derivatives \<^cite>\<open>\<open>Prop.~4.3\<close> in
   "antimirov1996-partial-derivatives"\<close>, tagged with rule indices. Transitions are indexed
-  by the minterms of the mode's atoms \<^cite>\<open>\<open>Fig. 2\<close> in
+  by the minterms of the mode's atoms \<^cite>\<open>\<open>Fig.~2\<close> in
   "dantoni2014-minimization-symbolic-automata"\<close>, and a state accepts with the least index
-  of a nullable pair \<^cite>\<open>\<open>Sect. 8\<close> in "paxson2026-flex-manual"\<close>.
+  of a nullable pair \<^cite>\<open>\<open>Sect.~7\<close> in "paxson2026-flex-manual"\<close>.
 
   The states are explored by a worklist over \<^const>\<open>while_option\<close>, as in the closure of
   \<^session>\<open>Regular-Sets\<close> (\<open>Equivalence_Checking\<close>), generalized to a list of states
-  numbered in the order of discovery. Exploration is total, since every reachable state is
-  a set of pairs from a finite closure of the rules under partial derivatives
-  (@{thm [source] finite_pderiv_closure}).
+  numbered in the order of discovery. This is the \<open>explore\<close>/\<open>goto\<close> construction of
+  Owens et al. \<^cite>\<open>\<open>Sect.~3.3, Fig.~1\<close> in "owens2009-regex-derivatives-reexamined"\<close>,
+  with minterms as letters where their Fig.~3 uses approximate derivative classes. Owens et
+  al. traverse depth first and identify equivalent regexes; here the traversal is breadth
+  first and states are equal only as sets of tagged partial derivatives. Exploration is
+  total, since every reachable state is a set of pairs from a finite closure of the rules
+  under partial derivatives
+  (@{thm [source] finite_pderiv_closure}). Verbatim++ also explores by derivatives and
+  makes no recursive call at a derivative that is already a row label
+  \<^cite>\<open>\<open>Sect.~3, Def.~3.1\<close> in "egolf2022-verbatim-plus-plus"\<close>, but its exploration is bounded by
+  fuel. Its table may stay partial, and missing entries are computed by derivatives at
+  run time, so its Thm.~3.9, that the DFA accepts the language of the regex, does not
+  depend on the fuel. Here the table is complete.
 
   We prove that exploration terminates, that a transition by a minterm is the step by any
   of its characters, that the generated tables follow these steps, and that the accepting
@@ -228,7 +243,7 @@ lemma delta_empty[simp]: \<open>delta {} S = {}\<close>
   by (simp add: delta_def)
 
 text \<open>A state accepts with the least rule index of a nullable pair
-  \<^cite>\<open>\<open>Fig. 4, FirstToken\<close> in "egolf2021-verbatim-verified-lexer"\<close>:\<close>
+  \<^cite>\<open>\<open>Fig.~4, FirstToken\<close> in "egolf2021-verbatim-verified-lexer"\<close>:\<close>
 
 definition acc :: \<open>'p state \<Rightarrow> nat option\<close> where
   \<open>acc X = (if \<exists>i r. (i, r) \<in> X \<and> nullable r
@@ -340,7 +355,7 @@ lemma atoms_if_in_pderiv_closure: \<open>r' \<in> pderiv_closure r \<Longrightar
 
 text \<open>Every state is a set of pairs of a rule index and a partial derivative of that
   rule's regex. These pairs are finitely many, at most the sum of the rules' alphabetic
-  widths plus one each \<^cite>\<open>\<open>Thm. 3.4\<close> in "antimirov1996-partial-derivatives"\<close>:\<close>
+  widths plus one each \<^cite>\<open>\<open>Thm.~3.4\<close> in "antimirov1996-partial-derivatives"\<close>:\<close>
 
 definition tagged_closure :: \<open>('k, 'p, 'ch, 'm) rule list \<Rightarrow> (nat \<times> 'p rexp) set\<close> where
   \<open>tagged_closure rs = (\<Union>i < length rs. {i} \<times> pderiv_closure (match (rs ! i)))\<close>
@@ -537,7 +552,7 @@ definition mode_dfa :: \<open>('k, 'p, 'ch, 'm) rule list \<Rightarrow> 'p dfa\<
   \<open>mode_dfa rs = dfa (map fst (mode_minterms rs)) rs\<close>
 
 text \<open>A transition by a minterm is the step by any character of it
-  \<^cite>\<open>\<open>Thm. 12\<close> in "keil2014-symbolic-regex-inequalities"\<close>:\<close>
+  \<^cite>\<open>\<open>Prop.~1\<close> in "dantoni2014-minimization-symbolic-automata"\<close> \<^cite>\<open>\<open>Lemma~9\<close> in "keil2014-symbolic-regex-inequalities"\<close>:\<close>
 
 lemma delta_eq_delta_char:
   assumes \<open>X \<subseteq> tagged_closure rs\<close> \<open>(S, \<mu>) \<in> set (mode_minterms rs)\<close> \<open>sem \<mu> c\<close>

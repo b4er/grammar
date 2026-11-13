@@ -1,4 +1,5 @@
 (*  Title:      tests/parser_check.ML
+    Author:     Basil Fürer, Claude
 
 The test command parser_check: a closed boolean term is evaluated in the ML
 compiler, like "by eval", but proves nothing.
@@ -127,11 +128,11 @@ fun reflect consts thy =
 structure Bool_Result = Proof_Data
 (
   type T = unit -> bool;
-  fun init _ () = raise Fail "Parser_Check.Bool_Result";
+  fun init _ () = raise Fail \<^unchecked_name>\<open>Parser_Check.Bool_Result\<close>;
 );
 
 val put_bool = Bool_Result.put;
-val cookie = (Bool_Result.get, put_bool, "Parser_Check.put_bool");
+val cookie = (Bool_Result.get, put_bool, \<^unchecked_name>\<open>Parser_Check.put_bool\<close>);
 
 fun eval ctxt t =
   let

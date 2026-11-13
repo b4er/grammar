@@ -1,6 +1,6 @@
 chapter VeriMon
 
-session VeriMon_Prec = TIGER_LR +
+session VeriMon_Prec = TIGER_Grammar +
   options [document = false]
   theories
     VeriMon_Parser

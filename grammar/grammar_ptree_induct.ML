@@ -1,3 +1,5 @@
+(* Author: Basil Fürer, Dmitriy Traytel, Claude *)
+
 (* induction over wf_ptree with one property per nonterminal, through a fixed
    selector P with one local equation per nonterminal:
 

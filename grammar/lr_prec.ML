@@ -1,8 +1,11 @@
+(* Author: Basil Fürer, Claude *)
+
 (* precedence declarations in the parser command: the declarations of a grammar become
    the constant `p_prec`, the grammar the constant `p_gram = restricted G p_prec`, which
    the backend is handed in place of G, and each decoder of G is composed with
    plain_ast orig_name.  The constants are per parser since an entry restricts from its
-   own start.  Theorems: LR_Prec_Parse. *)
+   own start.  Theorems: LR_Prec_Parse.  The restriction is the label-intersect-read-back
+   construction of \<^cite>\<open>\<open>Sect.~3\<close> in "adams2017-tree-automata"\<close>. *)
 
 structure LR_Prec: sig end =
 struct

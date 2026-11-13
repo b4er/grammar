@@ -1,5 +1,7 @@
+(* Author: Basil Fürer, Dmitriy Traytel, Claude *)
+
 theory Regression_Tests
-  imports TIGER_LR.LR_Parser Parser_Check
+  imports TIGER_Grammar.LR_Parser Parser_Check
 begin
 
 section \<open>Command-level regression tests\<close>
@@ -29,7 +31,7 @@ grammar (relation) do =
 
 parser do_parse2 for do
 
-text \<open>Accepted and rejected layouts of adams2013 subsection 5.7.\<close>
+text \<open>Accepted and rejected layouts of \<^cite>\<open>\<open>Sect.~5.7\<close> in "adams2013"\<close>.\<close>
 
 parser_check \<open>do_parse2 [tu 1 DDo ''do'', tu 4 DDo ''do'', tu 7 DId ''x''] = Some ()\<close>
 
@@ -114,6 +116,11 @@ parser_check \<open>cyc_parse_int [tu 1 DId ''x''] = Some 0\<close> \<open>cyc_p
 
 subsection \<open>The rejection path: an ambiguous grammar keeps \<open>mdet\<close>\<close>
 
+text \<open>The ISWIM productions of \<^cite>\<open>\<open>Fig.~2\<close> in "adams2013"\<close>, with \<open>WExpr\<close>
+  for the desugared \<open>|expr|\<close>. They apply Landin's offside rule
+  \<^cite>\<open>\<open>Sect.~6, item~(4c)\<close> in "landin1966-next-700"\<close> to the right-hand side of
+  \<open>where\<close> only.\<close>
+
 datatype iswim_tok = IWhere | IPlus | IMinus | IEq | ILP | IRP | IId
 
 grammar (relation) iswim =
@@ -149,7 +156,12 @@ text \<open>\<open>iswim\<close> is genuinely ambiguous, the check
 parser_check \<open>iswim_parse2 [tu 1 IMinus ''-'', tu 3 IId ''x''] = Some ()\<close>
 
 
-subsection \<open>Haskell \<open>case\<close> layout (adams2013 Figure 4): unconditional\<close>
+subsection \<open>Haskell \<open>case\<close> layout: unconditional\<close>
+
+text \<open>The \<open>case\<close> productions of \<^cite>\<open>\<open>Fig.~5\<close> in "adams2013"\<close>. The
+  Haskell report specifies layout by a function \<open>L\<close> that inserts braces and
+  semicolons \<^cite>\<open>\<open>Sect.~10.3\<close> in "marlow2010-haskell-report"\<close>; the grammar
+  states it directly, with no such pass.\<close>
 
 datatype hc_tok = HCase | HOf | HLC | HRC | HSemi | HId
 
@@ -185,7 +197,9 @@ parser_check \<open>hask_case_parse2
   [tu 1 HCase ''case'', tu 6 HId ''x'', tu 8 HOf ''of'',
    tu 3 HId ''A'', tu 4 HId ''B''] = None\<close>
 
-subsection \<open>Python suites (adams2013 subsection 3.3.2, adapted): unconditional\<close>
+subsection \<open>Python suites: unconditional\<close>
+
+text \<open>Adapted from \<^cite>\<open>\<open>Sect.~3.3.2\<close> in "adams2013"\<close>.\<close>
 
 datatype py_tok = PWhile | PColon | PId
 
@@ -400,7 +414,7 @@ ML_val \<open>
     (Parser_Rel_Bridge.prove ctxt g2 (the (Grammar_Defs.lookup_rel ctxt g1));
      error "foreign predicate family accepted")
     handle ERROR msg =>
-      String.isPrefix "Parser_Rel_Bridge.prove" msg orelse error msg;
+      String.isPrefix \<^unchecked_name>\<open>Parser_Rel_Bridge.prove\<close> msg orelse error msg;
   val _ =
     (Grammar_Defs.decoder_of ctxt g1 "Nope"; error "unknown nonterminal accepted")
     handle ERROR msg =>
@@ -906,9 +920,9 @@ definition tg3 :: \<open>(string, string) is_cfg\<close> where
 
 parser_check \<open>rlalr_conflicts tg3 ''!'' \<noteq> []\<close>
 
-subsection \<open>The NQLALR pitfall (deremer1982 section 5.1)\<close>
+subsection \<open>The NQLALR pitfall\<close>
 
-text \<open>\<open>S \<rightarrow> aAc | bAd | agd | bgc, A \<rightarrow> B, B \<rightarrow> g\<close> is LALR(1):
+text \<open>After \<^cite>\<open>\<open>Sect.~5.1\<close> in "deremer1982-lalr-lookahead"\<close>: \<open>S \<rightarrow> aAc | bAd | agd | bgc, A \<rightarrow> B, B \<rightarrow> g\<close> is LALR(1):
   \<open>LA(g\<^sub>0, B \<rightarrow> g) = {c}\<close> and \<open>LA(g\<^sub>1, B \<rightarrow> g) = {d}\<close>.  A state-merged
   NQLALR computation assigns \<open>{c, d}\<close> to both \<open>g\<close>-states and wrongly reports
   conflicts; the per-item cells keep the two halves apart.\<close>
@@ -932,8 +946,7 @@ text \<open>\<open>S \<rightarrow> T\<^sup>\<star>;  T \<rightarrow> A\<^sup>= b
   (\<open>T \<rightarrow> U b\<close>).  After reducing \<open>A\<close> the pooled frame carries the anchor set
   \<open>{0, 1}\<close>; the shift is live via anchor 1 and the reduce of \<open>U \<rightarrow> A\<close> via
   anchor 0.  A comparison of the two sides at one shared anchor is blind to
-  this (papers/MAP.md section 7); the item-relative check is not, and its
-  explanation finds the witness.\<close>
+  this; the item-relative check is not, and its explanation finds the witness.\<close>
 
 definition xag :: \<open>(string, string) is_cfg\<close> where
   \<open>xag = \<lparr> iprods =
@@ -963,7 +976,9 @@ text \<open>\<open>S \<rightarrow> aEa | bEb | aFb | bFa; E \<rightarrow> e; F \
   LALR(1): the merged state \<open>{E \<rightarrow> e\<sqdot>, F \<rightarrow> e\<sqdot>}\<close> pools the lookaheads of
   the \<open>a\<close>- and \<open>b\<close>-contexts, so the driver, which licenses by the merged
   cells, offers both reduces on the same lookahead: \<open>mdet\<close> fails, and the
-  check, which inspects the very cells the driver licenses by, fires.\<close>
+  check, which inspects the very cells the driver licenses by, fires. In the
+  terms of \<^cite>\<open>\<open>Sect.~7\<close> in "deremer1982-lalr-lookahead"\<close> this is an
+  LALR-only reduce-reduce conflict: merging joins two distinct left contexts.\<close>
 
 definition pol :: \<open>(string, string) is_cfg\<close> where
   \<open>pol = \<lparr> iprods =

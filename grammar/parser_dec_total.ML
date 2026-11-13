@@ -1,3 +1,5 @@
+(* Author: Basil Fürer, Dmitriy Traytel, Claude *)
+
 (* decoder totality is backend-independent: every completeness theorem of a
    parser that returns an `ast option` and then decodes it carries the premise
 

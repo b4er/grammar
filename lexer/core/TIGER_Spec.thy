@@ -1,5 +1,7 @@
-theory Spec
-  imports Regex Token.Token
+(* Author: Basil Fürer, Claude *)
+
+theory TIGER_Spec
+  imports TIGER_Regex TIGER_Lexed
 begin
 
 section \<open>The lexer specification\<close>
@@ -7,8 +9,8 @@ section \<open>The lexer specification\<close>
 text \<open>A lexer spec maps each mode to a prioritized list of rules. A rule is a regex over
   syntactic predicates and an action. The action sees the matched text and the mode stack
   (its head is the current mode) and returns the token kind, or \<^const>\<open>None\<close> for
-  trivia, and the new stack \<^cite>\<open>\<open>Sect. 10\<close> in "paxson2026-flex-manual"\<close>. The judgments follow Verbatim
-  \<^cite>\<open>\<open>Figs. 3--4\<close> in "egolf2021-verbatim-verified-lexer"\<close>: the longest prefix, the
+  trivia, and the new stack \<^cite>\<open>\<open>Sect.~10\<close> in "paxson2026-flex-manual"\<close>. The judgments follow Verbatim
+  \<^cite>\<open>\<open>Figs.~3--4\<close> in "egolf2021-verbatim-verified-lexer"\<close>: the longest prefix, the
   first rule matching it, and the driver, which stops with the unread residue and the
   stack it stops in.
 
@@ -16,7 +18,10 @@ text \<open>A lexer spec maps each mode to a prioritized list of rules. A rule i
   denotation \<open>sem\<close> of its predicates (\<^const>\<open>symbolic.lang\<close>).
 
   An empty match is never a match, and an action returning the empty stack is an error
-  (the driver stops before that step). Both make the driver total and deterministic.\<close>
+  (the driver stops before that step). Both make the driver total and deterministic.
+  Reps assumes instead that no token regex admits the empty word
+  \<^cite>\<open>\<open>Sect.~1\<close> in "reps1998-maximal-munch-linear"\<close>. Here a rule's regex
+  may accept it, and \<open>match_rule\<close> drops that match.\<close>
 
 record ('k, 'p, 'ch, 'm) rule =
   match :: \<open>'p rexp\<close>
@@ -31,7 +36,7 @@ inductive match_rule :: \<open>('k, 'p, 'ch, 'm) rule \<Rightarrow> 'ch list \<R
   match_ruleI: \<open>\<lbrakk> p \<in> lang (match \<rho>); p \<noteq> [] \<rbrakk> \<Longrightarrow> match_rule \<rho> p\<close>
 
 text \<open>A rule matches a nonempty word of its language
-  \<^cite>\<open>\<open>Fig. 4, FirstToken\<close> in "egolf2021-verbatim-verified-lexer"\<close>.\<close>
+  \<^cite>\<open>\<open>Fig.~4, FirstToken\<close> in "egolf2021-verbatim-verified-lexer"\<close>.\<close>
 
 inductive max_pref where
   max_prefI:
@@ -43,7 +48,7 @@ inductive max_pref where
      max_pref rs p s\<close>
 
 text \<open>\<open>p\<close> is the longest prefix of \<open>s\<close> that some rule matches
-  \<^cite>\<open>\<open>Fig. 3, MaxPref\<close> in "egolf2021-verbatim-verified-lexer"\<close>.\<close>
+  \<^cite>\<open>\<open>Fig.~3, MaxPref\<close> in "egolf2021-verbatim-verified-lexer"\<close>.\<close>
 
 inductive first_token where
   first_tokenI:
@@ -53,7 +58,8 @@ inductive first_token where
      first_token rs i p s\<close>
 
 text \<open>Rule \<open>i\<close> wins on \<open>s\<close> with lexeme \<open>p\<close>: \<open>p\<close> is the longest match and \<open>i\<close> the first
-  rule matching it \<^cite>\<open>\<open>Sect. 8\<close> in "paxson2026-flex-manual"\<close>.\<close>
+  rule matching it \<^cite>\<open>\<open>Sect.~7\<close> in "paxson2026-flex-manual"\<close>, as in lex
+  \<^cite>\<open>\<open>Sect.~5\<close> in "lesk1975-lex"\<close>.\<close>
 
 inductive step where
   stepI:
@@ -87,12 +93,12 @@ for sp is_newline where
 
 text \<open>The driver lexes \<open>s\<close> from stack \<open>st\<close> and position \<open>q\<close> into a lexed source, the
   residue \<open>r\<close> where no step applies and the stack \<open>st\<^sub>f\<close> it stops in
-  \<^cite>\<open>\<open>Fig. 4, Tokens\<close> in "egolf2021-verbatim-verified-lexer"\<close>. The leading trivia
+  \<^cite>\<open>\<open>Fig.~4, Tokens\<close> in "egolf2021-verbatim-verified-lexer"\<close>. The leading trivia
   of the rest become the trailing trivia of a token, or the header in front of the
   first token. Spans come from \<^const>\<open>advance_list\<close>.
 
   The final stack says where the input ended, so the end of the input needs no
-  sentinel character (flex's \<open><<EOF>>\<close> \<^cite>\<open>\<open>Sect. 12\<close> in "paxson2026-flex-manual"\<close>).
+  sentinel character (flex's \<open><<EOF>>\<close> \<^cite>\<open>\<open>Sect.~12\<close> in "paxson2026-flex-manual"\<close>).
   An empty residue in a stack whose top is not a final mode (an unterminated comment)
   is an error of the consumer's, not of the driver.\<close>
 
@@ -134,6 +140,13 @@ lemma lexes_source: \<open>lexes sp is_newline st q s l r st\<^sub>f \<Longright
   by (induct rule: lexes.induct) (auto simp: source_def span_at_def elim!: step.cases)
 
 section \<open>Surface theorems\<close>
+
+text \<open>The spec is unambiguous: the first token is unique, and so are a step and a whole
+  run. This is Verbatim's Uniqueness lemma
+  \<^cite>\<open>\<open>Sect.~V-B\<close> in "egolf2021-verbatim-verified-lexer"\<close>, proved the same way: both
+  lexemes are maximal prefixes of one string, so they are equal, and of two rules matching
+  it the later one cannot win. Verbatim has no modes; here the run also fixes the final
+  stack.\<close>
 
 theorem first_token_deterministic:
   assumes \<open>first_token rs i p s\<close> \<open>first_token rs i' p' s\<close>
@@ -179,7 +192,11 @@ next
 qed
 
 text \<open>The driver terminates on every input, whatever the actions do to the stack
-  (each step consumes a nonempty lexeme, @{thm [source] step_length_less}):\<close>
+  (each step consumes a nonempty lexeme, @{thm [source] step_length_less}). This is the
+  termination argument of Verbatim's \<open>lex0\<close>, which recurses on proper suffixes of the input
+  \<^cite>\<open>\<open>Sect.~IV\<close> in "egolf2021-verbatim-verified-lexer"\<close>. Verbatim must thread an
+  accessibility proof through the function; here the run is an inductive relation and
+  totality is a theorem, by induction on the length of the input:\<close>
 
 theorem lexes_total: \<open>\<exists>l r st\<^sub>f. lexes sp is_newline st q s l r st\<^sub>f\<close>
 proof (induct s arbitrary: st q rule: length_induct[case_names len])

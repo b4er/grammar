@@ -1,8 +1,10 @@
+(* Author: Basil Fürer, Claude *)
+
 theory Prec_Tests
-  imports TIGER_LR.LR_Prec_Parse Parser_Check
+  imports TIGER_Grammar.LR_Prec_Parse Parser_Check
 begin
 
-text \<open>The theorems of \<^theory>\<open>TIGER_LR.LR_Prec_Parse\<close> relate \<^const>\<open>restrict\<close> to
+text \<open>The theorems of \<^theory>\<open>TIGER_Grammar.LR_Prec_Parse\<close> relate \<^const>\<open>restrict\<close> to
   \<^const>\<open>prec_ok\<close>. What they cannot say is that \<^const>\<open>prec_ok\<close> of a level table means what
   a reader expects, and that \<^const>\<open>restrict\<close> computes. Both are checked here on small
   grammars by enumerating every tree of every short word.\<close>
@@ -72,6 +74,14 @@ definition unique_on :: \<open>(string, tk) is_cfg \<Rightarrow> (string, tk) pr
 
 section \<open>Infix, and \<open>if\<close> in an operand\<close>
 
+text \<open>
+  The grammar \<open>E ::= E + E | if E | Num\<close> of Afroozeh et al.
+  \<^cite>\<open>\<open>Sect.~2.2, Fig.~1\<close> in "afroozeh2013-operator-precedence"\<close>, with \<open>*\<close>
+  added. There \<open>if\<close> is below \<open>+\<close>, and \<open>1 + if 2 + 3\<close> has the one tree
+  \<open>1 + (if (2 + 3))\<close>, which no one-level filter selects. Here it is the word
+  \<open>a + if a + a\<close> below.
+\<close>
+
 definition p_add where \<open>p_add = (''E'', [(Nt ''E'', Any), (Tm TP, Any), (Nt ''E'', Any)])\<close>
 definition p_mul where \<open>p_mul = (''E'', [(Nt ''E'', Any), (Tm TM, Any), (Nt ''E'', Any)])\<close>
 definition p_if  where \<open>p_if  = (''E'', [(Tm TI, Any), (Nt ''E'', Any)])\<close>
@@ -84,7 +94,7 @@ definition de :: \<open>(string, tk) prec_decl\<close> where
   \<open>de = \<lparr>dlevels = [[(AOpen, [(p_if, False)]), (ALeft, [(p_add, False)]), (ALeft, [(p_mul, False)])]],
          dforbids = []\<rparr>\<close>
 
-definition w :: \<open>tk list \<Rightarrow> word\<close> where \<open>w = map (tk_at 0)\<close>
+definition col0 :: \<open>tk list \<Rightarrow> word\<close> where \<open>col0 = map (tk_at 0)\<close>
 
 text \<open>Every word has one tree, and none lost its language.\<close>
 
@@ -98,7 +108,7 @@ parser_check \<open>same_on ge \<lparr>dlevels = [], dforbids = []\<rparr> [0] 7
 parser_check \<open>\<not> unique_on ge \<lparr>dlevels = [], dforbids = []\<rparr> [0] 7 (words [TA, TP] 5)\<close>
 
 definition tr where \<open>tr G f ws = (let ns = nulls G in map erase
-  (filter (chk 12 G ns (forbids G de) [] [] []) (gen G ns [0] f (Nt ''E'') (w ws))))\<close>
+  (filter (chk 12 G ns (forbids G de) [] [] []) (gen G ns [0] f (Nt ''E'') (col0 ws))))\<close>
 
 abbreviation \<open>la \<equiv> Node ''E'' [Leaf (tk_at 0 TA)] :: (unit, unit, string, tk) ast\<close>
 abbreviation \<open>bin x a b \<equiv> Node ''E'' [a, Leaf (tk_at 0 x), b] :: (unit, unit, string, tk) ast\<close>
@@ -116,7 +126,7 @@ definition Sh where \<open>Sh = ''S''\<close>
 
 parser_check \<open>rlalr_conflicts (restrict ge de) Sh = []\<close>
 
-definition pa where \<open>pa ws = map_option (plain_ast orig_name) (dparse (restrict ge de) Sh (w ws))\<close>
+definition pa where \<open>pa ws = map_option (plain_ast orig_name) (dparse (restrict ge de) Sh (col0 ws))\<close>
 
 parser_check \<open>pa [TA, TP, TI, TA, TP, TA] = Some (bin TP la (ifn (bin TP la la)))\<close>
 parser_check \<open>pa [TA, TM, TA, TP, TA] = Some (bin TP (bin TM la la) la)\<close>

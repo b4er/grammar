@@ -1,3 +1,5 @@
+(* Author: Basil Fürer, Dmitriy Traytel, Claude *)
+
 theory LR_Simple
   imports LR_Det "HOL-Library.IArray"
 begin
@@ -8,11 +10,15 @@ text \<open>
   For a grammar whose relations are all \<^const>\<open>Any\<close> (\<^const>\<open>ii\<close>), the
   indentation sets of the set-anchored driver carry no information beyond
   whether they are empty: every set is empty or contains the start
-  indentation. The live items of a frame are then exactly those of the state of
+  indentation. Such a grammar is an ordinary context-free grammar: Adams
+  encodes one by giving every symbol the unconstrained relation (\<^const>\<open>Any\<close>)
+  \<^cite>\<open>\<open>Sect.~4\<close> in "adams2013"\<close>. The live items of a frame are then exactly those of the state of
   the precise automaton \<^const>\<open>pr0_states\<close> the driver tracks, and the
   driver's choices are read off its index. This theory defines a driver over
   the index stack alone and proves that it computes the same result as
-  \<^const>\<open>dparse\<close>.
+  \<^const>\<open>dparse\<close>. It is the LR parser of DeRemer and Pennello
+  \<^cite>\<open>\<open>Sect.~2.2\<close> in "deremer1982-lalr-lookahead"\<close>: a stack of automaton states and
+  tables for the transition and reduce functions.
 \<close>
 
 subsection \<open>Anchor sets are empty or contain the start indentation\<close>
@@ -1213,7 +1219,9 @@ subsection \<open>Repeated stacks: the code equation of \<^const>\<open>srun\<^s
 text \<open>As for \<^const>\<open>drun\<^sub>w\<^sub>f\<close>: a run that revisits a control state never
   ends, and \<^const>\<open>srun_hist\<close> stops it. The control state is the stack and
   the input, and reduces keep the input, so the stacks seen since the last
-  shift are recorded.\<close>
+  shift are recorded. Reduces of unit and empty productions do not shrink
+  the stack, so a run can revisit one \<^cite>\<open>\<open>Sect.~2.5\<close> in "jourdan2012-validating-lr1"\<close>; Jourdan et al.
+  bound the run by fuel instead.\<close>
 
 definition snext :: \<open>(('n, 't) sym \<times> nat) list list \<Rightarrow> ('n, 't) citem list list \<Rightarrow>
     ('n, 't) lacell list list \<Rightarrow> ('n \<times> ('n, 't) rhs) list list \<Rightarrow> bool list \<Rightarrow>
@@ -1419,7 +1427,8 @@ text \<open>The step \<^const>\<open>sctl\<close> looks up goto rows by symbol, 
   in the reduce cells, and indexes lists. The indexed step below does the same
   lookups on tables computed from those of \<^const>\<open>sctl\<close> at definition time:
   productions and nonterminals are numbered, goto rows are keyed by the
-  terminal or by the number of the nonterminal, the length of the state list
+  terminal or by the number of the nonterminal (the usual split into an action
+  and a goto table \<^cite>\<open>\<open>Sect.~2.4\<close> in "jourdan2012-validating-lr1"\<close>), the length of the state list
   is stored, and the tables are immutable arrays. It computes the same function
   (\<^text>\<open>isctl_eq\<close>).\<close>
 
@@ -1535,7 +1544,7 @@ lemma ilic_cell_row:
   assumes \<open>pr \<in> set prs\<close>
   shows \<open>ilic (cell_row prs i cells) v (la_tindex prs pr) \<longleftrightarrow> slic i cells v pr\<close>
   unfolding ilic_def slic_def cell_row_def list_ex_iff using assms
-  by (auto simp: la_tindex_inj split: if_splits; force)
+  by (fastforce simp: la_tindex_inj split: if_splits)
 
 lemma spick_map:
   \<open>spick f (map g xs) = map_option (\<lambda>(a, b). (g a, b)) (spick (f \<circ> g) xs)\<close>
@@ -1685,7 +1694,7 @@ qed
 
 theorem isctl_eq:
   \<open>isctl (itabs_of (mk_ltabs gt sts redtab pc pf)) = sctl gt sts redtab pc\<close>
-  by (rule ext, case_tac x) (simp only: isctl_eq_at)
+  by (rule ext) (simp only: split_paired_all isctl_eq_at)
 
 subsection \<open>Table inlining\<close>
 

@@ -1,3 +1,5 @@
+(* Author: Basil Fürer, Dmitriy Traytel, Claude *)
+
 (* shared by the grammar and parser commands: the surface syntax types,
    the grammar record and its morphism, name checks and registration,
    term builders, code-declaration helpers and per-step timing *)
@@ -449,7 +451,7 @@ fun get_desc (gr: grammar) =
     val isgT = Type (\<^type_name>\<open>is_cfg_ext\<close>, [nameT, tokT, \<^typ>\<open>unit\<close>]);
     val (chT, moreT) =
       (case tokenT of
-        Type (\<^type_name>\<open>Token.token_ext\<close>, [_, ch, more]) => (ch, more)
+        Type (\<^type_name>\<open>TIGER_Token.token_ext\<close>, [_, ch, more]) => (ch, more)
       | _ => raise Fail "get_desc: token type is not a token scheme");
     val wordT = HOLogic.listT tokenT;
     val astT = Type (\<^type_name>\<open>ast\<close>, [moreT, chT, nameT, tokT]);

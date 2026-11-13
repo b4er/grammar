@@ -1,3 +1,5 @@
+(* Author: Basil Fürer, Dmitriy Traytel, Claude *)
+
 theory LR_Plain
   imports LR_Loop
 begin
@@ -11,7 +13,12 @@ text \<open>The step on candidate tables (\<^const>\<open>kctl\<close>) tries th
   shift with its target if there is one (the step takes it before any
   reduce), otherwise the reduces, each with its production and the number of
   its left-hand side. A second table gives the reduces at the end of the
-  input, where there is no shift. The step on these tables equals the step on
+  input, where there is no shift. This is the action table of Jourdan et al.
+  \<^cite>\<open>\<open>Sect.~2.4\<close> in "jourdan2012-validating-lr1"\<close>, and Knuth tabulates the same choice of
+  shift or reduce per state set \<^cite>\<open>\<open>Sect.~III, Table~I\<close> in "knuth1965-lr-translation"\<close>.
+  Here an entry is a list of actions rather than one, and the end of the input
+  has its own table, where Jourdan et al. assume an infinite input stream.
+  The step on these tables equals the step on
   candidate tables on every stack, so the run is the same.\<close>
 
 datatype ('n, 't) pact = PShift nat | PReduce \<open>'n \<times> ('n, 't) rhs\<close> nat

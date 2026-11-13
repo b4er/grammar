@@ -1,5 +1,7 @@
+(* Author: Basil Fürer, Claude *)
+
 theory Reach_Tests
-  imports TIGER_LR.LR_Parser Parser_Check
+  imports TIGER_Grammar.LR_Parser Parser_Check
 begin
 
 section \<open>Coverage of the error states\<close>

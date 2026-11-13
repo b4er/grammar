@@ -1,20 +1,28 @@
-theory Lexer
-  imports Gen
+(* Author: Basil Fürer, Claude *)
+
+theory TIGER_Lexer
+  imports TIGER_Gen
 begin
 
 section \<open>The runner\<close>
 
 text \<open>The runner steps the DFA of a mode over the input, remembers the last accepting
   position and its rule, stops at the dead state or at the end of input, and backs up to
-  that position \<^cite>\<open>\<open>Sect. 17\<close> in "paxson2026-flex-manual"\<close>
-  \<^cite>\<open>\<open>Fig. 1(a)\<close> in "reps1998-maximal-munch-linear"\<close>. Its surface theorem is
+  that position \<^cite>\<open>\<open>Sect.~17\<close> in "paxson2026-flex-manual"\<close>
+  \<^cite>\<open>\<open>Sect.~2, Fig.~1(a)\<close> in "reps1998-maximal-munch-linear"\<close>. Its surface theorem is
   equality with \<^const>\<open>symbolic.first_token\<close>, the step of the specification. The proof
   follows the shape of \<open>auto_split_lemma\<close> in \<^session>\<open>Functional-Automata\<close>
-  (\<open>AutoMaxChop\<close>): an invariant on the part already read, carried along the scan.
+  (\<open>AutoMaxChop\<close>), Nipkow's scanner \<open>auto_split\<close>
+  \<^cite>\<open>\<open>Sect.~5.2\<close> in "nipkow1998-verified-lexical-analysis"\<close>: an invariant on the
+  part already read, carried along the scan. Nipkow's scanner has one automaton and no rule
+  priorities; here the last accept also records the winning rule.
 
-  The driver over \<^const>\<open>symbolic.lexes\<close> is in theory \<open>Driver\<close>. Reps'
-  bounded-lookahead linearity \<^cite>\<open>\<open>Sect. 3\<close> in "reps1998-maximal-munch-linear"\<close>
-  comes later, and Reps' memoization of failed state-position pairs is deferred.\<close>
+  The driver over \<^const>\<open>symbolic.lexes\<close> is in theory \<open>TIGER_Driver\<close>. Reps'
+  bounded-lookahead linearity \<^cite>\<open>\<open>Sect.~3\<close> in "reps1998-maximal-munch-linear"\<close>
+  comes later, and Reps' memoization of failed state-position pairs is deferred.
+  Verbatim++ verifies a Reps-style memo of maximal-prefix results across tokens, keyed by
+  the length of the suffix, and analyses the result as \<open>O(n log n)\<close>
+  \<^cite>\<open>\<open>Sects.~4--5\<close> in "egolf2022-verbatim-plus-plus"\<close>.\<close>
 
 subsection \<open>The scan on tables\<close>
 
@@ -333,7 +341,9 @@ section \<open>Surface theorems\<close>
 
 text \<open>With any classifier into the minterms of the mode, the runner returns exactly the
   winning rule and lexeme of \<^const>\<open>first_token\<close>, and fails exactly when no rule
-  matches a nonempty prefix:\<close>
+  matches a nonempty prefix. For one step, this is Verbatim's soundness and completeness
+  \<^cite>\<open>\<open>Sects.~V-A, V-C\<close> in "egolf2021-verbatim-verified-lexer"\<close>, which Verbatim
+  proves for derivatives, not for a DFA:\<close>
 
 theorem run_dfa_Some_iff:
   assumes \<open>minterm_classifier rs cls\<close>

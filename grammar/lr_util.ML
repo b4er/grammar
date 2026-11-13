@@ -1,3 +1,5 @@
+(* Author: Basil Fürer, Claude *)
+
 (* the LR backend, shared helpers: evaluated literals, table constants defined by
    their terms, token numbering, the table options and size reports *)
 
@@ -232,7 +234,8 @@ fun profile_bundle lthy gram_t shn_t ii_t =
 (* a derivation A \<Rightarrow>\<^sup>+ A that consumes nothing, as the cycle A, \<dots>, A of the graph
    with an edge A \<rightarrow> B for each production A = \<alpha> B \<beta> whose \<alpha> and \<beta> are nullable.
    Only such a derivation lets the set-anchored driver revisit a configuration
-   without shifting (LR_Driver, drun_nh).  Relations are ignored, so a cycle may
+   without shifting (LR_Driver, drun_nh); unit and \<epsilon>-productions do not shrink
+   the stack \<^cite>\<open>\<open>Sect.~2.5\<close> in "jourdan2012-validating-lr1"\<close>.  Relations are ignored, so a cycle may
    be spurious but is never missed; the answer picks a proved code equation and
    is trusted only for the termination of the generated code. *)
 fun nullable_cycle (gram: Grammar_Common.grammar) =

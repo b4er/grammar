@@ -1,3 +1,5 @@
+(* Author: Basil Fürer, Claude *)
+
 (* the grammar command: elaboration of a specification (terminals, productions,
    semantic actions, precedence) into the grammar record, then the definitions
    through Grammar_Defs; the outer syntax is in grammar_syntax.ML *)
@@ -68,7 +70,7 @@ fun elaborate (exp: expansion)
       \<open>tokens\<close> clause; a type \<open>T\<close> that is not a token scheme abbreviates
       \<open>(T, unit) token\<close>, the default is \<open>(string, unit) token\<close> **)
     fun plain_token_type T =
-      Type (\<^type_name>\<open>Token.token_ext\<close>, [T, \<^typ>\<open>unit\<close>, \<^typ>\<open>unit\<close>]);
+      Type (\<^type_name>\<open>TIGER_Token.token_ext\<close>, [T, \<^typ>\<open>unit\<close>, \<^typ>\<open>unit\<close>]);
     val (tokT, tokenT) =
       (case tok_typ of
         NONE => (HOLogic.stringT, plain_token_type HOLogic.stringT)
@@ -78,7 +80,7 @@ fun elaborate (exp: expansion)
               andalso error ("The ascribed token type is not ground" ^
                              Position.here (Input.pos_of src));
             (case T of
-              Type (\<^type_name>\<open>Token.token_ext\<close>, [tok, _, _]) => (tok, T)
+              Type (\<^type_name>\<open>TIGER_Token.token_ext\<close>, [tok, _, _]) => (tok, T)
             | _ => (T, plain_token_type T))
           end);
 
@@ -86,7 +88,7 @@ fun elaborate (exp: expansion)
     (* the type of \<open>@span\<close>: \<open>'ch span\<close> of the token type *)
     val spanT =
       (case tokenT of
-        Type (_, [_, chT, _]) => Type (\<^type_name>\<open>Token.span_ext\<close>, [chT, \<^typ>\<open>unit\<close>])
+        Type (_, [_, chT, _]) => Type (\<^type_name>\<open>TIGER_Token.span_ext\<close>, [chT, \<^typ>\<open>unit\<close>])
       | _ => raise Fail "grammar: token type");
 
     (** terminal-decl tables **)
@@ -661,7 +663,7 @@ fun elaborate (exp: expansion)
           map (fn (d, _, act, sp, pos) => (d, act, sp, pos)) copy_prods) ~~ pre_rhss);
 
     (* \<open>@span\<close> needs a first token: an alternative with it must have a symbol that
-       derives no empty word (decision 9 of stage 15h) *)
+       derives no empty word *)
     val _ =
       if not (exists (fn {span, ...}: prod => span) prods_full) then ()
       else

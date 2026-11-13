@@ -1,5 +1,7 @@
-theory Driver
-  imports Lexer
+(* Author: Basil Fürer, Claude *)
+
+theory TIGER_Driver
+  imports TIGER_Lexer
 begin
 
 section \<open>The driver\<close>
@@ -8,8 +10,8 @@ text \<open>The driver lexes a whole input. It steps the runner of the mode on t
   stack, applies the action of the winning rule and stops when no step applies: the
   stack is empty, no rule matches, or the action returns the empty stack. It returns
   the lexed source, the residue and the stack it stops in
-  \<^cite>\<open>\<open>Sect. 10\<close> in "paxson2026-flex-manual"\<close>
-  \<^cite>\<open>\<open>Fig. 4, Tokens\<close> in "egolf2021-verbatim-verified-lexer"\<close>. Trivia go into the
+  \<^cite>\<open>\<open>Sect.~10\<close> in "paxson2026-flex-manual"\<close>
+  \<^cite>\<open>\<open>Fig.~4, Tokens\<close> in "egolf2021-verbatim-verified-lexer"\<close>. Trivia go into the
   header or the trailing trivia of the token before them, spans come from
   \<^const>\<open>span_at\<close> and \<^const>\<open>advance_list\<close>.
 
@@ -126,6 +128,12 @@ next
     qed
   qed
 qed
+
+text \<open>The driver returns a run of the spec (\<open>lexes_drive\<close>), and by determinism of the spec
+  that run is the only one. This is how Verbatim gets Completeness from Soundness and
+  Uniqueness \<^cite>\<open>\<open>Sects.~V-A--V-C\<close> in "egolf2021-verbatim-verified-lexer"\<close>. Verbatim
+  assumes unambiguous rules (each label has one regex); this driver needs only a correct
+  runner.\<close>
 
 theorem drive_iff_lexes:
   assumes \<open>mode_runner sp R\<close>

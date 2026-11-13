@@ -1,5 +1,7 @@
+(* Author: Basil Fürer, Claude *)
+
 theory Tables_Tests
-  imports Lexer.Tables
+  imports TIGER_Lexer.TIGER_Tables
 begin
 
 section \<open>Tests of the tables\<close>
@@ -7,7 +9,7 @@ section \<open>Tests of the tables\<close>
 text \<open>Two specs on bytes, with their tables by \<open>eval_table\<close> and the runner on
   them: identifiers, numerals and a keyword in one mode, and Reps' pair \<open>abc\<close>,
   \<open>(abc)\<^sup>*d\<close>, which makes the runner back up
-  \<^cite>\<open>\<open>Sect. 1\<close> in "reps1998-maximal-munch-linear"\<close>. The theorems about the
+  \<^cite>\<open>\<open>Sect.~1\<close> in "reps1998-maximal-munch-linear"\<close>. The theorems about the
   runners are instances of @{thm [source] run_char_tables}.\<close>
 
 subsection \<open>Identifiers, numerals and a keyword\<close>
@@ -70,7 +72,7 @@ lemma \<open>test_run ''= x'' = None\<close> by eval
 subsection \<open>Backing up\<close>
 
 text \<open>On \<open>abcabd\<close>, the runner reads \<open>abcab\<close>, finds that no rule can match a longer
-  prefix and backs up to \<open>abc\<close> \<^cite>\<open>\<open>Sect. 1\<close> in "reps1998-maximal-munch-linear"\<close>:\<close>
+  prefix and backs up to \<open>abc\<close> \<^cite>\<open>\<open>Sect.~1\<close> in "reps1998-maximal-munch-linear"\<close>:\<close>
 
 definition \<open>chr c = Pred [(c, c)]\<close>
 

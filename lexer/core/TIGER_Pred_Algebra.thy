@@ -1,12 +1,14 @@
-theory Pred_Algebra
-  imports Regex
+(* Author: Basil Fürer, Claude *)
+
+theory TIGER_Pred_Algebra
+  imports TIGER_Regex
 begin
 
 section \<open>Effective Boolean algebras of predicates\<close>
 
 text \<open>An effective Boolean algebra on the predicates \<open>'p\<close> has a top and a bottom
   predicate, conjunction, disjunction, negation and a satisfiability test, all sound for
-  the denotation \<open>sem\<close> \<^cite>\<open>\<open>Sect. 2\<close> in "dantoni2014-minimization-symbolic-automata"\<close>.
+  the denotation \<open>sem\<close> \<^cite>\<open>\<open>Sect.~2\<close> in "dantoni2014-minimization-symbolic-automata"\<close>.
   The generator needs it to compute the minterms of the atoms of a mode.
 
   Equality of predicates is HOL equality, so it is syntactic. Equal predicates denote the
@@ -40,7 +42,7 @@ subsection \<open>Minterms\<close>
 text \<open>The minterms of a list \<open>P\<close> of predicates are the satisfiable conjunctions of
   each predicate of \<open>P\<close> or its negation. Each entry pairs its signature (the
   predicates taken positively) with the conjunction. The recursion is the minterm tree
-  of \<^cite>\<open>\<open>Fig. 2\<close> in "dantoni2014-minimization-symbolic-automata"\<close>, refined by the
+  of \<^cite>\<open>\<open>Fig.~2\<close> in "dantoni2014-minimization-symbolic-automata"\<close>, refined by the
   predicates from the last to the first. A leaf is split by \<open>p\<close> into \<open>p \<and> \<mu>\<close> and
   \<open>\<not> p \<and> \<mu>\<close>, and the unsatisfiable parts are pruned (the paper keeps an unsplit
   leaf instead, which denotes the same set).\<close>
@@ -94,7 +96,7 @@ qed (auto simp: sat_iff[of top])
 text \<open>The minterms cover the alphabet, are pairwise disjoint, have exact signatures and
   are satisfiable. Together they make the minterms a partition of the alphabet into the
   classes of characters with the same signature
-  \<^cite>\<open>\<open>Prop. 1\<close> in "dantoni2014-minimization-symbolic-automata"\<close>:\<close>
+  \<^cite>\<open>\<open>Sect.~4, Fig.~2\<close> in "dantoni2014-minimization-symbolic-automata"\<close>:\<close>
 
 lemma minterms_cover: \<open>\<exists>S \<mu>. (S, \<mu>) \<in> set (minterms P) \<and> sem \<mu> c\<close>
 proof (induction P)
@@ -156,7 +158,7 @@ lemma minterms_sat: \<open>(S, \<mu>) \<in> set (minterms P) \<Longrightarrow> s
 
 text \<open>The partial derivatives by all characters of one minterm are equal, and equal
   to the partial derivative by its signature, as long as the minterms are taken over a
-  superset of the atoms \<^cite>\<open>\<open>Thm. 12\<close> in "keil2014-symbolic-regex-inequalities"\<close>:\<close>
+  superset of the atoms \<^cite>\<open>\<open>Lemma~9, Thm.~12\<close> in "keil2014-symbolic-regex-inequalities"\<close>:\<close>
 
 lemma pderiv_eq_pderiv_cls_minterm:
   assumes \<open>atoms r \<subseteq> set P\<close> \<open>(S, \<mu>) \<in> set (minterms P)\<close> \<open>sem \<mu> c\<close>
@@ -171,9 +173,12 @@ qed
 text \<open>The number of minterms is exponential in the length of \<open>P\<close> in the worst case.
   For the bit predicates \<open>\<beta>\<^sub>i\<close> (the characters whose \<open>i\<close>-th bit is set), every
   signature is realized by exactly one character, so \<open>k\<close> predicates have \<open>2\<^sup>k\<close>
-  minterms \<^cite>\<open>\<open>Ex. 2\<close> in "dantoni2014-minimization-symbolic-automata"\<close>. A mode with
+  minterms \<^cite>\<open>\<open>Ex.~2\<close> in "dantoni2014-minimization-symbolic-automata"\<close>. A mode with
   many overlapping classes needs local minterms (minterms of the atoms that a DFA state
-  can read, rather than of the whole mode).\<close>
+  can read, rather than of the whole mode). D'Antoni and Veanes compute local minterms to
+  avoid the global partition when they minimize a symbolic automaton
+  \<^cite>\<open>\<open>Sect.~5\<close> in "dantoni2014-minimization-symbolic-automata"\<close>; here they
+  would serve DFA construction.\<close>
 
 end
 

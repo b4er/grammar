@@ -1,12 +1,19 @@
-theory Intervals
-  imports Pred_Algebra
+(* Author: Basil Fürer, Claude *)
+
+theory TIGER_Intervals
+  imports TIGER_Pred_Algebra
 begin
 
 section \<open>Character classes as interval lists\<close>
 
 text \<open>A character class is a list of closed intervals \<open>(lo, hi)\<close> and denotes the
   characters in one of them. A well-formed class is sorted, and its intervals are
-  nonempty, disjoint and nonadjacent.
+  nonempty, disjoint and nonadjacent. Owens et al. label transitions with character sets
+  because iterating over a large alphabet such as Unicode is impractical
+  \<^cite>\<open>\<open>Sect.~4.2\<close> in "owens2009-regex-derivatives-reexamined"\<close>. Lists of intervals
+  are closed under the Boolean operations and so form an effective Boolean algebra
+  \<^cite>\<open>\<open>Sect.~2\<close> in "dantoni2014-minimization-symbolic-automata"\<close>; single ranges
+  are not \<^cite>\<open>\<open>Sect.~6.2\<close> in "dantoni2014-minimization-symbolic-automata"\<close>.
 
   The alphabet is a bounded discrete linear order (bytes, codepoints). Its bottom, top,
   successor and predecessor are parameters of the locale \<open>discrete_order\<close>,
@@ -18,7 +25,7 @@ text \<open>A character class is a list of closed intervals \<open>(lo, hi)\<clo
   denotations relative to the range and interpret \<^locale>\<open>eba\<close> in
   \<open>bounded_discrete_order\<close>. Negation is the gaps of the normal form, and
   conjunction follows from De Morgan's law. The instance on \<^typ>\<open>char\<close> is in
-  \<open>Tables\<close> (an interpretation carries only the locale constants defined before it, so
+  \<open>TIGER_Tables\<close> (an interpretation carries only the locale constants defined before it, so
   it follows the generator).\<close>
 
 type_synonym 'ch cls = \<open>('ch \<times> 'ch) list\<close>

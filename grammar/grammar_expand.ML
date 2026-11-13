@@ -1,3 +1,5 @@
+(* Author: Basil Fürer, Claude *)
+
 (* parametric nonterminals and EBNF operators, by desugaring: a template \<open>P(X, \<dots>)\<close> is
    instantiated once per distinct argument tuple as an ordinary nonterminal named
    \<open>P(a, \<dots>)\<close>; \<open>s*\<close>, \<open>s+\<close>, \<open>s?\<close> over a symbol or a group \<open>(s\<^sub>1 \<dots> s\<^sub>n)\<close> are generated

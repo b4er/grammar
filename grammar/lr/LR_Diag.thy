@@ -1,3 +1,5 @@
+(* Author: Basil Fürer, Claude *)
+
 theory LR_Diag
   imports LR_Plain LR_Sparse LR_Vec
 begin
@@ -25,7 +27,7 @@ text \<open>The kind of a failure: the step function has no action
 
 datatype perr_kind = NoAction | ReduceCycle | Offside colset | Misaligned colset
 
-text \<open>A step of a repair sequence (Diekmann and Tratt 2020): a terminal inserted at a
+text \<open>A step of a repair sequence \<^cite>\<open>\<open>Sect.~4\<close> in "diekmann2020-dont-panic"\<close>: a terminal inserted at a
   column, a token deleted, a token kept.\<close>
 
 datatype 't rop = RIns 't nat | RDel 't | RKeep
@@ -35,7 +37,7 @@ text \<open>The error, over the token type of the parser's input, so that a toke
   offending token in the input, the token (\<open>None\<close> at the end of the input),
   the state on top of the stack where the error is detected (after the
   reductions the offending token triggered: the state that hand-written messages
-  are keyed on, Pottier 2016), the kind, the terminals that would have been
+  are keyed on \<^cite>\<open>\<open>Sect.~5\<close> in "pottier2016-lr1-reachability"\<close>), the kind, the terminals that would have been
   accepted in place of the offending token, and whether the end of the input
   would have been. On a layout grammar also each expected terminal with the
   columns at which it would have been accepted, and for \<^const>\<open>Offside\<close> or
@@ -44,7 +46,7 @@ text \<open>The error, over the token type of the parser's input, so that a toke
   messages: the state after the last shift, before those reductions (the state
   whose kernel says what was being parsed), the stack where the error is
   detected, top first, each entry as its symbol and the spans of its tokens
-  (Pottier's \<open>$0, $1, \<dots>\<close>: what was recognised up to here), and the repair the
+  (the \<open>$0, $1, \<dots>\<close> of \<^cite>\<open>\<open>Sect.~5\<close> in "pottier2016-lr1-reachability"\<close>: what was recognised up to here), and the repair the
   recovery chose, empty if it chose none.\<close>
 
 record ('n, 't, 'ch, 'm) perr =
@@ -67,7 +69,8 @@ text \<open>The engine works on any configuration type \<open>'c\<close>, given 
   (between shifts the input does not change, so the stack suffices), the
   remaining input and the token of an input element. It carries the AST stack
   as \<^const>\<open>brun\<close> does, and the configuration right after the last shift. The
-  loop check is \<^const>\<open>brun\<close>'s (Brent's method, \<^const>\<open>bupd\<close>). Termination is
+  loop check is \<^const>\<open>brun\<close>'s (Brent's method
+  \<^cite>\<open>"brent1980-monte-carlo-factorization"\<close>, \<^const>\<open>bupd\<close>). Termination is
   not proved, as for \<^const>\<open>brun\<close>.\<close>
 
 datatype ('c, 'a) dstop =
@@ -101,7 +104,7 @@ text \<open>What would have been accepted at the error is computed on the actual
   (expected), fails or repeats a configuration (not expected). For the end of
   the input the trial runs until the final test holds instead. Only reductions
   come before that shift, so a trial is short; its loop check starts afresh.
-  This avoids both errors of a static reading (Pottier 2016, Sect. 4): an
+  This avoids both errors of a static reading \<^cite>\<open>\<open>Sect.~4\<close> in "pottier2016-lr1-reachability"\<close>: an
   LALR state merges lookaheads that are not valid on this stack, and the
   reductions on the offending token commit to one reading and lose
   futures that were valid before them.
@@ -1130,7 +1133,7 @@ lemma vkdiag_f_eq: \<open>vnum V = f \<Longrightarrow> vkdiag V K T kin kcl i\<^
 
 section \<open>Messages\<close>
 
-text \<open>An error as a message a person can act on, after Pottier (2016, Fig. 7):
+text \<open>An error as a message a person can act on, after \<^cite>\<open>\<open>Fig.~7\<close> in "pottier2016-lr1-reachability"\<close>:
   a position, a primary text and notes, as a record (\<open>pmsg\<close>) that a client may
   render its own way, and a default rendering into one string. The text of the
   tokens is in the type \<open>'ch\<close> of the token record, so the caller supplies a
@@ -1189,7 +1192,7 @@ definition kernel_nts :: \<open>('n, 't) citem list list \<Rightarrow> nat \<Rig
              (sts ! k))
       else [])\<close>
 
-text \<open>A heuristic, after Pottier (2016, Sect. 4: ``an expression is expected''
+text \<open>A heuristic, after \<^cite>\<open>\<open>Sect.~4\<close> in "pottier2016-lr1-reachability"\<close> (``an expression is expected''
   says more than the tokens that may start one): the expected terminals are
   summarised by a nonterminal \<open>X\<close> when the kernel of the state after the last
   shift has an item with the dot before \<open>X\<close> and every terminal that may start
@@ -1359,14 +1362,14 @@ record pmsg =
   pm_text :: string
   pm_notes :: \<open>string list\<close>
 
-text \<open>The key of a hand-written message (Jeffery 2003, Pottier 2016): the state where
+text \<open>The key of a hand-written message \<^cite>\<open>"jeffery2003-lr-error-messages"\<close> \<^cite>\<open>\<open>Sect.~5\<close> in "pottier2016-lr1-reachability"\<close>: the state where
   the error is detected, that state with the offending terminal (\<open>None\<close> at the end of
   the input), or the state after the last shift, before the reductions the
   offending token triggered. The first is the default, as in Pottier: words that
   differ in their spurious reductions reach different keys, each its own sentence. Keys are
   state numbers of one build, but they are computed from the sentences at each
   elaboration, so a grammar edit that renumbers states is harmless; only the
-  meaning of a message can go stale (Pottier 2016, Sect. 6).\<close>
+  meaning of a message can go stale \<^cite>\<open>\<open>Sect.~6\<close> in "pottier2016-lr1-reachability"\<close>.\<close>
 
 datatype 't pkey = PState nat | PToken nat \<open>'t option\<close> | PShift nat
 

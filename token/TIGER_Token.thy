@@ -1,4 +1,6 @@
-theory Token
+(* Author: Basil Fürer, Claude *)
+
+theory TIGER_Token
   imports Main
 begin
 
@@ -6,7 +8,8 @@ section \<open>Source spans\<close>
 
 text \<open>
   Lexer-to-parser interface: each token is paired with the source span it
-  occupies. Only the column \<^text>\<open>s_col\<close> enters the indentation logic; the
+  occupies. Only the column \<^text>\<open>s_col\<close> enters the indentation logic; it is
+  the indentation of a terminal in \<^cite>\<open>\<open>Sect.~2\<close> in "adams2013"\<close>. The
   remaining fields serve diagnostics.
 \<close>
 
@@ -45,7 +48,9 @@ definition tcols :: \<open>('m, 'ch, 'tok) tword \<Rightarrow> ('tok \<times> na
 
 text \<open>Layout machinery reads a token word through \<^const>\<open>tcols\<close>, which
   keeps the indentation column of each token and drops the rest of its span
-  and any extension fields.\<close>
+  and any extension fields. The result is a word over terminals annotated with
+  their columns, the input of an indentation-sensitive grammar
+  \<^cite>\<open>\<open>Sect.~2\<close> in "adams2013"\<close>.\<close>
 
 lemma tcols_Nil [simp]: \<open>tcols [] = []\<close>
   and tcols_Cons [simp]: \<open>tcols (t # w) = (tok t, s_col (span t)) # tcols w\<close>

@@ -1,3 +1,5 @@
+(* Author: Basil Fürer, Claude *)
+
 theory Parser_Check
   imports Main
   keywords "parser_check" :: thy_decl

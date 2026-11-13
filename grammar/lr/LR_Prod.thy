@@ -1,3 +1,5 @@
+(* Author: Basil Fürer, Dmitriy Traytel, Claude *)
+
 theory LR_Prod
   imports LR_Tok
 begin
@@ -7,7 +9,8 @@ section \<open>Candidate tables\<close>
 text \<open>The trie step filters the completed productions of a state by its
   lookahead cell at every step. Here the filtered lists are computed once, per
   state and lookahead, and the driver reads its reduce candidates off that
-  table.\<close>
+  table: the reduce function \<open>Reduce\<close> of an LR automaton
+  \<^cite>\<open>\<open>Sect.~2.2\<close> in "deremer1982-lalr-lookahead"\<close>.\<close>
 
 subsection \<open>Maps and entries of tries\<close>
 
@@ -224,10 +227,10 @@ proof (cases stk)
 qed (simp add: kctl_def jctl2_def)
 
 lemma kctl_eq_fun: \<open>kctl (ktabs_of J) = jctl2 J\<close>
-  by (rule ext) (case_tac x, simp only: kctl_eq)
+  by (rule ext) (simp only: split_paired_all kctl_eq)
 
 lemma kfinal_eq_fun: \<open>kfinal (ktabs_of J) = jfinal2 J\<close>
-  by (rule ext) (case_tac x, simp only: kfinal_eq)
+  by (rule ext) (simp only: split_paired_all kfinal_eq)
 
 theorem xrun_kctl:
   \<open>xrun_hist (kctl (ktabs_of J)) (kfinal (ktabs_of J)) fst seen (stk, v, tstk) =

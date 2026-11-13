@@ -1,5 +1,7 @@
+(* Author: Basil Fürer, Claude *)
+
 theory Diag_Tests
-  imports TIGER_LR.LR_Parser Parser_Check
+  imports TIGER_Grammar.LR_Parser Parser_Check
 begin
 
 section \<open>Diagnostics of rejected words\<close>
@@ -234,7 +236,7 @@ parser_check \<open>(let e = pdiagnose ul_ptabs ul_i0 (pnum ul_ptabs) [PA, PB, P
 
 subsection \<open>Merged lookaheads and spurious reductions\<close>
 
-text \<open>The example of Pottier (2016, Sect. 4): brackets and parentheses around
+text \<open>The example of \<^cite>\<open>\<open>Sect.~4\<close> in "pottier2016-lr1-reachability"\<close>: brackets and parentheses around
   lists. The LALR state after \<open>INT\<close> merges the contexts inside \<open>(\<close> and \<open>[\<close>, so
   it reduces on \<open>)\<close> after \<open>[ INT\<close> and fails only two reductions later, in the
   state after \<open>[ list\<close>. A static reading of the first state would expect \<open>)\<close>,
@@ -775,7 +777,7 @@ parser_check \<open>(case do_parse2_diag [tu 1 DDo ''do'', tu 4 DDo ''do'', tu 7
 subsection \<open>Hand-written messages\<close>
 
 text \<open>An \<^theory_text>\<open>errors\<close> block attaches messages to error states by example
-  (Jeffery 2003, Pottier 2016). One evaluation of \<open>_probe\<close> gives each sentence its
+  \<^cite>\<open>"jeffery2003-lr-error-messages"\<close> \<^cite>\<open>\<open>Sect.~5\<close> in "pottier2016-lr1-reachability"\<close>. One evaluation of \<open>_probe\<close> gives each sentence its
   state; the result is the data \<open>_messages\<close>, with no theorem. The block below has
   three good sentences, one with a key on the pair of state and terminal, and
   expected warnings: a word that is accepted, a second sentence for one key, a

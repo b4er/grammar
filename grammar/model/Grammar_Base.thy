@@ -1,3 +1,5 @@
+(* Author: Basil Fürer, Claude *)
+
 theory Grammar_Base
   imports Indentation_Sensitive
 begin

@@ -1,3 +1,5 @@
+(* Author: Basil Fürer, Claude *)
+
 theory Repair_Tests
   imports Recover_Tests
 begin
@@ -131,11 +133,11 @@ parser_check \<open>map rp_parse_render (fst (rp_parse_recover (toks 0 [PNum, PP
      ''  expected: '' @ squote ''PNum'' @ '' or '' @ squote ''PLP'' @ [CHR 0x0A] @
      ''  repaired by: insert '' @ squote ''PNum'']\<close>
 
-subsection \<open>Unmatched brackets (Sect. 5.4)\<close>
+subsection \<open>Unmatched brackets\<close>
 
 text \<open>The nodes the search takes on a word with \<open>n\<close> unmatched brackets, in a budget
   \<open>b\<close>, and how many repairs it finds: about 1.7 times as many nodes per bracket with
-  merging, 2.4 without it, the exponential of Sect. 5.4. \<^const>\<open>rnodes\<close> stops it at
+  merging, 2.4 without it, the exponential of \<^cite>\<open>\<open>Sect.~5.4\<close> in "diekmann2020-dont-panic"\<close>. \<^const>\<open>rnodes\<close> stops it at
   6 brackets, with no repair and the report standing.\<close>
 
 definition brackets :: \<open>nat \<Rightarrow> p_tok list\<close> where
