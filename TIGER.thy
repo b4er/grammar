@@ -421,10 +421,10 @@ text \<open>
   \<^rail>\<open>
     alternative: (symbol *) mark? ('\<Rightarrow>' term)?
     ;
-    mark: '(' 'prec' (string | name) ')'
+    mark: '(' @'prec' (string | name) ')'
   \<close>
 
-  \<^descr> \descform{\<^theory_text>\<open>X\<^sub>1 \<dots> X\<^sub>k (prec q) \<Rightarrow> f\<close>} is an alternative: a sequence of
+  \<^descr> \descform{\<^theory_text>\<open>X\<^sub>1 \<dots> X\<^sub>k (\<close>\isakeyword{prec}~\<^theory_text>\<open>q) \<Rightarrow> f\<close>} is an alternative: a sequence of
   symbols, an optional mark and an optional action. The action \<open>f\<close> computes the value
   of the alternative from the values of its symbols, in order:
   \<open>f :: \<tau>\<^sub>1 \<Rightarrow> \<dots> \<Rightarrow> \<tau>\<^sub>k \<Rightarrow> \<tau>\<^sub>A\<close>. An alternative without action has exactly one
@@ -470,34 +470,34 @@ text \<open>
     ;
     levels: (level + '>')
     ;
-    level: ('left' | 'right' | 'nonassoc' | 'open' | 'list') ((prec '!'?) +)
+    level: (@'left' | @'right' | @'nonassoc' | @'open' | @'list') ((prec '!'?) +)
     ;
-    forbid: prec '@' nat ('direct' | 'left' | 'right') (prec +)
+    forbid: prec '@' nat (@'direct' | @'left' | @'right') (prec +)
     ;
     prec: string | name
   \<close>
 
-  \<^theory_text>\<open>precedence right "^" > left "*" "/" > left "+" "-" > nonassoc "=="\<close>
+  \isakeyword{precedence}~\isakeyword{right}~\<^theory_text>\<open>"^" >\<close>~\isakeyword{left}~\<^theory_text>\<open>"*" "/" >\<close>~\isakeyword{left}~\<^theory_text>\<open>"+" "-" >\<close>~\isakeyword{nonassoc}~\<^theory_text>\<open>"=="\<close>
   declares levels, \<open>>\<close> binding tighter. A production has the level of its mark
-  \<^theory_text>\<open>(prec NAME)\<close>, else that of its last terminal, written as its spelling or
+  (\isakeyword{prec}~\<open>NAME\<close>), else that of its last terminal, written as its spelling or
   its name; the name of a level need not be a terminal, as in
-  \<^theory_text>\<open>"-" E (prec UMINUS)\<close>. This is the convention of yacc's \<open>%left\<close> and
+  \<^theory_text>\<open>"-" E (\<close>\isakeyword{prec}~\<open>UMINUS\<close>). This is the convention of yacc's \<open>%left\<close> and
   \<open>%prec\<close> in ocamlyacc \<^cite>\<open>"leroy2026-ocaml-manual"\<close> and Menhir
   \<^cite>\<open>"pottier2026-menhir-manual"\<close>. Several declarations merge: a name in two of them is
   one level, the order is their transitive closure, and a cycle is an error, as for the
   priority chains of \<^cite>\<open>\<open>Sect.~3.3, Def.~2\<close> in "afroozeh2013-operator-precedence"\<close>. Two
   levels that no declaration orders stay ambiguous, and the parser reports the conflict.
 
-  \<open>left\<close>, \<open>right\<close> and \<open>nonassoc\<close> have the usual readings. \<open>open\<close> leaves the left
+  \isakeyword{left}, \isakeyword{right} and \isakeyword{nonassoc} have the usual readings. \isakeyword{open} leaves the left
   operand of its productions unconstrained, for forms that end in an open construct,
-  and \<open>list\<close> does not order the productions of the level against each other, for
+  and \isakeyword{list} does not order the productions of the level against each other, for
   flat chains. A prefix form is allowed on the right of a tighter operator, as in
-  \<open>a * - b\<close>; \<open>!\<close> on a name forbids that. \<open>left\<close> and \<open>right\<close> are the
+  \<open>a * - b\<close>; \<open>!\<close> on a name forbids that. \isakeyword{left} and \isakeyword{right} are the
   associativity relations of \<^cite>\<open>\<open>Def.~4\<close> in "afroozeh2013-operator-precedence"\<close>, and the
   levels become patterns after \<^cite>\<open>\<open>Tables~1--2\<close> in "afroozeh2013-operator-precedence"\<close>;
-  \<open>open\<close>, \<open>list\<close> and \<open>!\<close> are not in the paper. \<^theory_text>\<open>forbid p @ k right c\<close> says what no
-  level says: \<open>c\<close> is not on the right spine of child \<open>k\<close> of \<open>p\<close> (\<open>left\<close>: the left
-  spine, \<open>direct\<close>: the child itself). \<open>direct\<close> is a pattern
+  \isakeyword{open}, \isakeyword{list} and \<open>!\<close> are not in the paper. \isakeyword{forbid}~\<^theory_text>\<open>p @ k\<close>~\isakeyword{right}~\<open>c\<close> says what no
+  level says: \<open>c\<close> is not on the right spine of child \<open>k\<close> of \<open>p\<close> (\isakeyword{left}: the left
+  spine, \isakeyword{direct}: the child itself). \isakeyword{direct} is a pattern
   \<^cite>\<open>\<open>Def.~5\<close> in "afroozeh2013-operator-precedence"\<close>; the spine forms exclude
   operators at any depth, which one-level patterns cannot
   \<^cite>\<open>\<open>Sect.~2.2, Fig.~2\<close> in "afroozeh2013-operator-precedence"\<close>.
@@ -695,11 +695,12 @@ text \<open>
 text \<open>
   \<^rail>\<open>
     error_clauses: (@'recover' name)? repair? \<newline>
-      (@'on_error_reduce' (name +))? (@'token_info' term)? \<newline>
+      (@'on_error_reduce' (name +))? \<newline>
+      (@'token_info' term)? \<newline>
       (@'errors' (message + '|'))?
   \<close>
 
-  \<^descr> \descform{\<^theory_text>\<open>recover e\<close>} adds \<open>p_recover\<close> for a grammar in which the terminal \<open>e\<close>
+  \<^descr> \descform{\isakeyword{recover}~\<open>e\<close>} adds \<open>p_recover\<close> for a grammar in which the terminal \<open>e\<close>
   stands for broken input, with ordinary productions such as \<open>Expr = \<dots> | ERR \<Rightarrow> EErr\<close>.
   \<open>p_recover w = (errs, p w')\<close>: where \<open>w\<close> fails, the stack is popped to a state that
   can shift \<open>e\<close>, tokens are skipped up to one that continues, and the stretch becomes
@@ -707,34 +708,34 @@ text \<open>
   \<^cite>\<open>\<open>Sect.~17.4.4\<close> in "leroy2026-ocaml-manual"\<close>, which skips to three tokens
   that continue.
 
-  \<^descr> \descform{\<^theory_text>\<open>on_error_reduce A B\<close>} lets the report of a rejected word come after
+  \<^descr> \descform{\isakeyword{on\_error\_reduce}~\<open>A B\<close>} lets the report of a rejected word come after
   reducing productions of \<open>A\<close> or \<open>B\<close> \<^cite>\<open>\<open>Sect.~4\<close> in "pottier2016-lr1-reachability"\<close>, so it names the
   construct that was complete.
 
-  \<^descr> \descform{\<^theory_text>\<open>token_info f\<close>} gives the record extension for a token
-  class, for the sentences of \<^theory_text>\<open>errors\<close> with extended token records.
+  \<^descr> \descform{\isakeyword{token\_info}~\<open>f\<close>} gives the record extension for a token
+  class, for the sentences of \isakeyword{errors} with extended token records.
 \<close>
 
 text \<open>
   \<^rail>\<open>
-    repair: @'repair' ('token' term)? ('avoid' (name +))?
+    repair: @'repair' (@'token' term)? (@'avoid' (name +))?
   \<close>
 
-  \<^descr> \descform{\<^theory_text>\<open>repair\<close>} adds \<open>p_recover\<close> for any grammar: at an error it searches for
+  \<^descr> \descform{\isakeyword{repair}} adds \<open>p_recover\<close> for any grammar: at an error it searches for
   a least-cost sequence of inserted and deleted tokens, ranked by how far parsing goes
   on, as in CPCT+ \<^cite>\<open>"diekmann2020-dont-panic"\<close>. A budget of search nodes bounds it.
-  \<^theory_text>\<open>repair token f\<close> supplies inserted tokens whose text an action reads, and
-  \<^theory_text>\<open>repair avoid A B\<close> ranks repairs that insert \<open>A\<close> or \<open>B\<close> lower.
+  \isakeyword{repair}~\isakeyword{token}~\<open>f\<close> supplies inserted tokens whose text an action reads, and
+  \isakeyword{repair}~\isakeyword{avoid}~\<open>A B\<close> ranks repairs that insert \<open>A\<close> or \<open>B\<close> lower.
 \<close>
 
 text \<open>
   \<^rail>\<open>
-    message: (sentence | cartouche) ('(' ('token' | 'shift') ')')? '\<Rightarrow>' text
+    message: (sentence | cartouche) ('(' (@'token' | @'shift') ')')? '\<Rightarrow>' text
     ;
     sentence: ((name ('@' nat)?) +)
   \<close>
 
-  \<^descr> \descform{\<^theory_text>\<open>errors s \<Rightarrow> \<open>m\<close> | \<dots>\<close>} attaches messages to error states by example
+  \<^descr> \descform{\isakeyword{errors}~\<^theory_text>\<open>s \<Rightarrow> \<open>m\<close> | \<dots>\<close>} attaches messages to error states by example
   \<^cite>\<open>"jeffery2003-lr-error-messages" and "pottier2016-lr1-reachability"\<close>. The sentence \<open>s\<close> is written with the spellings or
   names of terminals, each with an optional column after \<open>@\<close>, or as a cartouche with a
   term of the word type. It fails at its last token, or at its end. The message
