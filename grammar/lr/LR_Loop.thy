@@ -27,13 +27,16 @@ partial_function (option) nrun ::
      else Option.bind (ctl (stk, v)) (\<lambda>(act, stk', v').
        nrun ctl fin dec (stk', v', xtree dec act v tstk)))\<close>
 
-definition bupd :: \<open>'k list option \<times> nat \<times> nat \<Rightarrow> 'k list \<Rightarrow> 'k list option \<times> nat \<times> nat\<close> where
+lemmas nrun_simps [code] = nrun.simps
+
+definition bupd :: \<open>'k list option \<times> integer \<times> integer \<Rightarrow> 'k list \<Rightarrow>
+    'k list option \<times> integer \<times> integer\<close> where
   \<open>bupd d stk = (case d of (sv, c, p) \<Rightarrow> if c = p then (Some stk, 1, 2 * p) else (sv, c + 1, p))\<close>
 
 partial_function (option) brun ::
   \<open>('k list \<times> 'w list \<Rightarrow> (('n, 't) dact \<times> 'k list \<times> 'w list) option) \<Rightarrow>
     ('k list \<times> 'w list \<Rightarrow> bool) \<Rightarrow> ('w \<Rightarrow> ('t, 'ch, 'm) token_scheme) \<Rightarrow>
-    'k list option \<times> nat \<times> nat \<Rightarrow>
+    'k list option \<times> integer \<times> integer \<Rightarrow>
     'k list \<times> 'w list \<times> ('m, 'ch, 'n, 't) ast list \<Rightarrow> ('m, 'ch, 'n, 't) ast option\<close>
   where
   \<open>brun ctl fin dec d st = (case st of (stk, v, tstk) \<Rightarrow>
@@ -226,7 +229,7 @@ proof -
     obtain stk v ts where st: \<open>st = (stk, v, ts)\<close> by (cases st)
     show ?case
     proof (intro impI allI)
-      fix d :: \<open>'k list option \<times> nat \<times> nat\<close>
+      fix d :: \<open>'k list option \<times> integer \<times> integer\<close>
       assume c: \<open>ctl' = ctl\<close> and fi: \<open>fin' = fin\<close> and dd: \<open>dec' = dec\<close>
         and nc: \<open>\<forall>c'. ctl_step\<^sup>*\<^sup>* (fst st, fst (snd st)) c' \<longrightarrow> \<not> ctl_step\<^sup>+\<^sup>+ c' c'\<close>
         and inv: \<open>\<forall>s. fst d = Some s \<longrightarrow> ctl_step\<^sup>+\<^sup>+ (s, fst (snd st)) (fst st, fst (snd st))\<close>
@@ -284,6 +287,20 @@ next
   case (Some t)
   have nc: \<open>\<forall>c'. ctl_step\<^sup>*\<^sup>* (fst st, fst (snd st)) c' \<longrightarrow> \<not> ctl_step\<^sup>+\<^sup>+ c' c'\<close> using nocycle[OF Some] by blast
   show ?thesis using n_imp_x[OF Some nc] n_imp_b[OF Some nc] by simp
+qed
+
+text \<open>So the run with the cheap check is the run with no check.\<close>
+
+theorem brun_nrun:
+  \<open>brun ctl fin dec (None, 1, 1) st = nrun ctl fin dec st\<close>
+proof (cases \<open>nrun ctl fin dec st\<close>)
+  case None
+  then show ?thesis
+    using b_imp_n by (cases \<open>brun ctl fin dec (None, 1, 1) st\<close>) auto
+next
+  case (Some t)
+  have nc: \<open>\<forall>c'. ctl_step\<^sup>*\<^sup>* (fst st, fst (snd st)) c' \<longrightarrow> \<not> ctl_step\<^sup>+\<^sup>+ c' c'\<close> using nocycle[OF Some] by blast
+  show ?thesis using n_imp_b[OF Some nc] Some by simp
 qed
 
 end

@@ -4,6 +4,7 @@
 #   make            build _build/verimon
 #   make check      both parsers agree on every input/*.mfotl (a formula, or both reject)
 #   make bench      per-parse wall-clock -> out/results.tsv
+#                   (RAW=1: also isabelle-raw, the parse without converting to MFOTL)
 #   make ci         check, then bench with instruction counts (needs valgrind)
 
 B := _build
@@ -85,6 +86,8 @@ ROWS = for n in $(NAMES); do \
     export TOKENS=$$($(B)/verimon tokens input/$$n.mfotl); \
     REPS=$$((REPS * 100)) $(MEASURE) $$n ocamlyacc $(B)/verimon parse ocamlyacc input/$$n.mfotl; \
     $(MEASURE) $$n isabelle $(B)/verimon parse isabelle input/$$n.mfotl; \
+    if [ "$(RAW)" = 1 ]; then \
+      $(MEASURE) $$n isabelle-raw $(B)/verimon parse isabelle-raw input/$$n.mfotl; fi; \
   done
 
 clean:

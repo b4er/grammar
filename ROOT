@@ -35,10 +35,12 @@ session TIGER_Grammar in "grammar" = TIGER_Grammar_Model +
     LR_Prod
     LR_Loop
     LR_Plain
+    LR_Arr
     LR_Diag
     LR_Recover
     LR_Restrict
     LR_Prec
+    LR_Lab
     Grammar_Command
     LR_Parser
     LR_Prec_Parse

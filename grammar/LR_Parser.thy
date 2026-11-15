@@ -1,7 +1,7 @@
 (* Author: Basil Fürer, Dmitriy Traytel *)
 
 theory LR_Parser
-  imports TIGER_Grammar.LR_Plain TIGER_Grammar.LR_Sparse TIGER_Grammar.LR_Vec TIGER_Grammar.LR_Diag TIGER_Grammar.LR_Recover Grammar_Command
+  imports TIGER_Grammar.LR_Plain TIGER_Grammar.LR_Arr TIGER_Grammar.LR_Sparse TIGER_Grammar.LR_Vec TIGER_Grammar.LR_Diag TIGER_Grammar.LR_Recover TIGER_Grammar.LR_Lab Grammar_Command
   keywords "parser_error_states" :: diag
 begin
 
@@ -990,6 +990,12 @@ lemma fresh_name_list_all:
   \<open>fresh_name G Shn \<longleftrightarrow> Shn \<noteq> istart G \<and>
      list_all (\<lambda>(A, rhs). A \<noteq> Shn \<and> list_all (\<lambda>(X, r). X \<noteq> Nt Shn) rhs) (iprods G)\<close>
   unfolding fresh_name_def list_all_iff by (auto simp: image_iff split: prod.splits) blast+
+
+text \<open>A tree's yield does not see its labels: \<open>@span\<close> actions keep their meaning over
+  integer labels (LR_Lab).\<close>
+
+lemma ast_yield_relab: \<open>ast_yield (relab h t) = ast_yield t\<close>
+  by (induction t) (simp_all cong: map_cong)
 
 ML_file \<open>lr_reach.ML\<close>
 ML_file \<open>lr_util.ML\<close>

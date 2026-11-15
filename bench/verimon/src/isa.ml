@@ -109,6 +109,9 @@ let rec formula : P.mformula -> MFOTL.formula = function
   | FUntil (i, a, b) -> Until (intv i, formula a, formula b)
 
 (* no parse, or an action that rejects: Failure *)
+(* the parse alone, without converting to MonPoly's types (bench: isabelle-raw) *)
+let parse_raw ts = P.verimon_parse ts
+
 let parse ts =
   match P.verimon_parse ts with
   | Some (Some f) -> formula f

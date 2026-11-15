@@ -280,6 +280,211 @@ fun lr_build_parse
     val (i0_eq, lthy) =
       table "i0" (app' lthy \<^const_name>\<open>st_find\<close> [sts, lr0_start_t]) [states_eq] lthy;
 
+    (* LR_Lab: the arrays reduce to positions in a list of names, and the decoders,
+       composed with the map back to names, compare integers.  The result rewrites the
+       code equation's bind of the run and the start decoder.  NONE outside a theory
+       target, under parser (ast), or when a decoder's equations do not have the shape
+       of define_decoders *)
+    fun lab_rewrite atabs_t lthy0 =
+      let
+        val arts = Grammar_Common.artifacts_of gram;
+        fun base_dec (Const (\<^const_name>\<open>comp\<close>, _) $ d $ _) = d
+          | base_dec d = d;
+        val decs = map (apsnd base_dec) (#decs arts);
+        val start_dec = base_dec decoder;
+        val _ =
+          Named_Target.is_theory lthy0 andalso is_Const start_dec andalso
+            exists (fn (_, d) => d aconv start_dec) decs andalso
+            forall (fn (_, d) => is_Const d andalso
+              fst (dest_Const d) <> \<^const_name>\<open>Some\<close>) decs
+          orelse raise Fail "labels: not applicable";
+        val thy = Proof_Context.theory_of lthy0;
+        fun simps d = Global_Theory.get_thms thy (fst (dest_Const d) ^ ".simps");
+        val nameT = Grammar_Common.name_typ gram;
+        val integerT = \<^typ>\<open>integer\<close>;
+        val astT' =
+          (case astT of
+            Type (a, [m, ch, _, t]) => Type (a, [m, ch, integerT, t])
+          | _ => raise Fail "labels: tree type");
+        fun subT T =
+          if T = astT then astT'
+          else (case T of Type (a, Ts) => Type (a, map subT Ts) | _ => T);
+        val name_lits = map (Grammar_Common.name_term gram o fst) decs;
+        val ds = HOLogic.mk_list nameT name_lits;
+        val define = define_term parse_bind;
+        fun define_nocode nm rhs lthy =
+          let
+            val b = Binding.map_name (fn n => n ^ "_" ^ nm) parse_bind;
+            val ((_, def_th), lthy') =
+              Grammar_Defs.define_const false (b, Thm.def_binding b, rhs) lthy;
+          in (Thm.symmetric def_th RS @{thm meta_eq_to_obj_eq}, lthy') end;
+        fun remdups_app lthy xs ys =
+          app' lthy \<^const_name>\<open>remdups\<close> [app' lthy \<^const_name>\<open>append\<close> [xs, ys]];
+        fun prove lthy goal tac =
+          Goal.prove lthy (filter_out (Variable.is_fixed lthy) (Term.add_free_names goal [])) [] goal
+            (fn {context, ...} => tac context);
+
+        (* the names of the arrays, and for a restricted grammar the names of the decoders *)
+        val (names_eq, latabs_eq, finish, lthy) =
+          (case #restricted arts of
+            NONE =>
+              let
+                val (names_eq, lthy) =
+                  define "lnames"
+                    (remdups_app lthy0 (app' lthy0 \<^const_name>\<open>alabels\<close> [atabs_t]) ds) lthy0;
+                val names = rhs_of_eq names_eq;
+                val (latabs_eq, lthy) =
+                  define "latabs"
+                    (app' lthy \<^const_name>\<open>alab\<close> [app' lthy \<^const_name>\<open>lix\<close> [names], atabs_t]) lthy;
+              in (names_eq, latabs_eq, fn nd => @{thm bind_nrun_lab} OF [names_eq, latabs_eq, nd], lthy) end
+          | SOME {orig, ...} =>
+              let
+                val rs = HOLogic.mk_list HOLogic.stringT [HOLogic.mk_string "#"];
+                val (rnames_eq, lthy) =
+                  define "rnames"
+                    (remdups_app lthy0 (app' lthy0 \<^const_name>\<open>alabels\<close> [atabs_t]) rs) lthy0;
+                val rnames = rhs_of_eq rnames_eq;
+                val (latabs_eq, lthy) =
+                  define "latabs"
+                    (app' lthy \<^const_name>\<open>alab\<close> [app' lthy \<^const_name>\<open>lix\<close> [rnames], atabs_t]) lthy;
+                val (names_eq, lthy) =
+                  define "lnames"
+                    (remdups_app lthy (app' lthy \<^const_name>\<open>map\<close> [orig, rnames]) ds) lthy;
+                val names = rhs_of_eq names_eq;
+                val n_v = Free ("n", HOLogic.stringT);
+                val (oarr_eq, lthy) =
+                  define "oarr"
+                    (app' lthy \<^const_name>\<open>IArray\<close>
+                      [app' lthy \<^const_name>\<open>map\<close>
+                        [Term.lambda n_v (app' lthy \<^const_name>\<open>lix\<close> [names, orig $ n_v]), rnames]])
+                    lthy;
+                val rs_ne =
+                  prove lthy (HOLogic.mk_Trueprop (HOLogic.mk_not (HOLogic.mk_eq
+                      (rs, HOLogic.mk_list HOLogic.stringT []))))
+                    (fn ctxt => simp_tac (put_simpset HOL_basic_ss ctxt |> Simplifier.add_simps @{thms list.distinct simp_thms}) 1);
+              in
+                (names_eq, latabs_eq,
+                 fn nd => Proof_Context.get_thm lthy0 "LR_Prec_Parse.bind_nrun_lab_plain" OF [rnames_eq, rs_ne, latabs_eq, names_eq, oarr_eq, nd],
+                 lthy)
+              end);
+        val names = rhs_of_eq names_eq;
+
+        (* per nonterminal: its position and its decoder over integer trees *)
+        val relab_t =
+          Const (\<^const_name>\<open>relab\<close>, (integerT --> nameT) --> astT' --> astT) $
+            app' lthy \<^const_name>\<open>lnm\<close> [names];
+        val ((ix_eqs, nd_eqs), lthy) =
+          fold_map (fn (A, d) => fn lthy =>
+              let
+                val id = Grammar_Common.ident_in gram A;
+                val (ix_eq, lthy) =
+                  define ("ix_" ^ id)
+                    (app' lthy \<^const_name>\<open>lix\<close> [names, Grammar_Common.name_term gram A]) lthy;
+                val T = range_type (fastype_of d);
+                val (nd_eq, lthy) =
+                  define_nocode ("ndec_" ^ id)
+                    (Const (\<^const_name>\<open>comp\<close>, (astT --> T) --> (astT' --> astT) --> astT' --> T)
+                      $ d $ relab_t) lthy;
+              in ((ix_eq, nd_eq), lthy) end) decs lthy
+          |>> split_list;
+        val ndecs = map rhs_of_eq nd_eqs;
+        val decmap = map snd decs ~~ ndecs;
+        val nd_rev = map (fn th => th RS @{thm sym}) nd_eqs;
+
+        val inf_th =
+          prove lthy (HOLogic.mk_Trueprop
+              (Const (\<^const_name>\<open>Not\<close>, HOLogic.boolT --> HOLogic.boolT) $
+                (Const (\<^const_name>\<open>finite\<close>, HOLogic.mk_setT nameT --> HOLogic.boolT) $
+                  HOLogic.mk_UNIV nameT)))
+            (fn ctxt => simp_tac (put_simpset HOL_basic_ss ctxt
+              |> Simplifier.add_simps @{thms infinite_UNIV_listI infinite_UNIV_nat simp_thms}) 1);
+
+        (*case_ast's node branch binds the name: retype it to integer; it must be unused*)
+        fun retype_case (Const (c as \<^const_name>\<open>case_ast\<close>,
+                Type ("fun", [lf, Type ("fun", [Type ("fun", [_, nr]), rest])])) $ f $ g) =
+              let
+                val g' =
+                  (case g of
+                    Abs (n, _, b) =>
+                      if Term.loose_bvar1 (b, 0) then raise Fail "labels: name used"
+                      else Abs (n, integerT, retype_case b)
+                  | _ => raise Fail "labels: case_ast branch")
+              in
+                Const (c, lf --> (integerT --> nr) --> rest) $ retype_case f $ g'
+              end
+          | retype_case (t $ u) = retype_case t $ retype_case u
+          | retype_case (Abs (n, T, b)) = Abs (n, T, retype_case b)
+          | retype_case t = t;
+        fun subst_t t =
+          t
+          |> retype_case
+          |> Term.map_aterms (fn c as Const _ =>
+                (case AList.lookup (op aconv) decmap c of SOME c' => c' | NONE => c)
+              | x => x)
+          |> Term.map_types subT;
+        val Node' = Const (\<^const_name>\<open>Node\<close>, integerT --> HOLogic.listT astT' --> astT');
+        val tokenT = #tokenT gram;
+        val Leaf' = Const (\<^const_name>\<open>Leaf\<close>, tokenT --> astT');
+
+        fun eqns (k, ((d, nd), ix_eq)) =
+          let
+            val (node_eq, leaf_eq) =
+              (case simps d of
+                [a, b] => (a, b)
+              | _ => raise Fail "labels: decoder equations");
+            val (_, rhs) = HOLogic.dest_eq (HOLogic.dest_Trueprop (Thm.prop_of node_eq));
+            val (ifc, cond, body, none) =
+              (case rhs of
+                (ifc as Const (\<^const_name>\<open>If\<close>, _)) $ (Const (\<^const_name>\<open>HOL.eq\<close>, _) $ _ $ _) $ b $ n =>
+                  (ifc, (), b, n)
+              | _ => raise Fail "labels: decoder shape");
+            val _ = cond;
+            val xsv =
+              (case HOLogic.dest_Trueprop (Thm.prop_of node_eq) of
+                Const (\<^const_name>\<open>HOL.eq\<close>, _) $ (_ $ (_ $ _ $ xs)) $ _ => xs
+              | _ => raise Fail "labels: decoder lhs");
+            val i = Free ("lab_i", integerT);
+            val xs' = Free ("lab_xs", HOLogic.listT astT');
+            val body' = Term.subst_atomic [(subst_t xsv, xs')] (subst_t body);
+            val goal_node =
+              HOLogic.mk_Trueprop (HOLogic.mk_eq (nd $ (Node' $ i $ xs'),
+                ifc $ HOLogic.mk_eq (i, rhs_of_eq ix_eq) $ body' $ none));
+            val split_th =
+              prove lthy (HOLogic.mk_Trueprop (HOLogic.mk_eq (ds,
+                  app' lthy \<^const_name>\<open>append\<close>
+                    [HOLogic.mk_list nameT (take k name_lits),
+                     HOLogic.mk_list nameT (drop k name_lits)])))
+                (fn ctxt => simp_tac (put_simpset HOL_basic_ss ctxt
+                  |> Simplifier.add_simps @{thms append_Cons append_Nil}) 1);
+            val iff = @{thm lnm_ds} OF [names_eq, inf_th, split_th];
+            val rules =
+              nd_rev @ [ix_eq RS @{thm sym}, node_eq, iff] @
+              @{thms relab.simps o_apply case_list_map case_ast_relab
+                yield_span_def list.map ast_yield_relab};
+            val th_node =
+              prove lthy goal_node (fn ctxt =>
+                simp_tac (put_simpset HOL_basic_ss ctxt |> Simplifier.add_simps rules) 1);
+            val w = Free ("lab_w", tokenT);
+            val goal_leaf = HOLogic.mk_Trueprop (HOLogic.mk_eq (nd $ (Leaf' $ w), none));
+            val th_leaf =
+              prove lthy goal_leaf (fn ctxt =>
+                simp_tac (put_simpset HOL_basic_ss ctxt
+                  |> Simplifier.add_simps (nd_rev @ [leaf_eq] @ @{thms relab.simps o_apply})) 1);
+          in [th_node, th_leaf] end;
+        val code_eqs =
+          flat (Par_List.map eqns (map_index I (map snd decs ~~ ndecs ~~ ix_eqs)));
+        val lthy =
+          lthy
+          |> Code.declare_eqns (map (rpair true) code_eqs)
+          |> Grammar_Common.declare_code_global {default = false} code_eqs;
+        val nd_start = the (AList.lookup (op aconv) (map snd decs ~~ nd_eqs) start_dec);
+      in SOME (finish nd_start, lthy) end
+      handle ERROR msg => (warning ("parser: integer labels: " ^ msg); NONE)
+        | Fail msg => (if msg = "labels: not applicable" then ()
+            else warning ("parser: integer labels: " ^ msg); NONE)
+        | THM (msg, _, _) => (warning ("parser: integer labels: " ^ msg); NONE)
+        | TERM (msg, _) => (warning ("parser: integer labels: " ^ msg); NONE);
+
     fun simple_tables (nums_l, nums_th) lthy =
       let
         val arts = Grammar_Common.artifacts_of gram;
@@ -309,12 +514,12 @@ fun lr_build_parse
         (* the tables of the code: by default binary tries (jtabs_of), which are
            static data and need no arithmetic with binary naturals; with
            parser_int_tables, arrays with integer indices (ztabs_of) *)
-        val (tabs_eqs, via, tabs_msg, driver, lthy) =
+        val (tabs_eqs, via, tabs_msg, driver, arr_th, lthy) =
           if Config.get lthy parser_int_tables then
             let val (ztabs_eq, lthy) = define "ztabs" (app' lthy \<^const_name>\<open>ztabs_of\<close> [ltabs]) lthy
             in
               ([ztabs_eq], @{thm dparse_via_int_tables}, "integer tables (LR_Simple, LR_Int)",
-               NONE, lthy)
+               NONE, NONE, lthy)
             end
           else
             let
@@ -336,23 +541,58 @@ fun lr_build_parse
                 |> Local_Defs.unfold lthy
                      [states_eq, gtab_eq, redtab_eq, pc_eq, pf_eq, ltabs_eq, jtabs_eq, ktabs_eq,
                       ptabs_eq];
-              val (tnum_th, tnum_msg, f, lthy) =
+              val (tnum_th, tnum_msg, f, tnum_def, lthy) =
                 (case tok_sugar of
                   NONE =>
                     (@{thm refl}, "a search",
-                     app' lthy \<^const_name>\<open>pnum\<close> [rhs_of_eq ptabs_eq], lthy)
+                     app' lthy \<^const_name>\<open>pnum\<close> [rhs_of_eq ptabs_eq], NONE, lthy)
                 | SOME sugar =>
                     let
-                      val (th, tnum_c, lthy) =
+                      val (th, tnum_c, def_eq, lthy) =
                         timed lthy "tnum" (fn () =>
                           tnum_case lthy parse_bind sugar
                             (\<^const_name>\<open>pnum\<close>, ptabs_eq, nums_e, nums_l) []) ();
-                    in (th, "a case distinction", tnum_c, lthy) end);
+                    in (th, "a case distinction", tnum_c, SOME def_eq, lthy) end);
+              (* the code equation runs on arrays indexed by integers (LR_Arr), computed
+                 once from the tries; the diagnostics keep the run on the tries *)
+              val (atabs_eq, lthy) =
+                define "atabs" (app' lthy \<^const_name>\<open>atabs_of\<close> [rhs_of_eq ptabs_eq]) lthy;
+              val (g_th, lthy) =
+                (case (tok_sugar, tnum_def) of
+                  (SOME sugar, SOME def_eq) =>
+                    let
+                      val (th, _, lthy) =
+                        timed lthy "ztnum" (fn () =>
+                          ztnum_case lthy parse_bind sugar (f, def_eq, nums_l)) ();
+                    in (th, lthy) end
+                | _ => (@{thm anum_via} OF [atabs_eq], lthy));
+              (* without a nullable cycle no configuration repeats between two shifts,
+                 and the code runs with no loop check (nrun, brun_arr_nrun); the answer
+                 only decides the termination of the generated code *)
+              val cycle = timed lthy "cycle check" nullable_cycle gram;
+              val (arr_th, loop_msg) =
+                (case cycle of
+                  NONE =>
+                    (@{thm trans} OF [@{thm brun_via_arr} OF [ptabs_eq, atabs_eq, g_th],
+                      @{thm brun_arr_nrun}], "no loop check")
+                | SOME _ => (@{thm brun_via_arr} OF [ptabs_eq, atabs_eq, g_th],
+                    "a loop check (a nullable cycle)"));
+              (* the run without a loop check then builds trees over integer labels, and
+                 the decoders compare integers (LR_Lab) *)
+              val (lab_ths, lab_msg, lthy) =
+                (case cycle of
+                  NONE =>
+                    (case timed lthy "labels" (lab_rewrite (rhs_of_eq atabs_eq)) lthy of
+                      SOME (th, lthy) => ([th], ", over integer labels", lthy)
+                    | NONE => ([], "", lthy))
+                | SOME _ => ([], "", lthy));
             in
               ([jtabs_eq, ktabs_eq, ptabs_eq, tnum_th], @{thm dparse_via_plain},
                "an action table over the states, numbering tokens by " ^ tnum_msg ^
-               " (LR_Simple, LR_Trie, LR_Tok, LR_Prod, LR_Loop, LR_Plain)",
-               SOME (Plain (rhs_of_eq ptabs_eq, rhs_of_eq i0_eq, f)), lthy)
+               ", with " ^ loop_msg ^ lab_msg ^
+               " (LR_Simple, LR_Trie, LR_Tok, LR_Prod, LR_Loop, LR_Plain, LR_Arr" ^
+               (if null lab_ths then ")" else ", LR_Lab)"),
+               SOME (Plain (rhs_of_eq ptabs_eq, rhs_of_eq i0_eq, f)), SOME (arr_th :: lab_ths), lthy)
             end;
         val _ =
           writeln ("parser: the code equation of \<open>" ^ Binding.name_of parse_bind ^
@@ -360,7 +600,7 @@ fun lr_build_parse
       in
         ((via OF
            ([static_th, states_eq, gtab_eq, redtab_eq, pc_eq, pf_eq, i0_eq, ltabs_eq] @ tabs_eqs),
-          driver), lthy)
+          driver, arr_th), lthy)
       end;
 
     fun set_tables lthy =
@@ -455,6 +695,7 @@ fun lr_build_parse
                           timed lthy "tnum" (fn () =>
                             tnum_case lthy parse_bind sugar
                               (\<^const_name>\<open>vnum\<close>, vtab_eq, nums_e, vnums_l) []) ()
+                          |> (fn (th, c, _, lthy) => (th, c, lthy))
                         end);
                   val _ =
                     writeln ("parser: the code equation of \<open>" ^ Binding.name_of parse_bind ^
@@ -510,11 +751,11 @@ fun lr_build_parse
       else
         writeln ("parser: the code equation of \<open>" ^ Binding.name_of parse_bind ^
           "\<close> runs the set-anchored driver (LR_Driver)");
-    val ((dlr_specialized, fresh_checks, driver), lthy) =
+    val ((dlr_specialized, fresh_checks, driver, arr_th), lthy) =
       (case simple_checks of
         SOME sc =>
-          timed lthy "simple tables" (simple_tables sc) lthy |>> (fn (th, d) => (th, [], d))
-      | NONE => set_tables lthy);
+          timed lthy "simple tables" (simple_tables sc) lthy |>> (fn (th, d, a) => (th, [], d, a))
+      | NONE => set_tables lthy |>> (fn (th, f, d) => (th, f, d, NONE)));
 
     fun post ({parse_const, parse_def_th}: Parser_Generators.post_input) lthy =
       let
@@ -532,11 +773,25 @@ fun lr_build_parse
           (case Grammar_Common.def_axiom lthy (parse_bind, Thm.def_binding parse_bind) of
             SOME ax => Local_Defs.unfold lthy [dlr_specialized] ax
           | NONE => parse_alt_th);
+        (* the simple driver's code runs on the arrays (LR_Arr); parse_alt_th, the run
+           on the tries, stays the view of the diagnostics *)
+        fun to_code th =
+          (case arr_th of
+            NONE => th
+          | SOME rws =>
+              fold (fn a => fn th =>
+                let val th' = Local_Defs.unfold lthy [a] th in
+                  if Thm.eq_thm_prop (th', th) then
+                    error ("parser: the array driver did not fire for \<open>" ^
+                      Binding.name_of parse_bind ^ "\<close>: " ^
+                      Thm.string_of_thm lthy a)
+                  else th'
+                end) rws th);
       in
         timed lthy "post: declare code" (fn () =>
           lthy
-          |> Code.declare_eqns [(parse_alt_th, true)]
-          |> Grammar_Common.declare_code_global {default = false} [parse_alt_global]) ()
+          |> Code.declare_eqns [(to_code parse_alt_th, true)]
+          |> Grammar_Common.declare_code_global {default = false} [to_code parse_alt_global]) ()
         |> (if member (op =) options "diagnostics"
             then
               timed lthy "post: diagnostics"

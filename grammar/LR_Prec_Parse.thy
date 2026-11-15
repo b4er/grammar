@@ -415,4 +415,92 @@ end
 
 ML_file \<open>lr_prec.ML\<close>
 
+subsection \<open>Precedence: the map back to the grammar's names\<close>
+
+lemma plain_ast_relab_id: \<open>plain_ast f t = plain_ast id (relab f t)\<close>
+  by (induction f t rule: plain_ast.induct) (auto simp: map_eq_conv)
+
+lemma plain_ast_relab: \<open>plain_ast f (relab g t) = plain_ast (f \<circ> g) t\<close>
+  by (metis plain_ast_relab_id relab_relab id_comp)
+
+lemma plain_ast_comp:
+  \<open>(\<And>m n. h (g m) = h (g n) \<longleftrightarrow> g m = g n) \<Longrightarrow> plain_ast (h \<circ> g) t = relab h (plain_ast g t)\<close>
+  by (induction g t rule: plain_ast.induct) auto
+
+text \<open>The original name of a label of the restricted run, as the position in the
+  names of the decoders: an array over the restricted names, read with a default
+  for positions outside it, so that every integer has a value.\<close>
+
+definition oget :: \<open>integer iarray \<Rightarrow> integer \<Rightarrow> integer\<close> where
+  \<open>oget oa i = IArray.list_of oa !
+     (if 0 \<le> i \<and> nat_of_integer i < length (IArray.list_of oa) then nat_of_integer i else 0)\<close>
+
+lemma oget_code [code]:
+  \<open>oget oa i = (if 0 \<le> i \<and> i < IArray.length' oa then IArray.sub' (oa, i) else IArray.sub' (oa, 0))\<close>
+  by (cases oa)
+    (auto simp: oget_def IArray.length'_def IArray.sub'_def less_integer_def
+      nat_of_integer.rep_eq integer_of_nat.rep_eq)
+
+theorem bind_nrun_lab_plain:
+  assumes ns: \<open>remdups (alabels A @ rs) = ns\<close> and rs: \<open>rs \<noteq> []\<close>
+    and A': \<open>alab (lix ns) A = A'\<close>
+    and os: \<open>remdups (map orig ns @ ds) = os\<close>
+    and oa: \<open>IArray (map (\<lambda>n. lix os (orig n)) ns) = oa\<close>
+    and nd: \<open>d \<circ> relab (lnm os) = nd\<close>
+  shows \<open>Option.bind (nrun (actl A) (afinal A) dec (stk, v, [])) (d \<circ> plain_ast orig) =
+    Option.bind (nrun (actl A') (afinal A') dec (stk, v, [])) (nd \<circ> plain_ast (oget oa))\<close>
+proof -
+  define cl where \<open>cl i = (if 0 \<le> i \<and> nat_of_integer i < length ns then i else 0)\<close> for i
+  have ne: \<open>ns \<noteq> []\<close> using ns rs by auto
+  have cl_rng: \<open>0 \<le> cl i \<and> nat_of_integer (cl i) < length ns\<close> for i
+    using ne by (auto simp: cl_def)
+  have run_eq: \<open>nrun (actl A) (afinal A) dec (stk, v, []) =
+      map_option (relab (lnm ns)) (nrun (actl A') (afinal A') dec (stk, v, []))\<close>
+    using nrun_alab_Nil[of \<open>lnm ns\<close> A' dec stk v] alab_back[OF ns] A' by simp
+  have clA: \<open>alab cl A' = A'\<close>
+  proof -
+    have \<open>alab cl A' = alab (cl \<circ> lix ns) A\<close> using A' alab_alab by metis
+    also have \<open>\<dots> = alab (lix ns) A\<close>
+    proof (rule alab_cong)
+      fix a assume a: \<open>a \<in> set (aacts A)\<close>
+      show \<open>aact_lab (cl \<circ> lix ns) a = aact_lab (lix ns) a\<close>
+      proof (cases a)
+        case (AReduce pr B)
+        have \<open>cl (lix ns n) = lix ns n\<close> if \<open>n \<in> set (pr_names pr)\<close> for n
+        proof -
+          have \<open>n \<in> set ns\<close> using alabels_mem[of pr B A n] a AReduce ns that by auto
+          then show ?thesis using lix_range[of n ns] by (simp add: cl_def)
+        qed
+        then have \<open>pr_lab (cl \<circ> lix ns) pr = pr_lab (lix ns) pr\<close> by (intro pr_lab_cong) simp
+        then show ?thesis using AReduce by simp
+      qed simp
+    qed
+    finally show ?thesis using A' by simp
+  qed
+  have clrun: \<open>nrun (actl A') (afinal A') dec (stk, v, []) =
+      map_option (relab cl) (nrun (actl A') (afinal A') dec (stk, v, []))\<close>
+    using nrun_alab_Nil[of cl A' dec stk v] clA by simp
+  have dos: \<open>distinct os\<close> using os by auto
+  have oget_cl: \<open>oget oa i = lix os (orig (ns ! nat_of_integer (cl i)))\<close> for i
+    using cl_rng[of i] unfolding oa[symmetric] oget_def cl_def by auto
+  have mem: \<open>orig (ns ! nat_of_integer (cl i)) \<in> set os\<close> for i
+    using cl_rng[of i] os by auto
+  have pt: \<open>orig \<circ> (lnm ns \<circ> cl) = lnm os \<circ> oget oa\<close>
+  proof
+    fix i
+    have \<open>lnm ns (cl i) = ns ! nat_of_integer (cl i)\<close> using cl_rng[of i] by (simp add: lnm_def)
+    then show \<open>(orig \<circ> (lnm ns \<circ> cl)) i = (lnm os \<circ> oget oa) i\<close>
+      by (simp add: oget_cl lnm_lix[OF mem])
+  qed
+  have inj: \<open>lnm os (oget oa m) = lnm os (oget oa n) \<longleftrightarrow> oget oa m = oget oa n\<close> for m n
+    unfolding oget_cl using lix_range[OF mem] by (intro lnm_inj[OF dos]) auto
+  have tree: \<open>plain_ast orig (relab (lnm ns) (relab cl t)) = relab (lnm os) (plain_ast (oget oa) t)\<close> for t
+    by (simp only: plain_ast_relab relab_relab pt plain_ast_comp inj)
+  have \<open>Option.bind (nrun (actl A') (afinal A') dec (stk, v, [])) (\<lambda>t. d (plain_ast orig (relab (lnm ns) t))) =
+      Option.bind (nrun (actl A') (afinal A') dec (stk, v, [])) (\<lambda>t. d (plain_ast orig (relab (lnm ns) (relab cl t))))\<close>
+    by (subst clrun) (simp add: bind_map_option comp_def)
+  then show ?thesis using nd[symmetric]
+    by (simp add: run_eq bind_map_option comp_def tree)
+qed
+
 end
