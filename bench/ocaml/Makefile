@@ -39,7 +39,7 @@ $(B)/ocaml_subset.ml: src/ocaml_subset.mly | $(B)
 	$(MENHIR) --lalr --explain --base $(B)/ocaml_subset $<
 	@test ! -s $(B)/ocaml_subset.conflicts || { cat $(B)/ocaml_subset.conflicts; exit 1; }
 
-TABS = $(shell sed -n 's/^let ocaml_implementation_\([a-z0-9_]*\) :.*/\1/p' isabelle/ocaml_parser.ocaml)
+TABS = $(filter-out fntab,$(shell sed -n 's/^let ocaml_implementation_\([a-z0-9_]*\) :.*/\1/p' isabelle/ocaml_parser.ocaml))
 
 $(B)/op_open.ml: isabelle/ocaml_parser.ocaml | $(B)
 	awk '/^module OCaml_Parser : sig/ { skip = 1 } \
@@ -57,11 +57,12 @@ $(B)/mktabs: $(B)/op_open.ml $(B)/mktabs.ml
 $(B)/ocaml_tabs.ml: $(B)/mktabs
 	$< > $@
 
+# the action table (fntab) holds closures and is built at load time
 # a table's type annotation is kept; its body, from the line starting with
 # "  = " to the ";;", becomes the unmarshalled data
 $(B)/ocaml_parser.ml: isabelle/ocaml_parser.ocaml $(B)/ocaml_tabs.ml | $(B)
 	awk 'match($$0, /^let ocaml_implementation_[a-z0-9_]* :/) { \
-	       t = substr($$0, 26, RLENGTH - 27); head = 1 } \
+	       t = substr($$0, 26, RLENGTH - 27); head = (t != "fntab") } \
 	     head && /^  = / { print "  = Marshal.from_string Ocaml_tabs." t " 0;;"; head = 0; body = 1 } \
 	     !body { print } body && /;;$$/ { body = 0 }' $< > $@
 

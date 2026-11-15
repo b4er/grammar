@@ -26,6 +26,8 @@ sig
   val classify_of: Grammar_Common.grammar -> Grammar_Common.rsym -> iv_child
   val ground_typ: typ -> typ
   val ground_tvars: term -> term
+  (* a balanced sum over the types, with an injection and a projection for each *)
+  val mk_val_sum: typ list -> typ * (typ * (term * term)) list
 end;
 
 structure Grammar_Decoders: GRAMMAR_DECODERS =

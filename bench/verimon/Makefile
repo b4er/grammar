@@ -41,7 +41,7 @@ $(B)/formula_lexer.ml: vendor/formula_lexer.mll | $(B)
 # once here: mktabs (the export with its signature opened) marshals them into
 # verimon_tabs.ml, and verimon_parser.ml is the export with the tables'
 # definitions replaced by that value.
-TABS = $(shell sed -n 's/^let verimon_parse_\([a-z0-9_]*\) :.*/\1/p' isabelle/verimon_parser.ocaml)
+TABS = $(filter-out fntab,$(shell sed -n 's/^let verimon_parse_\([a-z0-9_]*\) :.*/\1/p' isabelle/verimon_parser.ocaml))
 
 $(B)/vp_open.ml: isabelle/verimon_parser.ocaml | $(B)
 	awk '/^module VeriMon_Parser : sig/ { skip = 1 } \
@@ -59,11 +59,12 @@ $(B)/mktabs: $(B)/vp_open.ml $(B)/mktabs.ml
 $(B)/verimon_tabs.ml: $(B)/mktabs
 	$< > $@
 
+# the action table (fntab) holds closures and is built at load time
 # a table's type annotation is kept; its body, from the line starting with
 # "  = " to the ";;", becomes the unmarshalled data
 $(B)/verimon_parser.ml: isabelle/verimon_parser.ocaml $(B)/verimon_tabs.ml | $(B)
 	awk 'match($$0, /^let verimon_parse_[a-z0-9_]* :/) { \
-	       t = substr($$0, 19, RLENGTH - 20); head = 1 } \
+	       t = substr($$0, 19, RLENGTH - 20); head = (t != "fntab") } \
 	     head && /^  = / { print "  = Marshal.from_string Verimon_tabs." t " 0;;"; head = 0; body = 1 } \
 	     !body { print } body && /;;$$/ { body = 0 }' $< > $@
 

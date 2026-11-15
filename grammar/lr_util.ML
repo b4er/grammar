@@ -169,6 +169,10 @@ fun ztnum_case lthy parse_b (sugar: Ctr_Sugar.ctr_sugar) (tnum_c, tnum_def, nums
 
 val parser_int_tables = Attrib.setup_config_bool \<^binding>\<open>parser_int_tables\<close> (K false);
 
+(* the run computes the decoders' values itself (LR_Fuse); off: the run builds the tree
+   and the decoders walk it *)
+val parser_fuse = Attrib.setup_config_bool \<^binding>\<open>parser_fuse\<close> (K true);
+
 (* the six tables as evaluated literals, as before they were definitions by their terms *)
 val parser_literal_tables =
   Attrib.setup_config_bool \<^binding>\<open>parser_literal_tables\<close> (K false);

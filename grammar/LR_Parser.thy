@@ -1,7 +1,7 @@
 (* Author: Basil Fürer, Dmitriy Traytel *)
 
 theory LR_Parser
-  imports TIGER_Grammar.LR_Plain TIGER_Grammar.LR_Arr TIGER_Grammar.LR_Sparse TIGER_Grammar.LR_Vec TIGER_Grammar.LR_Diag TIGER_Grammar.LR_Recover TIGER_Grammar.LR_Lab Grammar_Command
+  imports TIGER_Grammar.LR_Plain TIGER_Grammar.LR_Arr TIGER_Grammar.LR_Sparse TIGER_Grammar.LR_Vec TIGER_Grammar.LR_Diag TIGER_Grammar.LR_Recover TIGER_Grammar.LR_Lab TIGER_Grammar.LR_Fuse Grammar_Command
   keywords "parser_error_states" :: diag
 begin
 

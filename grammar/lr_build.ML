@@ -477,8 +477,262 @@ fun lr_build_parse
           lthy
           |> Code.declare_eqns (map (rpair true) code_eqs)
           |> Grammar_Common.declare_code_global {default = false} code_eqs;
-        val nd_start = the (AList.lookup (op aconv) (map snd decs ~~ nd_eqs) start_dec);
-      in SOME (finish nd_start, lthy) end
+        val nd_start_eq = the (AList.lookup (op aconv) (map snd decs ~~ nd_eqs) start_dec);
+        val nd_start = rhs_of_eq nd_start_eq;
+        val lab_th = finish nd_start_eq;
+
+        (* LR_Fuse: the run computes the decoders' values itself.  The action of a
+           nonterminal is its integer decoder's body with the children's values in place
+           of the children: a decoder ndec_B c becomes fproj ix_B pj_B u, a leaf test on c
+           a leaf test on u.  One equation per nonterminal says that the decoder of a
+           node is its action on the values of its children (fuse_tree); bind_frun then
+           rewrites the code equation.  NONE for restricted grammars and @span *)
+        fun fuse lthy =
+          let
+            fun ofn nm th ths = th OF ths
+              handle THM _ => raise Fail ("OF " ^ nm);
+            val _ = Config.get lthy parser_fuse andalso is_none (#restricted arts)
+              orelse raise Fail "fuse: not applicable";
+            val (mT, chT, tT) =
+              (case astT' of Type (_, [m, ch, _, t]) => (m, ch, t) | _ => raise Fail "fuse: tree type");
+            fun dest_optT (Type (\<^type_name>\<open>option\<close>, [T])) = T
+              | dest_optT _ = raise Fail "fuse: decoder type";
+            fun optT T = Type (\<^type_name>\<open>option\<close>, [T]);
+            val carTs = map (fn nd => dest_optT (range_type (fastype_of nd))) ndecs;
+            val (valT, injs) = Grammar_Decoders.mk_val_sum (distinct (op =) carTs);
+            fun inj_of T = fst (the (AList.lookup (op =) injs T));
+            fun proj_of T = snd (the (AList.lookup (op =) injs T));
+            val fvT = Type (\<^type_name>\<open>fv\<close>, [mT, chT, tT, valT]);
+            val fvLT = HOLogic.listT fvT;
+            fun fproj_c T =
+              Const (\<^const_name>\<open>fproj\<close>, integerT --> (valT --> optT T) --> fvT --> optT T);
+            fun map_option_c T =
+              Const (\<^const_name>\<open>map_option\<close>, (T --> valT) --> optT T --> optT valT);
+            val ixs = map rhs_of_eq ix_eqs;
+            val ndmap = ndecs ~~ (ixs ~~ carTs);
+            fun subF T =
+              if T = astT' then fvT
+              else (case T of Type (a, Ts) => Type (a, map subF Ts) | _ => T);
+            fun tr t =
+              (case Term.strip_comb t of
+                (h, args) =>
+                  (case AList.lookup (op aconv) ndmap h of
+                    SOME (ix, U) =>
+                      (case args of
+                        [u] => fproj_c U $ ix $ proj_of U $ tr u
+                      | _ => raise Fail "fuse: decoder use")
+                  | NONE => tr_other t))
+            and tr_other t =
+              (case Term.strip_comb t of
+                (Const (n, T), args) =>
+                      if n = \<^const_name>\<open>case_ast\<close> then
+                        (case args of
+                          [f, Abs (_, _, Abs (_, _, b)), u] =>
+                            let
+                              val _ = not (Term.loose_bvar1 (b, 0) orelse Term.loose_bvar1 (b, 1))
+                                orelse raise Fail "fuse: node branch";
+                              val R = subF (range_type (domain_type T));
+                              val cT = (tokenT --> R) --> (integerT --> optT valT --> R) --> fvT --> R;
+                            in
+                              Const (\<^const_name>\<open>case_fv\<close>, cT) $ tr f $
+                                Abs ("i", integerT, Abs ("y", optT valT, tr b)) $ tr u
+                            end
+                        | _ => raise Fail "fuse: leaf test")
+                      else if n = \<^const_name>\<open>yield_span\<close> then raise Fail "fuse: span"
+                      else Term.list_comb (Const (n, subF T), map tr args)
+              | (Abs (x, T, b), args) => Term.list_comb (Abs (x, subF T, tr b), map tr args)
+              | (Free (x, T), args) => Term.list_comb (Free (x, subF T), map tr args)
+              | (h, args) => Term.list_comb (h, map tr args));
+            val us_v = Free ("lab_xs", fvLT);
+            (* the body of a decoder's node equation, over the children xs *)
+            fun node_parts th =
+              (case HOLogic.dest_Trueprop (Thm.prop_of th) of
+                Const (\<^const_name>\<open>HOL.eq\<close>, _) $ (_ $ (_ $ _ $ xs)) $
+                  (Const (\<^const_name>\<open>If\<close>, _) $ _ $ b $ _) => (xs, b)
+              | _ => raise Fail "fuse: decoder equation");
+            val node_ths = map (fn k => nth code_eqs (2 * k)) (0 upto length ndecs - 1);
+            val leaf_ths = map (fn k => nth code_eqs (2 * k + 1)) (0 upto length ndecs - 1);
+            val kbodies =
+              map2 (fn th => fn T =>
+                  let
+                    val (xs, b0) = node_parts th;
+                    val b = tr (Term.subst_atomic [(xs, Free ("lab_xs", HOLogic.listT astT'))] b0)
+                      |> Term.subst_atomic [(Free ("lab_xs", fvLT), us_v)];
+                    val _ = not (Term.exists_type (Term.exists_subtype (fn U => U = astT')) b)
+                      orelse raise Fail "fuse: a child is used as a tree";
+                  in Term.lambda us_v (map_option_c T $ inj_of T $ b) end)
+                node_ths carTs
+              handle ListPair.UnequalLengths => raise Fail "fuse: decoders";
+            (* one constant per action: the lists below mention only constants *)
+            val ((ks, fk_eqs), lthy) =
+              fold_map (fn ((A, _), b) => fn lthy =>
+                  let val (eq, lthy) = define ("fk_" ^ Grammar_Common.ident_in gram A) b lthy
+                  in ((rhs_of_eq eq, eq), lthy) end)
+                (decs ~~ kbodies) lthy
+              |>> split_list;
+            val hs =
+              map2 (fn nd => fn T =>
+                  Abs ("t", astT', map_option_c T $ inj_of T $ (nd $ Bound 0))) ndecs carTs;
+            val hT = astT' --> optT valT;
+            val kT = fvLT --> optT valT;
+            val trT = HOLogic.mk_prodT (integerT, HOLogic.mk_prodT (hT, kT));
+            val tr_lit =
+              HOLogic.mk_list trT
+                (map (fn ((i, h), k) => HOLogic.mk_prod (i, HOLogic.mk_prod (h, k))) (ixs ~~ hs ~~ ks));
+            val (ftr_eq, lthy) = timed lthy "fuse: define ftr" (fn () => define_nocode "ftr" tr_lit lthy) ();
+            val ftr = rhs_of_eq ftr_eq;
+            val ftr_unfold = Thm.symmetric (mk_meta_eq ftr_eq);
+            val fks_lit =
+              HOLogic.mk_list (HOLogic.mk_prodT (integerT, kT)) (map HOLogic.mk_prod (ixs ~~ ks));
+            val (fntab_eq, lthy) =
+              define "fntab"
+                (Const (\<^const_name>\<open>ftab\<close>,
+                    HOLogic.natT --> HOLogic.listT (HOLogic.mk_prodT (integerT, kT)) -->
+                      Type (\<^type_name>\<open>iarray\<close>, [optT kT])) $
+                  (Const (\<^const_name>\<open>size\<close>, fastype_of names --> HOLogic.natT) $ names) $
+                  fks_lit) lthy;
+            val fntab = rhs_of_eq fntab_eq;
+            val ct = Thm.cterm_of lthy;
+            val [mf_cons, mf_nil, ml_cons, ml_nil, mk_cons, mk_nil] =
+              map mk_meta_eq @{thms map_fst_lix};
+            fun spine cons_th nil_th hd_conv ctm =
+              (Conv.rewr_conv nil_th else_conv
+                (Conv.rewr_conv cons_th then_conv
+                  Conv.combination_conv (Conv.arg_conv hd_conv) (spine cons_th nil_th hd_conv))) ctm;
+            val ix_rw = Conv.rewrs_conv (map mk_meta_eq ix_eqs);
+            fun list_arg_conv cv = Conv.arg_conv cv;
+            (* map fst ftr = map (lix names) ds, both [ix_A, ...] *)
+            val l1 =
+              (list_arg_conv (Conv.rewr_conv ftr_unfold) then_conv spine mf_cons mf_nil Conv.all_conv)
+                (ct (Const (\<^const_name>\<open>map\<close>, (trT --> integerT) --> HOLogic.listT trT --> HOLogic.listT integerT) $
+                  Const (\<^const_name>\<open>fst\<close>, trT --> integerT) $ ftr));
+            val l2 = spine ml_cons ml_nil ix_rw
+              (ct (Const (\<^const_name>\<open>map\<close>, (nameT --> integerT) --> HOLogic.listT nameT --> HOLogic.listT integerT) $
+                  (Const (\<^const_name>\<open>lix\<close>, fastype_of names --> nameT --> integerT) $ names) $ ds));
+            val mapfst_meta = Thm.transitive l1 (Thm.symmetric l2);
+            val mapfst_eq = mapfst_meta RS @{thm meta_eq_to_obj_eq};
+            val ds_dist = timed lthy "fuse: distinct names" (fn () =>
+              prove lthy (HOLogic.mk_Trueprop
+                  (Const (\<^const_name>\<open>distinct\<close>, HOLogic.listT nameT --> HOLogic.boolT) $ ds))
+                (fn ctxt => SOLVED' (simp_tac (put_simpset HOL_basic_ss ctxt
+                  |> Simplifier.add_simps @{thms distinct.simps list.set insert_iff empty_iff
+                      list.inject list.distinct char.inject simp_thms})) 1
+                  ORELSE simp_tac ctxt 1)) ();
+            val sub_th = ofn "names_sub" @{thm names_sub} [names_eq];
+            val dist_tr =
+              Conv.fconv_rule (Conv.arg_conv (Conv.arg_conv (Conv.rewr_conv (Thm.symmetric mapfst_meta))))
+                (ofn "distinct_lix" @{thm distinct_lix} [ds_dist, sub_th]);
+            (* per nonterminal: kof (map hpart ftr) ix_A x = h_A x *)
+            val kt =
+              Conv.fconv_rule (Conv.arg_conv (Conv.arg_conv (Conv.rewr_conv ftr_unfold)))
+                (ofn "kof_tr" @{thm kof_tr} [dist_tr]);
+            fun dest_tall th =
+              (case HOLogic.dest_Trueprop (Thm.prop_of th) of
+                _ $ _ $ (Const (\<^const_name>\<open>Nil\<close>, _)) => []
+              | _ =>
+                  Conv.fconv_rule (Thm.beta_conversion true) (ofn "tallD1" @{thm tallD1} [th]) ::
+                    dest_tall (ofn "tallD2" @{thm tallD2} [th]));
+            val dl_ths = map (fn th => (th RS @{thm conjunct1}) RS @{thm spec}) (dest_tall kt);
+            val pj_ths =
+              map (fn (U, (inj, pj)) =>
+                let
+                  val x = Free ("x", optT U);
+                  val goal = HOLogic.mk_Trueprop (HOLogic.mk_eq
+                    (Const (\<^const_name>\<open>Option.bind\<close>, optT valT --> (valT --> optT U) --> optT U) $
+                      (map_option_c U $ inj $ x) $ pj, x));
+                in
+                  (U, Goal.prove lthy ["x"] [] goal (fn {context = ctxt, ...} =>
+                    HEADGOAL (Induct_Tacs.case_tac ctxt "x" [] NONE) THEN ALLGOALS (asm_full_simp_tac ctxt)))
+                end) injs;
+            val Ls =
+              map2 (fn ((dl, nth_), lth) => fn T =>
+                  let
+                    val nd = (case HOLogic.dest_Trueprop (Thm.prop_of lth) of
+                      Const (\<^const_name>\<open>HOL.eq\<close>, _) $ (nd $ _) $ _ => nd
+                    | _ => raise Fail "fuse: leaf equation");
+                    val ix = the (AList.lookup (op aconv) (ndecs ~~ ixs) nd);
+                    val iv = Free ("i", integerT) and csv = Free ("cs", HOLogic.listT astT');
+                    val other = Goal.prove lthy [] []
+                      (Logic.all iv (Logic.all csv
+                        (Logic.mk_implies (HOLogic.mk_Trueprop (HOLogic.mk_not (HOLogic.mk_eq (iv, ix))),
+                          HOLogic.mk_Trueprop (HOLogic.mk_eq (nd $ (Node' $ iv $ csv),
+                            Const (\<^const_name>\<open>None\<close>, optT T)))))))
+                      (fn {context = ctxt, ...} => asm_full_simp_tac (put_simpset HOL_basic_ss ctxt
+                        |> Simplifier.add_simps (nth_ :: @{thms if_False simp_thms})) 1);
+                    val dlt =
+                      (case HOLogic.dest_Trueprop (Thm.prop_of dl) of
+                        Const (\<^const_name>\<open>HOL.eq\<close>, _) $ (dlt $ _ $ _) $ _ => dlt
+                      | _ => raise Fail "fuse: kof equation");
+                    val fv_i = Drule.infer_instantiate lthy
+                      [(("dl", 0), ct dlt), (("ix", 0), ct ix), (("nd", 0), ct nd)] @{thm fproj_vof};
+                  in
+                    ofn "fproj_vof" fv_i [dl, the (AList.lookup (op =) pj_ths T), other, lth]
+                    |> (fn th => (case Seq.pull (ALLGOALS (assume_tac lthy) th) of
+                          SOME (th', _) => th'
+                        | NONE => raise Fail "fuse: other labels"))
+                    |> tap (fn th => Thm.nprems_of th = 0 orelse raise Fail "fuse: other labels")
+                  end)
+                (dl_ths ~~ node_ths ~~ leaf_ths) carTs;
+            (* the equation of each nonterminal: its decoder on a node is its action *)
+            val fuse_i = Drule.infer_instantiate lthy [(("tr", 0), ct ftr)] @{thm fuse_tree};
+            val P =
+              (case HOLogic.dest_Trueprop (nth (Thm.prems_of fuse_i) 1) of
+                _ $ P $ _ => P
+              | _ => raise Fail "fuse: fuse_tree");
+            val basic = Simplifier.add_simps
+              (Ls @ @{thms case_list_map case_fv_vof if_True simp_thms});
+            val Hs = timed lthy "fuse: equations" (fn () =>
+              Par_List.map (fn ((((i, h), k), nth_), fk_eq) =>
+                  let val goal = HOLogic.mk_Trueprop (Envir.beta_norm (P $ i $ h $ k)) in
+                    prove lthy goal (fn ctxt =>
+                      resolve_tac ctxt @{thms allI} 1 THEN
+                      simp_tac (put_simpset HOL_basic_ss ctxt |> basic
+                        |> Simplifier.add_simps [nth_, fk_eq RS @{thm sym}]) 1)
+                  end)
+                (ixs ~~ hs ~~ ks ~~ node_ths ~~ fk_eqs)) ();
+            val tallI_P = Drule.infer_instantiate lthy [(("P", 0), ct P)] @{thm tallI};
+            val tallNil_P = Drule.infer_instantiate lthy [(("P", 0), ct P)] @{thm tallNil};
+            val H_lit =
+              fold_rev (fn ((((i, h), k), Hth)) => fn acc =>
+                  let
+                    val r = Drule.infer_instantiate lthy
+                      [(("i", 0), ct i), (("h", 0), ct h), (("k", 0), ct k)] tallI_P
+                      |> Conv.fconv_rule (Conv.implies_conv (Thm.beta_conversion true) Conv.all_conv);
+                  in ofn "r" r [Hth, acc] end)
+                (ixs ~~ hs ~~ ks ~~ Hs) tallNil_P;
+            val H_tr =
+              Conv.fconv_rule (Conv.arg_conv (Conv.arg_conv (Conv.rewr_conv (Thm.symmetric ftr_unfold)))) H_lit;
+            val V = ofn "fuse_i" fuse_i [dist_tr, H_tr];
+            (* the array of the actions *)
+            val kp =
+              (Conv.arg_conv (Conv.arg_conv (Conv.rewr_conv ftr_unfold) then_conv
+                spine mk_cons mk_nil Conv.all_conv))
+                (ct (Const (\<^const_name>\<open>ftab\<close>,
+                    HOLogic.natT --> HOLogic.listT (HOLogic.mk_prodT (integerT, kT)) -->
+                      Type (\<^type_name>\<open>iarray\<close>, [optT kT])) $
+                  (Const (\<^const_name>\<open>size\<close>, fastype_of names --> HOLogic.natT) $ names) $
+                  (Const (\<^const_name>\<open>map\<close>, (trT --> HOLogic.mk_prodT (integerT, kT)) -->
+                      HOLogic.listT trT --> HOLogic.listT (HOLogic.mk_prodT (integerT, kT))) $
+                    Const (\<^const_name>\<open>kpart\<close>, trT --> HOLogic.mk_prodT (integerT, kT)) $ ftr)));
+            val fn_eq = ofn "trans" @{thm trans} [kp RS @{thm meta_eq_to_obj_eq}, fntab_eq];
+            val range_th = ofn "lix_keys_range" @{thm lix_keys_range} [mapfst_eq, sub_th];
+            val fnk = ofn "fnode_kof" @{thm fnode_kof} [fn_eq, range_th];
+            val L_start = the (AList.lookup (op aconv) (ndecs ~~ Ls) nd_start);
+            val th = ofn "bind_frun" @{thm bind_frun} [V, L_start, fnk];
+          in (th, lthy) end;
+        val (ths, fuse_msg, lthy) =
+          (case timed lthy "fuse" (fn lthy => SOME (fuse lthy)
+              handle Fail msg => (if msg = "fuse: not applicable" orelse msg = "fuse: span" then ()
+                  else warning ("parser: fused actions: " ^ msg); NONE)
+                | THM (msg, _, _) => (warning ("parser: fused actions: " ^ msg); NONE)
+                | TERM (msg, _) => (warning ("parser: fused actions: " ^ msg); NONE)
+                | ERROR msg => (warning ("parser: fused actions: " ^ msg); NONE)
+                | Option.Option => (warning "parser: fused actions: lookup failed"; NONE)
+                | Subscript => (warning "parser: fused actions: subscript"; NONE)
+                | TYPE (msg, _, _) => (warning ("parser: fused actions: " ^ msg); NONE)) lthy of
+            SOME (th, lthy) => ([lab_th, th], ", with fused actions", lthy)
+          | NONE => ([lab_th], "", lthy));
+      in SOME ((ths, fuse_msg), lthy) end
       handle ERROR msg => (warning ("parser: integer labels: " ^ msg); NONE)
         | Fail msg => (if msg = "labels: not applicable" then ()
             else warning ("parser: integer labels: " ^ msg); NONE)
@@ -583,16 +837,22 @@ fun lr_build_parse
                 (case cycle of
                   NONE =>
                     (case timed lthy "labels" (lab_rewrite (rhs_of_eq atabs_eq)) lthy of
-                      SOME (th, lthy) => ([th], ", over integer labels", lthy)
+                      SOME ((ths, fmsg), lthy) => (ths, ", over integer labels" ^ fmsg, lthy)
                     | NONE => ([], "", lthy))
                 | SOME _ => ([], "", lthy));
+              (* the start state as an integer constant: computed once, when the code loads,
+                 not on every call from a Peano number *)
+              val (zi0_eq, lthy) =
+                define_term parse_bind "zi0"
+                  (Const (\<^const_name>\<open>integer_of_nat\<close>, HOLogic.natT --> \<^typ>\<open>integer\<close>) $ rhs_of_eq i0_eq) lthy;
             in
               ([jtabs_eq, ktabs_eq, ptabs_eq, tnum_th], @{thm dparse_via_plain},
                "an action table over the states, numbering tokens by " ^ tnum_msg ^
                ", with " ^ loop_msg ^ lab_msg ^
                " (LR_Simple, LR_Trie, LR_Tok, LR_Prod, LR_Loop, LR_Plain, LR_Arr" ^
-               (if null lab_ths then ")" else ", LR_Lab)"),
-               SOME (Plain (rhs_of_eq ptabs_eq, rhs_of_eq i0_eq, f)), SOME (arr_th :: lab_ths), lthy)
+               (if null lab_ths then ")"
+                else if length lab_ths > 1 then ", LR_Lab, LR_Fuse)" else ", LR_Lab)"),
+               SOME (Plain (rhs_of_eq ptabs_eq, rhs_of_eq i0_eq, f)), SOME (arr_th :: lab_ths @ [zi0_eq]), lthy)
             end;
         val _ =
           writeln ("parser: the code equation of \<open>" ^ Binding.name_of parse_bind ^
