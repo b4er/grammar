@@ -1,7 +1,7 @@
 (* Author: Basil Fürer *)
 
 theory TIGER
-  imports TIGER_Grammar.LR_Prec_Parse TIGER_Lexer.Lexer_Check
+  imports TIGER_Bridge.TIGER_Bridge
 begin
 
 section \<open>Overview\<close>
@@ -371,7 +371,7 @@ subsection \<open>Specifications\<close>
 text \<open>
   \<^rail>\<open>
     @@{command grammar} ('(' 'relation' ')')? name '=' \<newline>
-      (@'open' (name +))? (@'tokens' type)? \<newline>
+      (@'open' (name +))? (@'tokens' (type | 'of' name))? \<newline>
       terminals? (prec_decl *) \<newline>
       productions
   \<close>
@@ -388,6 +388,10 @@ text \<open>
   or an extension \<^theory_text>\<open>record my_token = \<open>(my_tok, char) token\<close> + \<dots>\<close>. Another
   type \<open>T\<close> abbreviates \<open>(T, unit) token\<close>, and without the clause the token classes
   are strings.
+
+  \<^descr> \descform{\<^theory_text>\<open>tokens of L\<close>} takes the terminals from the lexer \<open>L\<close>
+  (Section~\ref{sec:lex-parse}): the token type is that of the tokens of \<open>L_lex\<close>, and
+  each literal rule \<open>"s" \<Rightarrow> t\<close> of \<open>L\<close> lets \<open>"s"\<close> stand for \<open>t\<close>.
 \<close>
 
 text \<open>
@@ -803,6 +807,49 @@ lemma \<open>py_parse [tu 1 While, tu 7 Id, tu 8 Colon, tu 3 Id, tu 4 Id] = None
   by eval\<close>}
 
   More examples are in \<^file>\<open>grammar/tests/Regression_Tests.thy\<close>.
+\<close>
+
+section \<open>Lexing then parsing\label{sec:lex-parse}\<close>
+
+text \<open>
+  The lexer and the grammar sessions do not import each other. The theory
+  \<^verbatim>\<open>TIGER_Bridge\<close> imports both and makes each later @{command lexer} \<open>L\<close> a
+  \<^emph>\<open>terminal provider\<close> for \<^theory_text>\<open>grammar G = tokens of L\<close>. It provides
+  the type of the tokens of \<open>L_lex\<close>, \<^typ>\<open>('tok, nat) lex_token\<close> (\<^typ>\<open>('tok,
+  char) lex_token\<close> with the option (\<^verbatim>\<open>char\<close>)), which the parser takes
+  with their trivia, and the token of each literal rule \<open>"s" \<Rightarrow> t\<close> whose action is
+  a token, without guard (the first such rule of a spelling counts). Rules with a
+  pattern in a cartouche give token classes, written by the token in the
+  productions as in any grammar. The name \<open>L\<close> after \<^theory_text>\<open>tokens of\<close> links to
+  the lexer.
+
+  A parser on the lexed text is one definition. With the lexer and grammar
+
+  @{theory_text [display, indent = 2]
+\<open>datatype tok = Let | In | Eq | Plus | Id | Num
+
+lexer toy :: \<open>tok\<close>
+  rules
+    "let" \<Rightarrow> Let | "in" \<Rightarrow> In | "=" \<Rightarrow> Eq | "+" \<Rightarrow> Plus
+  | \<open>[a-z]+\<close> \<Rightarrow> Id | \<open>[0-9]+\<close> \<Rightarrow> Num | \<open>[ \n]+\<close> \<Rightarrow> skip
+
+grammar toy_g = tokens of toy
+  productions
+    E :: \<open>nat\<close> = "let" Id "=" E "in" E \<Rightarrow> \<open>\<lambda>_ a b. a + b\<close> | S
+  and
+    S :: \<open>nat\<close> = S "+" Num \<Rightarrow> \<open>\<lambda>a _. a + 1\<close> | Num \<Rightarrow> \<open>\<lambda>_. 1\<close>
+
+parser toy_parse for toy_g
+
+definition toy_run :: \<open>string \<Rightarrow> nat option\<close> where
+  \<open>toy_run s = (case toy_lex (map of_char s) of
+    (l, [], _) \<Rightarrow> toy_parse (toks l) | _ \<Rightarrow> None)\<close>\<close>}
+
+  \<open>toy_run\<close> parses the tokens of a text that the lexer consumes completely (with
+  modes, \<open>toy_lex.ok\<close> also asks for a final mode). By \<open>toy_lex.correct\<close> and
+  \<open>toy_parse.sound\<close>, a result means that the lexing judgment relates the text to
+  tokens that form a word of the grammar. \<^file>\<open>bridge/tests/Bridge_Tests.thy\<close>
+  has a larger example.
 \<close>
 
 (* Citations in the theories that this document does not make, as \<^cite> forms to paste

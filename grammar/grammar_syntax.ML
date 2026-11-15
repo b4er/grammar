@@ -1,7 +1,8 @@
 (* Author: Basil Fürer *)
 
-(* outer syntax of the grammar command: the specification as written (terminals,
-   precedence declarations, productions with semantic actions), handed to
+(* outer syntax of the grammar command: the specification as written (the token type
+   or a terminal provider, terminals, precedence declarations, productions with semantic
+   actions), handed to
    Grammar_Command.grammar_cmd *)
 
 structure Grammar_Syntax: sig end =
@@ -117,7 +118,9 @@ val grammar_parser =
   Parse.binding --| Parse.$$$ "=" --
   Scan.optional (Args.$$$ "open" |-- Scan.repeat1 (Scan.unless
     (Parse.reserved "precedence" || Parse.reserved "forbid") (Parse.position Parse.name))) [] --
-  Scan.option (Parse.$$$ "tokens" |-- Parse.input Parse.typ) --
+  Scan.optional (Parse.$$$ "tokens" |--
+    (Parse.reserved "of" |-- Parse.position Parse.name >> (fn l => (NONE, SOME l)) ||
+     Parse.input Parse.typ >> (fn T => (SOME T, NONE)))) (NONE, NONE) --
   Scan.optional (Parse.$$$ "terminals" |-- Parse.and_list1 terminal_decl) [] --
   prec_lines --
   (Parse.$$$ "productions" |-- Parse.and_list1 production_group);
@@ -128,9 +131,9 @@ val _ =
     \resolved grammar. Always defines the grammar constant and the per-nonterminal \
     \decoders. Option (relation) also defines the inductive relation family \
     \(slower)."
-    (grammar_parser >> (fn ((((((opts, name), opens), ttyp), ts), lines), gs) =>
+    (grammar_parser >> (fn ((((((opts, name), opens), (ttyp, lexer)), ts), lines), gs) =>
       grammar_surface_cmd opts
-        {name = name, opens = opens, tok_typ = ttyp, terminals = ts, groups = gs,
+        {name = name, opens = opens, tok_typ = ttyp, lexer = lexer, terminals = ts, groups = gs,
          chains = map_filter (fn Prec_Line c => SOME c | _ => NONE) lines,
          forbids = map_filter (fn Forbid_Line f => SOME f | _ => NONE) lines}));
 

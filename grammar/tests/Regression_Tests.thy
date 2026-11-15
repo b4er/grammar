@@ -386,7 +386,8 @@ local
     ([(Grammar_Common.Ref ("PC", Position.none), NONE)],
      SOME (Input.string ("\<lambda>_. " ^ string_of_int v)));
   val dup : Grammar_Common.spec =
-    {name = Binding.name "dup", tok_typ = SOME (Input.string "abc_tok"), terminals = [], prec = NONE,
+    {name = Binding.name "dup", tok_typ = SOME (Input.string "abc_tok"), lexer = NONE,
+     terminals = [], prec = NONE,
      productions = [((Binding.name "S", SOME (Input.string "nat")), [alt 0, alt 1])]};
 in
 val _ =
@@ -464,7 +465,8 @@ grammar (relation) flat =
 ML \<open>
 local
   val clash : Grammar_Common.spec =
-    {name = Binding.name "flat_A", tok_typ = SOME (Input.string "abc_tok"), terminals = [], prec = NONE,
+    {name = Binding.name "flat_A", tok_typ = SOME (Input.string "abc_tok"), lexer = NONE,
+     terminals = [], prec = NONE,
      productions =
       [((Binding.name "B", SOME (Input.string "nat")),
         [([(Grammar_Common.Ref ("PA", Position.none), NONE)], SOME (Input.string "\<lambda>_. 0"))])]};
@@ -588,7 +590,8 @@ text \<open>\<open>S = PA \<Rightarrow> \<open>\<lambda>_. n\<close>\<close> wit
 ML \<open>
 local
   val spec : Grammar_Common.spec =
-    {name = Binding.name "free_var", tok_typ = SOME (Input.string "abc_tok"), terminals = [], prec = NONE,
+    {name = Binding.name "free_var", tok_typ = SOME (Input.string "abc_tok"), lexer = NONE,
+     terminals = [], prec = NONE,
      productions =
       [((Binding.name "S", SOME (Input.string "nat")),
         [([(Grammar_Common.Ref ("PA", Position.none), NONE)],
@@ -623,7 +626,8 @@ text \<open>\<open>S :: \<open>'a list\<close> = \<dots>\<close> used to say “
 ML \<open>
 local
   val spec : Grammar_Common.spec =
-    {name = Binding.name "nonground", tok_typ = SOME (Input.string "abc_tok"), terminals = [], prec = NONE,
+    {name = Binding.name "nonground", tok_typ = SOME (Input.string "abc_tok"), lexer = NONE,
+     terminals = [], prec = NONE,
      productions =
       [((Binding.name "S", SOME (Input.string "'a list")),
         [([(Grammar_Common.Ref ("PA", Position.none), NONE)], SOME (Input.string "\<lambda>_. []"))])]};
@@ -653,7 +657,8 @@ local
     (map (fn s => (Grammar_Common.Tok (Input.string s), NONE)) toks,
      SOME (Input.string act));
   val spec : Grammar_Common.spec =
-    {name = Binding.name "spelling_dup", tok_typ = SOME (Input.string "nat"), terminals = [], prec = NONE,
+    {name = Binding.name "spelling_dup", tok_typ = SOME (Input.string "nat"), lexer = NONE,
+     terminals = [], prec = NONE,
      productions =
       [((Binding.name "S", SOME (Input.string "nat")),
         [alt ["1"] "0", alt ["Suc 0"] "1"])]};

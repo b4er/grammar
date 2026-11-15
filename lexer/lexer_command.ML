@@ -24,6 +24,12 @@ sig
   val define: binding * term -> local_theory -> (term * thm) * local_theory
   val ctr_sugar: Proof.context -> Position.T -> typ -> Ctr_Sugar.ctr_sugar * typ list
   val case_fun: Proof.context -> typ -> (term -> term) -> typ -> term
+  val literal_tokens: Proof.context -> typ -> spec -> (string * term) list
+  (* what a hook learns of each lexer: its binding, the type of its tokens (an instance
+     of \<open>('tok, 'ch) lex_token\<close>), the spellings of its literal rules *)
+  type info = {name: binding, tokenT: typ, spellings: (string * term) list}
+  val add_hook: (info -> local_theory -> local_theory) -> theory -> theory
+  val run_hooks: info -> local_theory -> local_theory
 end;
 
 structure Lexer_Command: LEXER_COMMAND =
@@ -362,5 +368,41 @@ fun lexer_cmd (spec: spec) lthy =
       map_filter (fn ((_, ms), p) => if member (op aconv) ms v then SOME p else NONE)
         (rules ~~ positions);
   in (map (fn v => (v, positions_of v)) values, lthy) end;
+
+
+(** literal rules and hooks **)
+
+(* the spelling and token of each rule "s" \<Rightarrow> t without guard whose action t is a
+   token of type tokT, in priority order; the first rule of a spelling counts *)
+fun literal_tokens ctxt tokT (spec: spec) =
+  let
+    fun token src =
+      (case try (Syntax.check_term ctxt) (Type.constraint tokT (parse_term ctxt src)) of
+        SOME t =>
+          if null (Term.add_frees t []) andalso null (Term.add_vars t []) then SOME t
+          else NONE
+      | NONE => NONE);
+    fun literal (_, {pattern = Literal src, action = Act a, guard = NONE, ...}: rule) =
+          Option.map (pair (Input.string_of src)) (token a)
+      | literal _ = NONE;
+  in
+    fold (fn (s, t) => fn acc => if AList.defined (op =) acc s then acc else acc @ [(s, t)])
+      (map_filter literal (maps (flatten []) (#items spec))) []
+  end;
+
+type info = {name: binding, tokenT: typ, spellings: (string * term) list};
+
+(* the hooks run after each lexer command, in the order they were added; none at first *)
+structure Hooks = Theory_Data
+(
+  type T = (serial * (info -> local_theory -> local_theory)) list;
+  val empty = [];
+  fun merge data = AList.merge (op =) (K true) data;
+);
+
+fun add_hook f = Hooks.map (fn hs => hs @ [(serial (), f)]);
+
+fun run_hooks info lthy =
+  fold (fn (_, f) => f info) (Hooks.get (Proof_Context.theory_of lthy)) lthy;
 
 end;

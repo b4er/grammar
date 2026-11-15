@@ -16,11 +16,12 @@ isabelle build -o document=pdf -d . TIGER_Lexer_Parser
 ## Sessions
 
 The sessions are defined in `ROOT`. Lexer and parser generator share only
-`TIGER_Token`; neither imports the other, and `TIGER_Lexer_Parser` imports both.
+`TIGER_Token`; neither imports the other. `TIGER_Bridge` imports both and makes
+every lexer a terminal provider of the grammar command (`grammar G = tokens of L`).
 
 ```
-TIGER_Token ─┬─ TIGER_Grammar_Model ── TIGER_Grammar ─┬─ TIGER_Lexer_Parser
-             └─ TIGER_Lexer ──────────────────────────┘
+TIGER_Token ─┬─ TIGER_Grammar_Model ── TIGER_Grammar ─┬─ TIGER_Bridge ─┬─ TIGER_Lexer_Parser
+             └─ TIGER_Lexer ──────────────────────────┘                └─ TIGER_Bridge_Tests
 ```
 
 | session | directory | contents |
@@ -31,8 +32,10 @@ TIGER_Token ─┬─ TIGER_Grammar_Model ── TIGER_Grammar ─┬─ TIGER_L
 | `TIGER_Grammar_Tests` | `grammar/tests/` | one theory per feature, a few minutes in batch |
 | `TIGER_Grammar_Tests_Slow` | `grammar/tests/slow/` | recovery and repair (`Recover_Tests`, `Repair_Tests`, `Repair_Code_Tests`) |
 | `TIGER_Lexer` | `lexer/`, `lexer/core/` | regexes, the lexer spec, the table generator and the runner (`core/`); the `pattern`, `lexer` and `lexer_check` commands (manual, Sect. 2) |
-| `TIGER_Lexer_Tests` | `lexer/tests/` | the lexer's tests |
-| `TIGER_Lexer_Parser` | `.` | the manual, `TIGER.thy`, on both packages |
+| `TIGER_Lexer_Tests` | `lexer/tests/` | the lexer's tests; `Stress_Lexer_Tests` combines modes, holes, the hook and error rules in one toy language |
+| `TIGER_Bridge` | `bridge/` | `TIGER_Bridge.thy`: each `lexer` registers its token type and literal rules for `tokens of` |
+| `TIGER_Bridge_Tests` | `bridge/tests/` | a lexer and a grammar on its tokens, lexed then parsed (also needs `TIGER_Grammar_Tests` for `parser_check`) |
+| `TIGER_Lexer_Parser` | `.` | the manual, `TIGER.thy`, on `TIGER_Bridge` |
 
 The tests are split by cost: the parsers with recovery and repair are in
 `TIGER_Grammar_Tests_Slow`, which runs once per change of the error path. `TIGER_Grammar_Tests`
@@ -44,6 +47,7 @@ is the gate for every edit of the commands:
 - `Compose_Tests`, `Param_Tests`: composition and templates.
 - `Span_Tests`: `@span`.
 - `Ast_Tests`: `parser (ast)`.
+- `Provider_Tests`: `tokens of L` with a provider registered by hand.
 - `Same_Terms`: the facts emitted for a few grammars of `Regression_Tests` and
   `Prec_Surface_Tests`, as hashes of their terms, against `grammar/tests/same_terms.txt`.
 
@@ -56,6 +60,7 @@ value of its left-hand side. `by eval` remains where a test needs the theorem.
 isabelle build -d . TIGER_Grammar_Tests         # the fast tests
 isabelle build -d . TIGER_Grammar_Tests_Slow    # and the slow ones
 isabelle build -d . TIGER_Lexer_Tests           # the lexer's tests
+isabelle build -d . TIGER_Bridge_Tests          # lexer and grammar together
 ```
 
 `ROOTS` lists the benchmark sessions in `bench/*/thys`; see `bench/README.md`.

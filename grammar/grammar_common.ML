@@ -33,6 +33,7 @@ sig
   type spec =
     {name: binding,
      tok_typ: Input.source option,
+     lexer: (xstring * Position.T) option,   (* \<open>tokens of L\<close>: a terminal provider *)
      terminals: terminal_decl list,
      productions: production_group list,
      prec: prec_decl option}
@@ -58,6 +59,7 @@ sig
     {name: binding,
      opens: (xstring * Position.T) list,
      tok_typ: Input.source option,
+     lexer: (xstring * Position.T) option,   (* \<open>tokens of L\<close>: a terminal provider *)
      terminals: terminal_decl list,
      groups: sgroup list,
      chains: prec_level list list,
@@ -233,6 +235,7 @@ type prec_decl =
 type spec =
   {name: binding,
    tok_typ: Input.source option,
+   lexer: (xstring * Position.T) option,
    terminals: terminal_decl list,
    productions: production_group list,
    prec: prec_decl option};
@@ -251,6 +254,7 @@ type surface =
   {name: binding,
    opens: (xstring * Position.T) list,
    tok_typ: Input.source option,
+   lexer: (xstring * Position.T) option,
    terminals: terminal_decl list,
    groups: sgroup list,
    chains: prec_level list list,

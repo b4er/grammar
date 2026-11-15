@@ -48,7 +48,8 @@ fun collect_witness_types class_prefix eqns =
   in fold step eqns Symtab.empty end;
 
 fun elaborate (exp: expansion)
-    ({name, tok_typ, terminals = terminal_decls, productions, prec = own_prec, ...}: spec) lthy =
+    ({name, tok_typ, lexer, terminals = terminal_decls, productions, prec = own_prec, ...}: spec)
+    lthy =
   let
     (** nonterminal tables **)
     val nnames = map (Binding.name_of o #1 o #1) productions;
@@ -66,15 +67,28 @@ fun elaborate (exp: expansion)
        | [] => error ("grammar " ^ quote (Binding.name_of name) ^
                       " has no productions" ^ Position.here (Binding.pos_of name)));
 
+    (** \<open>tokens of L\<close>: the token type and the fixed spellings of the terminal provider
+      \<open>L\<close>, which leaves no terminals block **)
+    val provider = Option.map (Terminal_Provider.check lthy) lexer;
+    val _ =
+      (case (lexer, terminal_decls) of
+        (SOME (l, pos), _ :: _) =>
+          error ("grammar " ^ quote (Binding.name_of name) ^ " takes its terminals from " ^
+            quote l ^ " (tokens of " ^ l ^ "); drop the terminals block" ^ Position.here pos)
+      | _ => ());
+    val provider_lits = (case provider of SOME (_, p) => #spellings p | NONE => []);
+
     (** token type: a ground \<open>('tok, 'ch, 'more) token_scheme\<close> from the
       \<open>tokens\<close> clause; a type \<open>T\<close> that is not a token scheme abbreviates
       \<open>(T, unit) token\<close>, the default is \<open>(string, unit) token\<close> **)
     fun plain_token_type T =
       Type (\<^type_name>\<open>TIGER_Token.token_ext\<close>, [T, \<^typ>\<open>unit\<close>, \<^typ>\<open>unit\<close>]);
     val (tokT, tokenT) =
-      (case tok_typ of
-        NONE => (HOLogic.stringT, plain_token_type HOLogic.stringT)
-      | SOME src =>
+      (case (provider, tok_typ) of
+        (SOME (_, {tokenT = T as Type (_, [tok, _, _]), ...}), _) => (tok, T)
+      | (SOME _, _) => raise Fail "grammar: provider token type"
+      | (NONE, NONE) => (HOLogic.stringT, plain_token_type HOLogic.stringT)
+      | (NONE, SOME src) =>
           let val T = Syntax.read_typ lthy (Syntax.implode_input src) in
             Term.exists_subtype (fn TFree _ => true | TVar _ => true | _ => false) T
               andalso error ("The ascribed token type is not ground" ^
@@ -214,7 +228,7 @@ fun elaborate (exp: expansion)
           | SOME (gr: grammar) =>
               fold (fn (t, sp) => fn acc =>
                   if not (member (op =) used_spellings sp) orelse AList.defined (op =) acc sp
-                    orelse Symtab.defined fixed_tab sp
+                    orelse Symtab.defined fixed_tab sp orelse AList.defined (op =) provider_lits sp
                   then acc
                   else acc @ [(sp, (t, owner))])
                 (#lit_names gr) acc))
@@ -242,7 +256,9 @@ fun elaborate (exp: expansion)
       (case Symtab.lookup fixed_tab s of
         SOME src => read_term_typed lthy tokT src
       | NONE =>
-          if AList.defined (op =) inherited_lits s then
+          if AList.defined (op =) provider_lits s then
+            the (AList.lookup (op =) provider_lits s)
+          else if AList.defined (op =) inherited_lits s then
             #1 (the (AList.lookup (op =) inherited_lits s))
           else if tokT = HOLogic.stringT then HOLogic.mk_string s
           else error ("Undeclared fixed terminal " ^ quote s ^
@@ -275,8 +291,12 @@ fun elaborate (exp: expansion)
         \nor a value of type " ^ Syntax.string_of_typ lthy tokT
         ^ Position.here pos);
     fun check_lit (s, pos) =
-      if Symtab.defined fixed_tab s orelse AList.defined (op =) inherited_lits s orelse
-        tokT = HOLogic.stringT then ()
+      if Symtab.defined fixed_tab s orelse AList.defined (op =) provider_lits s orelse
+        AList.defined (op =) inherited_lits s then ()
+      else if is_some provider then
+        error ("Fixed spelling " ^ quote s ^ ": the lexer " ^ quote (#1 (the lexer)) ^
+          " has no literal rule " ^ quote s ^ " => <token value>" ^ Position.here pos)
+      else if tokT = HOLogic.stringT then ()
       else error ("Fixed spelling " ^ quote s ^ " has no token declaration in \
         \the terminals block, and the token type is not string"
         ^ Position.here pos);
@@ -718,7 +738,8 @@ fun elaborate (exp: expansion)
     (* the token value of each Fixed terminal with its spelling, for reports *)
     val own_lits =
       map_filter (fn Fixed (spelling, src) => SOME (read_term_typed lthy tokT src, spelling)
-                   | _ => NONE) terminal_decls;
+                   | _ => NONE) terminal_decls @
+      map swap provider_lits;
     val _ =
       inherited_lits |> List.app (fn (sp, (t, full)) =>
         (case AList.lookup (op =) (map swap own_lits) sp of
@@ -1144,7 +1165,7 @@ fun grammar_exp_cmd opts (exp: expansion) (spec: spec) lthy =
   let
     val _ =
       Grammar_Common.check_spec
-        {name = #name spec, tok_typ = #tok_typ spec, terminals = #terminals spec,
+        {name = #name spec, tok_typ = #tok_typ spec, lexer = #lexer spec, terminals = #terminals spec,
          productions =
            filter_out (fn ((b, _), _) =>
              AList.defined (op =) (#generated exp) (Binding.name_of b)) (#productions spec),
