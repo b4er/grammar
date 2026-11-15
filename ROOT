@@ -47,7 +47,7 @@ session TIGER_Grammar in "grammar" = TIGER_Grammar_Model +
 
 session TIGER_Grammar_Tests in "grammar/tests" = TIGER_Grammar +
   options [document = false, timeout = 1200]
-  theories Parser_Check Regression_Tests Diag_Tests Reach_Tests Prec_Tests Prec_Surface_Tests Compose_Tests Param_Tests Span_Tests Ast_Tests
+  theories Parser_Check Regression_Tests Diag_Tests Reach_Tests Prec_Tests Prec_Surface_Tests Compose_Tests Param_Tests Span_Tests Ast_Tests Provider_Tests
     Same_Terms
   document_files (in "../../document")
     "root.bib"
@@ -75,14 +75,28 @@ session TIGER_Lexer in "lexer" = TIGER_Token +
 session TIGER_Lexer_Tests in "lexer/tests" = TIGER_Lexer +
   options [document = false, timeout = 300]
   theories Intervals_Tests Tables_Tests Driver_Tests Codepoint_Tests Pattern_Tests
-    Lexer_Command_Tests Lexer_Table_Tests
+    Lexer_Command_Tests Lexer_Table_Tests Stress_Lexer_Tests
   document_files (in "../../document")
     "root.bib"
 
-session TIGER_Lexer_Parser = TIGER_Grammar +
+session TIGER_Bridge in "bridge" = TIGER_Grammar +
+  description "Lexers as terminal providers of the grammar command."
+  options [document = false, timeout = 300]
+  sessions TIGER_Lexer
+  theories TIGER_Bridge
+  document_files (in "../document")
+    "root.bib"
+
+session TIGER_Bridge_Tests in "bridge/tests" = TIGER_Bridge +
+  options [document = false, timeout = 300]
+  sessions TIGER_Grammar_Tests
+  theories Bridge_Tests
+  document_files (in "../../document")
+    "root.bib"
+
+session TIGER_Lexer_Parser = TIGER_Bridge +
   description "Lexers and indentation-sensitive LR parsers together."
   options [timeout = 300, document_bibliography]
-  sessions TIGER_Lexer
   theories TIGER
   document_files (in "document")
     "root.bib"

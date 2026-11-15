@@ -105,6 +105,7 @@ qed
 
 (*<*)
 ML_file \<open>grammar_common.ML\<close>
+ML_file \<open>terminal_provider.ML\<close>
 ML_file \<open>grammar_ptree_induct.ML\<close>
 ML_file \<open>grammar_defs.ML\<close>
 ML_file \<open>grammar_rel.ML\<close>

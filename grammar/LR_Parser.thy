@@ -491,6 +491,23 @@ fun path_bfs :: \<open>('a \<Rightarrow> (('n, 't) sym \<times> 'a) list) \<Righ
               else acc @ [(j, X # p)]) (succ i) []
         in path_bfs succ tgt n (i # seen) (wk @ succs)))\<close>
 
+text \<open>The code equation matches on no number, as \<open>Code_Abstract_Nat\<close> removes \<open>Suc\<close>
+  patterns only beside variables: \<^const>\<open>path_bfs\<close> stays executable under
+  \<open>Code_Target_Nat\<close>, which the lexer imports.\<close>
+
+lemma path_bfs_code [code]:
+  \<open>path_bfs succ tgt n seen wk =
+    (if n = 0 then None
+     else (case wk of
+       [] \<Rightarrow> None
+     | (i, p) # wk' \<Rightarrow>
+         (if i = tgt then Some (rev p)
+          else (let succs = fold (\<lambda>(X, j) acc.
+                  if j \<in> set seen \<or> j \<in> set (map fst wk') \<or> j \<in> set (map fst acc) then acc
+                  else acc @ [(j, X # p)]) (succ i) []
+            in path_bfs succ tgt (n - 1) (i # seen) (wk' @ succs)))))\<close>
+  by (cases n; cases wk) auto
+
 definition prod_no :: \<open>('n, 't) is_cfg \<Rightarrow> 'n \<times> ('n, 't) rhs \<Rightarrow> nat\<close> where
   \<open>prod_no G pr = (case filter (\<lambda>(i, q). q = pr) (zip [0..<length (iprods G)] (iprods G)) of
      [] \<Rightarrow> length (iprods G) | (i, _) # _ \<Rightarrow> i)\<close>

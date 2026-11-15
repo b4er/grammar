@@ -182,18 +182,25 @@ val options =
     [];
 
 (* the spec and, unless sketch, the tables and the lexer L_lex on them (in a context where
-   the constants of the spec are no longer local) *)
+   the constants of the spec are no longer local); then the hooks *)
 fun lexer opts (spec: spec) lthy =
   let
     val name = #name spec;
     val (sketch, opts') = List.partition (fn (n, _) => n = "sketch") opts;
     val (positions, lthy) =
       lthy |> Local_Theory.begin_nested |> snd |> lexer_cmd spec ||> Local_Theory.end_nested;
+    val lthy =
+      if null sketch then
+        Lexer_Tables.tables_cmd opts' (Binding.suffix_name "_lex" name)
+          (Binding.name_of name, Binding.pos_of name) positions lthy
+      else lthy;
+    val tokT = Syntax.read_typ lthy (Syntax.implode_input (#tok spec));
+    val chT = if exists (fn (n, _) => n = "char") opts then \<^typ>\<open>char\<close> else \<^typ>\<open>nat\<close>;
+    val tokenT =
+      Term.typ_subst_atomic [(\<^typ>\<open>'k\<close>, tokT), (\<^typ>\<open>'c\<close>, chT)]
+        \<^typ>\<open>('k, 'c) lex_token\<close>;
   in
-    if null sketch then
-      Lexer_Tables.tables_cmd opts' (Binding.suffix_name "_lex" name)
-        (Binding.name_of name, Binding.pos_of name) positions lthy
-    else lthy
+    run_hooks {name = name, tokenT = tokenT, spellings = literal_tokens lthy tokT spec} lthy
   end;
 
 val _ =

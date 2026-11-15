@@ -83,7 +83,7 @@ fun ann_string NONE = ""
   | ann_string (SOME Gt) = "^>"
   | ann_string (SOME Any) = "";
 
-fun expand ctxt ({name, opens, tok_typ, terminals, groups, chains, forbids}: surface) =
+fun expand ctxt ({name, opens, tok_typ, lexer, terminals, groups, chains, forbids}: surface) =
   let
     val gname = Binding.name_of name;
     val gfull = Local_Theory.full_name ctxt name;
@@ -403,7 +403,7 @@ fun expand ctxt ({name, opens, tok_typ, terminals, groups, chains, forbids}: sur
     (if null ugroups andalso not (null tgroups) then NONE
      else
        SOME
-        ({name = name, tok_typ = tok_typ, terminals = terminals,
+        ({name = name, tok_typ = tok_typ, lexer = lexer, terminals = terminals,
           productions = user_groups @ ! gen_groups,
           prec = prec_of chains forbids marks}: spec,
          {generated = generated, silent = ! silent, patterns = ! patterns,
