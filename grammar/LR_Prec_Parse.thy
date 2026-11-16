@@ -503,4 +503,67 @@ proof -
     by (simp add: run_eq bind_map_option comp_def tree)
 qed
 
+
+subsection \<open>Precedence: fused actions\<close>
+
+text \<open>\<^const>\<open>plain_ast\<close> is a fold when every value carries the original name of
+  its node: a node whose only child is a node of the same original name is that
+  child (a unit node of a chain), every other node is the action of its original
+  name (\<open>F\<close>, the action table of the original names).\<close>
+
+definition pnode :: \<open>(integer \<Rightarrow> integer) \<Rightarrow>
+    (integer \<Rightarrow> ('m, 'ch, 't, 'v) fv list \<Rightarrow> ('m, 'ch, 't, 'v) fv) \<Rightarrow>
+    integer \<Rightarrow> ('m, 'ch, 't, 'v) fv list \<Rightarrow> ('m, 'ch, 't, 'v) fv\<close> where
+  \<open>pnode og F i us = (case us of
+      [FNode j x] \<Rightarrow> if j = og i then FNode j x else F (og i) us
+    | _ \<Rightarrow> F (og i) us)\<close>
+
+lemma plain_ast_Node: \<open>\<exists>ys. plain_ast og (Node n ts) = Node (og n) ys\<close>
+proof (induction og \<open>Node n ts\<close> arbitrary: n ts rule: plain_ast.induct)
+  case (2 orig n m us)
+  then show ?case by (cases \<open>orig m = orig n\<close>) auto
+qed auto
+
+lemma plain_hom:
+  fixes K :: \<open>integer \<Rightarrow> ('m, 'ch, 't, 'v) fv list \<Rightarrow> 'v option\<close>
+  assumes F: \<open>\<And>i us. F i us = FNode i (K i us)\<close>
+  shows \<open>afold K (plain_ast og (Node i cs)) = pnode og F i (map (afold K \<circ> plain_ast og) cs)\<close>
+proof (cases \<open>\<exists>m us. cs = [Node m us]\<close>)
+  case True
+  then obtain m us where cs: \<open>cs = [Node m us]\<close> by blast
+  obtain ys where y: \<open>plain_ast og (Node m us) = Node (og m) ys\<close>
+    using plain_ast_Node[of og m us] by auto
+  show ?thesis by (simp add: cs y pnode_def F)
+next
+  case False
+  then have \<open>plain_ast og (Node i cs) = Node (og i) (map (plain_ast og) cs)\<close>
+    by (cases \<open>(og, Node i cs)\<close> rule: plain_ast.cases) (use False in auto)
+  moreover have \<open>pnode og F i (map (afold K \<circ> plain_ast og) cs) = F (og i) (map (afold K \<circ> plain_ast og) cs)\<close>
+  proof (cases cs)
+    case (Cons c cs')
+    with False show ?thesis by (cases c; cases cs') (auto simp: pnode_def split: fv.split list.split)
+  qed (simp add: pnode_def)
+  ultimately show ?thesis by (simp add: F)
+qed
+
+theorem bind_frun_plain:
+  assumes V: \<open>\<And>t. vof dl t = afold K t\<close> and L: \<open>\<And>c. fproj ix pj (vof dl c) = nd c\<close>
+    and F: \<open>\<And>i us. F i us = FNode i (K i us)\<close>
+  shows \<open>Option.bind (nrun ctl fin dec (stk, v, [])) (nd \<circ> plain_ast og) =
+    Option.bind (frun ctl fin (pnode og F) dec (stk, v, [])) (fproj ix pj)\<close>
+proof -
+  have \<open>frun ctl fin (pnode og F) dec (stk, v, map (afold K \<circ> plain_ast og) []) =
+      map_option (afold K \<circ> plain_ast og) (nrun ctl fin dec (stk, v, []))\<close>
+    by (rule frun_map) (simp_all add: plain_hom[OF F])
+  moreover have \<open>fproj ix pj (afold K t) = nd t\<close> for t using L[of t] V[of t] by simp
+  ultimately show ?thesis by (simp add: bind_map_option comp_def)
+qed
+
+theorem frun_ukrun_plain:
+  fixes K :: \<open>integer \<Rightarrow> ('m, 'ch, 't, 'v) fv list \<Rightarrow> 'v option\<close>
+  assumes F: \<open>\<And>i us. F i us = FNode i (K i us)\<close>
+  shows \<open>frun (actl A) (afinal A) (pnode og F) fst ([k0], map (atenc g) w, []) =
+    ukrun (upad A) (pnode og F) [clamp (ut_n (upad A)) k0] (map (atenc (\<lambda>t. clamp (ut_w (upad A)) (g t))) w) []\<close>
+  by (rule frun_ukrun_hom[where U = \<open>afold K \<circ> plain_ast og\<close>]) (simp_all add: plain_hom[OF F])
+
 end

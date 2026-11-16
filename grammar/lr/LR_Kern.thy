@@ -228,26 +228,34 @@ proof -
   then show ?thesis by (cases kstk) (auto simp: uafinal_def afinal_def)
 qed
 
-theorem frun_upad:
-  assumes N: \<open>\<And>i us. N i us = FNode i (K i us)\<close>
+text \<open>For any value of a tree that the run's node function computes bottom-up
+  (\<open>U\<close>, a homomorphism): the fold of the actions, or the fold after the
+  translation of a restricted grammar's trees.\<close>
+
+theorem frun_upad_hom:
+  assumes ul: \<open>\<And>w. U (Leaf w) = FLeaf w\<close> and un: \<open>\<And>i cs. U (Node i cs) = N i (map U cs)\<close>
   shows \<open>frun (actl A) (afinal A) N fst (stk, v, []) =
     frun (uactl (upad A)) (uafinal (upad A)) N fst (map (clamp (pn A)) stk, map (lenc (rmax (at_A A))) v, [])\<close>
 proof -
-  have ul: \<open>afold K (Leaf w) = FLeaf w\<close> for w by simp
-  have un: \<open>afold K (Node i cs) = N i (map (afold K) cs)\<close> for i cs by (simp add: N)
   have xt: \<open>xtree fst a (map (lenc (rmax (at_A A))) v) tstk = xtree fst a v tstk\<close> for a v tstk
     by (cases a; cases v) (simp_all add: xtree_def lenc_def)
-  have \<open>frun (actl A) (afinal A) N fst (stk, v, map (afold K) []) =
-      map_option (afold K) (nrun (actl A) (afinal A) fst (stk, v, []))\<close>
+  have \<open>frun (actl A) (afinal A) N fst (stk, v, map U []) =
+      map_option U (nrun (actl A) (afinal A) fst (stk, v, []))\<close>
     by (rule frun_map[OF ul un])
   also have \<open>nrun (actl A) (afinal A) fst (stk, v, []) =
       nrun (uactl (upad A)) (uafinal (upad A)) fst (map (clamp (pn A)) stk, map (lenc (rmax (at_A A))) v, [])\<close>
     by (rule nrun_transfer[symmetric]) (simp_all add: uactl_eq uafinal_eq xt)
-  also have \<open>map_option (afold K) \<dots> =
-      frun (uactl (upad A)) (uafinal (upad A)) N fst (map (clamp (pn A)) stk, map (lenc (rmax (at_A A))) v, map (afold K) [])\<close>
+  also have \<open>map_option U \<dots> =
+      frun (uactl (upad A)) (uafinal (upad A)) N fst (map (clamp (pn A)) stk, map (lenc (rmax (at_A A))) v, map U [])\<close>
     by (rule frun_map[OF ul un, symmetric])
   finally show ?thesis by simp
 qed
+
+corollary frun_upad:
+  assumes N: \<open>\<And>i us. N i us = FNode i (K i us)\<close>
+  shows \<open>frun (actl A) (afinal A) N fst (stk, v, []) =
+    frun (uactl (upad A)) (uafinal (upad A)) N fst (map (clamp (pn A)) stk, map (lenc (rmax (at_A A))) v, [])\<close>
+  by (rule frun_upad_hom[where U = \<open>afold K\<close>]) (simp_all add: N)
 
 end
 
@@ -287,15 +295,21 @@ lemma ukrun_code [code]:
 
 text \<open>The rewrite of the parser's code equation.\<close>
 
-theorem frun_ukrun:
-  assumes N: \<open>\<And>i us. N i us = FNode i (K i us)\<close>
+theorem frun_ukrun_hom:
+  assumes ul: \<open>\<And>w. U (Leaf w) = FLeaf w\<close> and un: \<open>\<And>i cs. U (Node i cs) = N i (map U cs)\<close>
   shows \<open>frun (actl A) (afinal A) N fst ([k0], map (atenc g) w, []) =
     ukrun (upad A) N [clamp (ut_n (upad A)) k0] (map (atenc (\<lambda>t. clamp (ut_w (upad A)) (g t))) w) []\<close>
 proof -
   have e: \<open>map (lenc (rmax (at_A A))) (map (atenc g) w) = map (atenc (\<lambda>t. clamp (rmax (at_A A)) (g t))) w\<close>
     by (induction w) (simp_all add: lenc_def atenc_def)
   show ?thesis
-    unfolding frun_upad[OF N] ukrun_def ut_n_upad ut_w_upad e list.map(1,2) ..
+    unfolding frun_upad_hom[OF ul un] ukrun_def ut_n_upad ut_w_upad e list.map(1,2) ..
 qed
+
+corollary frun_ukrun:
+  assumes N: \<open>\<And>i us. N i us = FNode i (K i us)\<close>
+  shows \<open>frun (actl A) (afinal A) N fst ([k0], map (atenc g) w, []) =
+    ukrun (upad A) N [clamp (ut_n (upad A)) k0] (map (atenc (\<lambda>t. clamp (ut_w (upad A)) (g t))) w) []\<close>
+  by (rule frun_ukrun_hom[where U = \<open>afold K\<close>]) (simp_all add: N)
 
 end

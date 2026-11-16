@@ -325,7 +325,7 @@ fun lr_build_parse
             (fn {context, ...} => tac context);
 
         (* the names of the arrays, and for a restricted grammar the names of the decoders *)
-        val (names_eq, latabs_eq, finish, lthy) =
+        val (names_eq, latabs_eq, finish, origs, lthy) =
           (case #restricted arts of
             NONE =>
               let
@@ -336,7 +336,7 @@ fun lr_build_parse
                 val (latabs_eq, lthy) =
                   define "latabs"
                     (app' lthy \<^const_name>\<open>alab\<close> [app' lthy \<^const_name>\<open>lix\<close> [names], atabs_t]) lthy;
-              in (names_eq, latabs_eq, fn nd => @{thm bind_nrun_lab} OF [names_eq, latabs_eq, nd], lthy) end
+              in (names_eq, latabs_eq, fn nd => @{thm bind_nrun_lab} OF [names_eq, latabs_eq, nd], NONE, lthy) end
           | SOME {orig, ...} =>
               let
                 val rs = HOLogic.mk_list HOLogic.stringT [HOLogic.mk_string "#"];
@@ -365,6 +365,8 @@ fun lr_build_parse
               in
                 (names_eq, latabs_eq,
                  fn nd => Proof_Context.get_thm lthy0 "LR_Prec_Parse.bind_nrun_lab_plain" OF [rnames_eq, rs_ne, latabs_eq, names_eq, oarr_eq, nd],
+                 SOME (Const ("LR_Prec_Parse.oget",
+                   Type (\<^type_name>\<open>iarray\<close>, [integerT]) --> integerT --> integerT) $ rhs_of_eq oarr_eq),
                  lthy)
               end);
         val names = rhs_of_eq names_eq;
@@ -486,13 +488,12 @@ fun lr_build_parse
            of the children: a decoder ndec_B c becomes fproj ix_B pj_B u, a leaf test on c
            a leaf test on u.  One equation per nonterminal says that the decoder of a
            node is its action on the values of its children (fuse_tree); bind_frun then
-           rewrites the code equation.  NONE for restricted grammars and @span *)
+           rewrites the code equation.  NONE for @span *)
         fun fuse lthy =
           let
             fun ofn nm th ths = th OF ths
               handle THM _ => raise Fail ("OF " ^ nm);
-            val _ = Config.get lthy parser_fuse andalso is_none (#restricted arts)
-              orelse raise Fail "fuse: not applicable";
+            val _ = Config.get lthy parser_fuse orelse raise Fail "fuse: not applicable";
             val (mT, chT, tT) =
               (case astT' of Type (_, [m, ch, _, t]) => (m, ch, t) | _ => raise Fail "fuse: tree type");
             fun dest_optT (Type (\<^type_name>\<open>option\<close>, [T])) = T
@@ -718,7 +719,14 @@ fun lr_build_parse
             val range_th = ofn "lix_keys_range" @{thm lix_keys_range} [mapfst_eq, sub_th];
             val fnk = ofn "fnode_kof" @{thm fnode_kof} [fn_eq, range_th];
             val L_start = the (AList.lookup (op aconv) (ndecs ~~ Ls) nd_start);
-            val th = ofn "bind_frun" @{thm bind_frun} [V, L_start, fnk];
+            (* a restricted grammar: the translation to the original names is part of
+               the fold (LR_Prec_Parse.pnode) *)
+            fun plain_thm nm =
+              Drule.infer_instantiate lthy [(("og", 0), ct (the origs))]
+                (Proof_Context.get_thm lthy0 ("LR_Prec_Parse." ^ nm));
+            val th =
+              if is_some origs then ofn "bind_frun_plain" (plain_thm "bind_frun_plain") [V, L_start, fnk]
+              else ofn "bind_frun" @{thm bind_frun} [V, L_start, fnk];
             (* LR_Kern: the padded tables, a constant, and the run on them *)
             val lat = rhs_of_eq latabs_eq;
             val utabsT =
@@ -726,7 +734,9 @@ fun lr_build_parse
               | _ => raise Fail "fuse: tables type");
             val (utabs_eq, lthy) =
               define "utabs" (Const (\<^const_name>\<open>upad\<close>, fastype_of lat --> utabsT) $ lat) lthy;
-            val uk = ofn "frun_ukrun" @{thm frun_ukrun} [fnk];
+            val uk =
+              if is_some origs then ofn "frun_ukrun_plain" (plain_thm "frun_ukrun_plain") [fnk]
+              else ofn "frun_ukrun" @{thm frun_ukrun} [fnk];
           in ([th, uk, utabs_eq], lthy) end;
         val (ths, fuse_msg, lthy) =
           (case timed lthy "fuse" (fn lthy => SOME (fuse lthy)
