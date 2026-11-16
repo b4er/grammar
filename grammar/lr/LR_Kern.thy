@@ -267,7 +267,7 @@ definition ukrun :: \<open>(integer, 't) utabs \<Rightarrow>
     ('m, 'ch, 't, 'v) fv option\<close> where
   \<open>ukrun U N stk v us = frun (uactl U) (uafinal U) N fst (stk, v, us)\<close>
 
-lemma ukrun_code [code]:
+lemma ukrun_unfold:
   \<open>ukrun U N stk v us = (case stk of [] \<Rightarrow> None | k # _ \<Rightarrow>
      (case v of
        [] \<Rightarrow> if IArray.sub' (ut_pf U, k) = Some True then fresult us
@@ -292,6 +292,74 @@ lemma ukrun_code [code]:
   apply (auto simp: uactl_def uafinal_def uacands_def uaecands_def uatarget_def ftree_def uget_def
       split: list.split option.split aact.split dact.split prod.split)
   done
+
+text \<open>A reduction without walking the right-hand side: a right-hand side of
+  length 0, 1 or 2 pops both stacks by pattern and lists the children in order;
+  longer ones take the generic path.\<close>
+
+lemma ukrun_red:
+  \<open>(case drop_as xs stk of [] \<Rightarrow> None
+     | k'' # rest \<Rightarrow> (case IArray.sub' (IArray.sub' (ut_N U, k''), B) of None \<Rightarrow> None
+         | Some k' \<Rightarrow> ukrun U N (k' # k'' # rest) v (N l (rev (take_as xs us)) # drop_as xs us))) =
+   (case xs of
+      [] \<Rightarrow> (case stk of [] \<Rightarrow> None
+        | k'' # rest \<Rightarrow> (case IArray.sub' (IArray.sub' (ut_N U, k''), B) of None \<Rightarrow> None
+            | Some k' \<Rightarrow> ukrun U N (k' # k'' # rest) v (N l [] # us)))
+    | [_] \<Rightarrow> (case stk of _ # k'' # rest \<Rightarrow>
+          (case IArray.sub' (IArray.sub' (ut_N U, k''), B) of None \<Rightarrow> None
+           | Some k' \<Rightarrow> (case us of
+               u # us' \<Rightarrow> ukrun U N (k' # k'' # rest) v (N l [u] # us')
+             | [] \<Rightarrow> ukrun U N (k' # k'' # rest) v [N l []]))
+        | _ \<Rightarrow> None)
+    | [_, _] \<Rightarrow> (case stk of _ # _ # k'' # rest \<Rightarrow>
+          (case IArray.sub' (IArray.sub' (ut_N U, k''), B) of None \<Rightarrow> None
+           | Some k' \<Rightarrow> (case us of
+               u2 # u1 # us' \<Rightarrow> ukrun U N (k' # k'' # rest) v (N l [u1, u2] # us')
+             | _ \<Rightarrow> ukrun U N (k' # k'' # rest) v (N l (rev (take_as xs us)) # drop_as xs us)))
+        | _ \<Rightarrow> None)
+    | _ \<Rightarrow> (case drop_as xs stk of [] \<Rightarrow> None
+        | k'' # rest \<Rightarrow> (case IArray.sub' (IArray.sub' (ut_N U, k''), B) of None \<Rightarrow> None
+            | Some k' \<Rightarrow> ukrun U N (k' # k'' # rest) v (N l (rev (take_as xs us)) # drop_as xs us))))\<close>
+  by (auto simp: take_as_eq drop_as_eq split: list.split option.split)
+
+lemma ukrun_code [code]:
+  \<open>ukrun U N stk v us = (case stk of [] \<Rightarrow> None | k # _ \<Rightarrow>
+     (case v of
+       [] \<Rightarrow> if IArray.sub' (ut_pf U, k) = Some True then fresult us
+            else (case sfind (uatarget U stk) (uaecands U k) of None \<Rightarrow> None
+              | Some (a, stk') \<Rightarrow> ukrun U N stk' v (ftree fst N a v us))
+     | w # v' \<Rightarrow> (case IArray.sub' (IArray.sub' (ut_A U, k), snd w) of
+         None \<Rightarrow> None
+       | Some cs \<Rightarrow> (case cs of
+           [] \<Rightarrow> None
+         | c # cs' \<Rightarrow> if List.null cs' then
+               (case c of
+                 AShift k' \<Rightarrow> ukrun U N (k' # stk) v' (FLeaf (fst w) # us)
+               | AReduce pr B \<Rightarrow> (case snd pr of
+                    [] \<Rightarrow> (case stk of [] \<Rightarrow> None
+                      | k'' # rest \<Rightarrow> (case IArray.sub' (IArray.sub' (ut_N U, k''), B) of None \<Rightarrow> None
+                          | Some k' \<Rightarrow> ukrun U N (k' # k'' # rest) v (N (fst pr) [] # us)))
+                  | [_] \<Rightarrow> (case stk of _ # k'' # rest \<Rightarrow>
+                        (case IArray.sub' (IArray.sub' (ut_N U, k''), B) of None \<Rightarrow> None
+                         | Some k' \<Rightarrow> (case us of
+                             u # us' \<Rightarrow> ukrun U N (k' # k'' # rest) v (N (fst pr) [u] # us')
+                           | [] \<Rightarrow> ukrun U N (k' # k'' # rest) v [N (fst pr) []]))
+                      | _ \<Rightarrow> None)
+                  | [_, _] \<Rightarrow> (case stk of _ # _ # k'' # rest \<Rightarrow>
+                        (case IArray.sub' (IArray.sub' (ut_N U, k''), B) of None \<Rightarrow> None
+                         | Some k' \<Rightarrow> (case us of
+                             u2 # u1 # us' \<Rightarrow> ukrun U N (k' # k'' # rest) v (N (fst pr) [u1, u2] # us')
+                           | _ \<Rightarrow> ukrun U N (k' # k'' # rest) v
+                               (N (fst pr) (rev (take_as (snd pr) us)) # drop_as (snd pr) us)))
+                      | _ \<Rightarrow> None)
+                  | _ \<Rightarrow> (case drop_as (snd pr) stk of [] \<Rightarrow> None
+                      | k'' # rest \<Rightarrow> (case IArray.sub' (IArray.sub' (ut_N U, k''), B) of None \<Rightarrow> None
+                          | Some k' \<Rightarrow> ukrun U N (k' # k'' # rest) v
+                              (N (fst pr) (rev (take_as (snd pr) us)) # drop_as (snd pr) us)))))
+             else (case sfind (uatarget U stk) cs of None \<Rightarrow> None
+               | Some (a, stk') \<Rightarrow> ukrun U N stk' (case a of DShift \<Rightarrow> v' | DReduce _ \<Rightarrow> v)
+                   (ftree fst N a v us))))))\<close>
+  unfolding ukrun_red[symmetric] by (rule ukrun_unfold)
 
 text \<open>The rewrite of the parser's code equation.\<close>
 
