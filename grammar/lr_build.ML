@@ -719,7 +719,15 @@ fun lr_build_parse
             val fnk = ofn "fnode_kof" @{thm fnode_kof} [fn_eq, range_th];
             val L_start = the (AList.lookup (op aconv) (ndecs ~~ Ls) nd_start);
             val th = ofn "bind_frun" @{thm bind_frun} [V, L_start, fnk];
-          in (th, lthy) end;
+            (* LR_Kern: the padded tables, a constant, and the run on them *)
+            val lat = rhs_of_eq latabs_eq;
+            val utabsT =
+              (case fastype_of lat of Type (_, Ts) => Type (\<^type_name>\<open>utabs\<close>, Ts)
+              | _ => raise Fail "fuse: tables type");
+            val (utabs_eq, lthy) =
+              define "utabs" (Const (\<^const_name>\<open>upad\<close>, fastype_of lat --> utabsT) $ lat) lthy;
+            val uk = ofn "frun_ukrun" @{thm frun_ukrun} [fnk];
+          in ([th, uk, utabs_eq], lthy) end;
         val (ths, fuse_msg, lthy) =
           (case timed lthy "fuse" (fn lthy => SOME (fuse lthy)
               handle Fail msg => (if msg = "fuse: not applicable" orelse msg = "fuse: span" then ()
@@ -730,7 +738,7 @@ fun lr_build_parse
                 | Option.Option => (warning "parser: fused actions: lookup failed"; NONE)
                 | Subscript => (warning "parser: fused actions: subscript"; NONE)
                 | TYPE (msg, _, _) => (warning ("parser: fused actions: " ^ msg); NONE)) lthy of
-            SOME (th, lthy) => ([lab_th, th], ", with fused actions", lthy)
+            SOME (ths, lthy) => (lab_th :: ths, ", with fused actions", lthy)
           | NONE => ([lab_th], "", lthy));
       in SOME ((ths, fuse_msg), lthy) end
       handle ERROR msg => (warning ("parser: integer labels: " ^ msg); NONE)
@@ -851,7 +859,7 @@ fun lr_build_parse
                ", with " ^ loop_msg ^ lab_msg ^
                " (LR_Simple, LR_Trie, LR_Tok, LR_Prod, LR_Loop, LR_Plain, LR_Arr" ^
                (if null lab_ths then ")"
-                else if length lab_ths > 1 then ", LR_Lab, LR_Fuse)" else ", LR_Lab)"),
+                else if length lab_ths > 1 then ", LR_Lab, LR_Fuse, LR_Kern)" else ", LR_Lab)"),
                SOME (Plain (rhs_of_eq ptabs_eq, rhs_of_eq i0_eq, f)), SOME (arr_th :: lab_ths @ [zi0_eq]), lthy)
             end;
         val _ =
