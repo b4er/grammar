@@ -42,9 +42,13 @@ let () =
           print_endline (try Show.formula (run ()) with _ -> "REJECT")) files
   | ["parse"; "isabelle-raw"; file; reps] ->
       let l = Isa.tokens (lex file) in
+      (* finish the major GC cycle the table loading started, outside the timed parses *)
+      Gc.full_major ();
       for _ = 1 to int_of_string reps do ignore (Sys.opaque_identity (Isa.parse_raw l)) done
   | ["parse"; p; file; reps] ->
       let run = parser p (lex file) in
+      (* finish the major GC cycle the table loading started, outside the timed parses *)
+      Gc.full_major ();
       for _ = 1 to int_of_string reps do ignore (Sys.opaque_identity (run ())) done
   | _ ->
       prerr_endline "usage: verimon ast PARSER FILE... | tokens FILE | parse PARSER FILE REPS";
