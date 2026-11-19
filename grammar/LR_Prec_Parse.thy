@@ -415,4 +415,205 @@ end
 
 ML_file \<open>lr_prec.ML\<close>
 
+subsection \<open>Precedence: the map back to the grammar's names\<close>
+
+lemma plain_ast_relab_id: \<open>plain_ast f t = plain_ast id (relab f t)\<close>
+  by (induction f t rule: plain_ast.induct) (auto simp: map_eq_conv)
+
+lemma plain_ast_relab: \<open>plain_ast f (relab g t) = plain_ast (f \<circ> g) t\<close>
+  by (metis plain_ast_relab_id relab_relab id_comp)
+
+lemma plain_ast_comp:
+  \<open>(\<And>m n. h (g m) = h (g n) \<longleftrightarrow> g m = g n) \<Longrightarrow> plain_ast (h \<circ> g) t = relab h (plain_ast g t)\<close>
+  by (induction g t rule: plain_ast.induct) auto
+
+text \<open>The original name of a label of the restricted run, as the position in the
+  names of the decoders: an array over the restricted names, read with a default
+  for positions outside it, so that every integer has a value.\<close>
+
+definition oget :: \<open>integer iarray \<Rightarrow> integer \<Rightarrow> integer\<close> where
+  \<open>oget oa i = IArray.list_of oa !
+     (if 0 \<le> i \<and> nat_of_integer i < length (IArray.list_of oa) then nat_of_integer i else 0)\<close>
+
+lemma oget_code [code]:
+  \<open>oget oa i = (if 0 \<le> i \<and> i < IArray.length' oa then IArray.sub' (oa, i) else IArray.sub' (oa, 0))\<close>
+  by (cases oa)
+    (auto simp: oget_def IArray.length'_def IArray.sub'_def less_integer_def
+      nat_of_integer.rep_eq integer_of_nat.rep_eq)
+
+theorem bind_nrun_lab_plain:
+  assumes ns: \<open>remdups (alabels A @ rs) = ns\<close> and rs: \<open>rs \<noteq> []\<close>
+    and A': \<open>alab (lix ns) A = A'\<close>
+    and os: \<open>remdups (map orig ns @ ds) = os\<close>
+    and oa: \<open>IArray (map (\<lambda>n. lix os (orig n)) ns) = oa\<close>
+    and nd: \<open>d \<circ> relab (lnm os) = nd\<close>
+  shows \<open>Option.bind (nrun (actl A) (afinal A) dec (stk, v, [])) (d \<circ> plain_ast orig) =
+    Option.bind (nrun (actl A') (afinal A') dec (stk, v, [])) (nd \<circ> plain_ast (oget oa))\<close>
+proof -
+  define cl where \<open>cl i = (if 0 \<le> i \<and> nat_of_integer i < length ns then i else 0)\<close> for i
+  have ne: \<open>ns \<noteq> []\<close> using ns rs by auto
+  have cl_rng: \<open>0 \<le> cl i \<and> nat_of_integer (cl i) < length ns\<close> for i
+    using ne by (auto simp: cl_def)
+  have run_eq: \<open>nrun (actl A) (afinal A) dec (stk, v, []) =
+      map_option (relab (lnm ns)) (nrun (actl A') (afinal A') dec (stk, v, []))\<close>
+    using nrun_alab_Nil[of \<open>lnm ns\<close> A' dec stk v] alab_back[OF ns] A' by simp
+  have clA: \<open>alab cl A' = A'\<close>
+  proof -
+    have \<open>alab cl A' = alab (cl \<circ> lix ns) A\<close> using A' alab_alab by metis
+    also have \<open>\<dots> = alab (lix ns) A\<close>
+    proof (rule alab_cong)
+      fix a assume a: \<open>a \<in> set (aacts A)\<close>
+      show \<open>aact_lab (cl \<circ> lix ns) a = aact_lab (lix ns) a\<close>
+      proof (cases a)
+        case (AReduce pr B)
+        have \<open>cl (lix ns n) = lix ns n\<close> if \<open>n \<in> set (pr_names pr)\<close> for n
+        proof -
+          have \<open>n \<in> set ns\<close> using alabels_mem[of pr B A n] a AReduce ns that by auto
+          then show ?thesis using lix_range[of n ns] by (simp add: cl_def)
+        qed
+        then have \<open>pr_lab (cl \<circ> lix ns) pr = pr_lab (lix ns) pr\<close> by (intro pr_lab_cong) simp
+        then show ?thesis using AReduce by simp
+      qed simp
+    qed
+    finally show ?thesis using A' by simp
+  qed
+  have clrun: \<open>nrun (actl A') (afinal A') dec (stk, v, []) =
+      map_option (relab cl) (nrun (actl A') (afinal A') dec (stk, v, []))\<close>
+    using nrun_alab_Nil[of cl A' dec stk v] clA by simp
+  have dos: \<open>distinct os\<close> using os by auto
+  have oget_cl: \<open>oget oa i = lix os (orig (ns ! nat_of_integer (cl i)))\<close> for i
+    using cl_rng[of i] unfolding oa[symmetric] oget_def cl_def by auto
+  have mem: \<open>orig (ns ! nat_of_integer (cl i)) \<in> set os\<close> for i
+    using cl_rng[of i] os by auto
+  have pt: \<open>orig \<circ> (lnm ns \<circ> cl) = lnm os \<circ> oget oa\<close>
+  proof
+    fix i
+    have \<open>lnm ns (cl i) = ns ! nat_of_integer (cl i)\<close> using cl_rng[of i] by (simp add: lnm_def)
+    then show \<open>(orig \<circ> (lnm ns \<circ> cl)) i = (lnm os \<circ> oget oa) i\<close>
+      by (simp add: oget_cl lnm_lix[OF mem])
+  qed
+  have inj: \<open>lnm os (oget oa m) = lnm os (oget oa n) \<longleftrightarrow> oget oa m = oget oa n\<close> for m n
+    unfolding oget_cl using lix_range[OF mem] by (intro lnm_inj[OF dos]) auto
+  have tree: \<open>plain_ast orig (relab (lnm ns) (relab cl t)) = relab (lnm os) (plain_ast (oget oa) t)\<close> for t
+    by (simp only: plain_ast_relab relab_relab pt plain_ast_comp inj)
+  have \<open>Option.bind (nrun (actl A') (afinal A') dec (stk, v, [])) (\<lambda>t. d (plain_ast orig (relab (lnm ns) t))) =
+      Option.bind (nrun (actl A') (afinal A') dec (stk, v, [])) (\<lambda>t. d (plain_ast orig (relab (lnm ns) (relab cl t))))\<close>
+    by (subst clrun) (simp add: bind_map_option comp_def)
+  then show ?thesis using nd[symmetric]
+    by (simp add: run_eq bind_map_option comp_def tree)
+qed
+
+
+subsection \<open>Precedence: fused actions\<close>
+
+text \<open>\<^const>\<open>plain_ast\<close> is a fold when every value carries the original name of
+  its node: a node whose only child is a node of the same original name is that
+  child (a unit node of a chain), every other node is the action of its original
+  name (\<open>F\<close>, the action table of the original names).\<close>
+
+definition pnode :: \<open>(integer \<Rightarrow> integer) \<Rightarrow>
+    (integer \<Rightarrow> ('m, 'ch, 't, 'v) fv list \<Rightarrow> ('m, 'ch, 't, 'v) fv) \<Rightarrow>
+    integer \<Rightarrow> ('m, 'ch, 't, 'v) fv list \<Rightarrow> ('m, 'ch, 't, 'v) fv\<close> where
+  \<open>pnode og F i us = (case us of
+      [FNode j x] \<Rightarrow> if j = og i then FNode j x else F (og i) us
+    | _ \<Rightarrow> F (og i) us)\<close>
+
+lemma plain_ast_Node: \<open>\<exists>ys. plain_ast og (Node n ts) = Node (og n) ys\<close>
+proof (induction og \<open>Node n ts\<close> arbitrary: n ts rule: plain_ast.induct)
+  case (2 orig n m us)
+  then show ?case by (cases \<open>orig m = orig n\<close>) auto
+qed auto
+
+lemma plain_hom:
+  fixes K :: \<open>integer \<Rightarrow> ('m, 'ch, 't, 'v) fv list \<Rightarrow> 'v option\<close>
+  assumes F: \<open>\<And>i us. F i us = FNode i (K i us)\<close>
+  shows \<open>afold K (plain_ast og (Node i cs)) = pnode og F i (map (afold K \<circ> plain_ast og) cs)\<close>
+proof (cases \<open>\<exists>m us. cs = [Node m us]\<close>)
+  case True
+  then obtain m us where cs: \<open>cs = [Node m us]\<close> by blast
+  obtain ys where y: \<open>plain_ast og (Node m us) = Node (og m) ys\<close>
+    using plain_ast_Node[of og m us] by auto
+  show ?thesis by (simp add: cs y pnode_def F)
+next
+  case False
+  then have \<open>plain_ast og (Node i cs) = Node (og i) (map (plain_ast og) cs)\<close>
+    by (cases \<open>(og, Node i cs)\<close> rule: plain_ast.cases) (use False in auto)
+  moreover have \<open>pnode og F i (map (afold K \<circ> plain_ast og) cs) = F (og i) (map (afold K \<circ> plain_ast og) cs)\<close>
+  proof (cases cs)
+    case (Cons c cs')
+    with False show ?thesis by (cases c; cases cs') (auto simp: pnode_def split: fv.split list.split)
+  qed (simp add: pnode_def)
+  ultimately show ?thesis by (simp add: F)
+qed
+
+theorem bind_frun_plain:
+  assumes V: \<open>\<And>t. vof dl t = afold K t\<close> and L: \<open>\<And>c. fproj ix pj (vof dl c) = nd c\<close>
+    and F: \<open>\<And>i us. F i us = FNode i (K i us)\<close>
+  shows \<open>Option.bind (nrun ctl fin dec (stk, v, [])) (nd \<circ> plain_ast og) =
+    Option.bind (frun ctl fin (pnode og F) dec (stk, v, [])) (fproj ix pj)\<close>
+proof -
+  have \<open>frun ctl fin (pnode og F) dec (stk, v, map (afold K \<circ> plain_ast og) []) =
+      map_option (afold K \<circ> plain_ast og) (nrun ctl fin dec (stk, v, []))\<close>
+    by (rule frun_map) (simp_all add: plain_hom[OF F])
+  moreover have \<open>fproj ix pj (afold K t) = nd t\<close> for t using L[of t] V[of t] by simp
+  ultimately show ?thesis by (simp add: bind_map_option comp_def)
+qed
+
+theorem frun_ukrun_plain:
+  fixes K :: \<open>integer \<Rightarrow> ('m, 'ch, 't, 'v) fv list \<Rightarrow> 'v option\<close>
+  assumes F: \<open>\<And>i us. F i us = FNode i (K i us)\<close>
+  shows \<open>frun (actl A) (afinal A) (pnode og F) fst ([k0], map (atenc g) w, []) =
+    ukrun (upad A) (pnode og F) [clamp (ut_n (upad A)) k0] (map (atenc (\<lambda>t. clamp (ut_w (upad A)) (g t))) w) []\<close>
+  by (rule frun_ukrun_hom[where U = \<open>afold K \<circ> plain_ast og\<close>]) (simp_all add: plain_hom[OF F])
+
+text \<open>The run of a restricted grammar without bounds checks: its labels index the array
+  of the original names, and the original names index the actions, so both lookups of
+  \<^const>\<open>pnode\<close> can be unchecked (\<open>frun_opnode\<close>).\<close>
+
+definition opnode :: \<open>integer iarray \<Rightarrow> (('m, 'ch, 't, 'v) fv list \<Rightarrow> 'v option) option iarray \<Rightarrow>
+    integer \<Rightarrow> ('m, 'ch, 't, 'v) fv list \<Rightarrow> ('m, 'ch, 't, 'v) fv\<close> where
+  \<open>opnode oa a = pnode (\<lambda>i. IArray.sub' (oa, i)) (unode a)\<close>
+
+lemma opnode_code [code]:
+  \<open>opnode oa a i us = (let k = IArray.sub' (oa, i) in (case us of
+      [FNode j x] \<Rightarrow> if j = k then FNode j x else unode a k us
+    | _ \<Rightarrow> unode a k us))\<close>
+  by (simp add: opnode_def pnode_def Let_def)
+
+theorem frun_opnode:
+  assumes rns: \<open>remdups (alabels A0 @ rs) = rns\<close> and A: \<open>alab (lix rns) A0 = A\<close>
+    and ns: \<open>remdups (map orig rns @ ds) = ns\<close>
+    and oa: \<open>IArray (map (\<lambda>n. lix ns (orig n)) rns) = oa\<close>
+    and a: \<open>ftab (length ns) ps = a\<close>
+  shows \<open>frun (actl A) fin (pnode (oget oa) (fnode a)) dec st = frun (actl A) fin (opnode oa a) dec st\<close>
+proof (rule frun_node_cong)
+  fix pr B us assume m: \<open>AReduce pr B \<in> set (aacts A)\<close>
+  then obtain a0 where a0: \<open>a0 \<in> set (aacts A0)\<close> \<open>aact_lab (lix rns) a0 = AReduce pr B\<close>
+    unfolding A[symmetric] aacts_alab by auto
+  from a0(2) obtain pr0 where pr0: \<open>a0 = AReduce pr0 B\<close> \<open>pr = pr_lab (lix rns) pr0\<close>
+    by (cases a0) auto
+  have \<open>fst pr0 \<in> set (pr_names pr0)\<close> by (simp add: pr_names_def)
+  with a0(1) pr0(1) have n: \<open>fst pr0 \<in> set rns\<close> using alabels_mem rns by fastforce
+  define i where \<open>i = fst pr\<close>
+  have i: \<open>i = lix rns (fst pr0)\<close> using pr0(2) by (simp add: i_def pr_lab_def)
+  have ir: \<open>0 \<le> i \<and> nat_of_integer i < length rns\<close> using lix_range[OF n] i by simp
+  have nth: \<open>rns ! nat_of_integer i = fst pr0\<close> using lnm_lix[OF n] ir i by (simp add: lnm_def)
+  have sub: \<open>IArray.sub' (oa, i) = lix ns (orig (fst pr0))\<close>
+    using ir nth oa[symmetric] by (simp add: IArray.sub'_def)
+  have og: \<open>oget oa i = IArray.sub' (oa, i)\<close>
+    using ir oa[symmetric] by (simp add: oget_def IArray.sub'_def)
+  have on: \<open>orig (fst pr0) \<in> set ns\<close> using n ns by auto
+  have kr: \<open>0 \<le> IArray.sub' (oa, i) \<and> IArray.sub' (oa, i) < IArray.length' a\<close>
+    using lix_range[OF on] a[symmetric] sub by (simp add: less_zi ftab_def)
+  have fe: \<open>fnode a (IArray.sub' (oa, i)) vs = unode a (IArray.sub' (oa, i)) vs\<close> for vs
+    using kr by (simp add: unode_fnode)
+  show \<open>pnode (oget oa) (fnode a) (fst pr) us = opnode oa a (fst pr) us\<close>
+    unfolding i_def[symmetric] opnode_def pnode_def og fe ..
+qed
+
+theorem frun_ukrun_opnode:
+  \<open>frun (actl A) (afinal A) (opnode oa a) fst ([k0], map (atenc g) w, []) =
+    ukrun (upad A) (opnode oa a) [clamp (ut_n (upad A)) k0] (map (atenc (\<lambda>t. clamp (ut_w (upad A)) (g t))) w) []\<close>
+  unfolding opnode_def by (rule frun_ukrun_plain) (rule unode_def)
+
 end

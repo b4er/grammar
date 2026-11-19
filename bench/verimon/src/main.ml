@@ -4,7 +4,8 @@
 
    PARSER: ocamlyacc (MonPoly's own, vendor/formula_parser.mly) or isabelle
    (thys/VeriMon_Parser.thy).  Both read the tokens of MonPoly's lexer, lexed
-   once. *)
+   once.  For parse only, isabelle-raw: the isabelle parse without the
+   conversion of its result to MonPoly's types. *)
 
 let lex file =
   let ic = open_in_bin file in
@@ -39,8 +40,15 @@ let () =
       List.iter (fun file ->
           let run = parser p (lex file) in
           print_endline (try Show.formula (run ()) with _ -> "REJECT")) files
+  | ["parse"; "isabelle-raw"; file; reps] ->
+      let l = Isa.tokens (lex file) in
+      (* finish the major GC cycle the table loading started, outside the timed parses *)
+      Gc.full_major ();
+      for _ = 1 to int_of_string reps do ignore (Sys.opaque_identity (Isa.parse_raw l)) done
   | ["parse"; p; file; reps] ->
       let run = parser p (lex file) in
+      (* finish the major GC cycle the table loading started, outside the timed parses *)
+      Gc.full_major ();
       for _ = 1 to int_of_string reps do ignore (Sys.opaque_identity (run ())) done
   | _ ->
       prerr_endline "usage: verimon ast PARSER FILE... | tokens FILE | parse PARSER FILE REPS";

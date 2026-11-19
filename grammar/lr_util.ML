@@ -126,9 +126,52 @@ fun tnum_case lthy parse_b (sugar: Ctr_Sugar.ctr_sugar) (num_c, tab_eq, nums_e, 
           hyp_subst_tac ctxt i
           THEN simp_tac (put_simpset HOL_basic_ss ctxt
             |> Simplifier.add_simps (def_eq :: conjs @ #case_thms sugar @ @{thms simp_thms})) i));
-  in (@{thm ext} OF [th], tnum_c, lthy') end;
+  in (@{thm ext} OF [th], tnum_c, def_eq, lthy') end;
+
+(* the token numbers as integers, for the driver on arrays (LR_Arr): `p_ztnum`, the
+   case distinction of `p_tnum` with integer literals, and `zi (p_tnum y) = p_ztnum y` *)
+fun ztnum_case lthy parse_b (sugar: Ctr_Sugar.ctr_sugar) (tnum_c, tnum_def, nums_l) =
+  let
+    val nums = map (HOLogic.mk_number \<^typ>\<open>integer\<close> o dest_nat) (HOLogic.dest_list nums_l);
+    val case_c = Const (fst (dest_Const (#casex sugar)), dummyT);
+    val body = Syntax.check_term lthy (Term.list_comb (case_c, nums));
+    val b = Binding.map_name (fn n => n ^ "_ztnum") parse_b;
+    val ((_, def_th), lthy') = Grammar_Defs.define_const true (b, Thm.def_binding b, body) lthy;
+    val def_ax = the_default def_th (Grammar_Common.def_axiom lthy' (b, Thm.def_binding b));
+    val def_eq = Local_Defs.meta_rewrite_rule lthy' def_ax;
+    val ztnum_c = fst (Logic.dest_equals (Thm.prop_of def_eq));
+    val tokT = domain_type (fastype_of ztnum_c);
+    val y = Free ("y", tokT);
+    val exhaust = #exhaust sugar;
+    val yv =
+      (case Logic.strip_imp_prems (Thm.prop_of exhaust) of
+        prem :: _ =>
+          (case Logic.strip_imp_prems prem of
+            eq :: _ =>
+              (case fst (HOLogic.dest_eq (HOLogic.dest_Trueprop eq)) of
+                Var (v, _) => v
+              | _ => raise Fail "ztnum_case: exhaust")
+          | _ => raise Fail "ztnum_case: exhaust")
+      | _ => raise Fail "ztnum_case: exhaust");
+    val goal = HOLogic.mk_Trueprop (HOLogic.mk_eq
+      (Const (\<^const_name>\<open>integer_of_nat\<close>, \<^typ>\<open>nat \<Rightarrow> integer\<close>) $ (tnum_c $ y),
+       ztnum_c $ y));
+    val th =
+      Goal.prove_sorry lthy' ["y"] [] goal (fn {context = ctxt, ...} =>
+        HEADGOAL (resolve_tac ctxt
+          [infer_instantiate ctxt [(yv, Thm.cterm_of ctxt y)] exhaust])
+        THEN ALLGOALS (fn i =>
+          hyp_subst_tac ctxt i
+          THEN simp_tac (put_simpset HOL_basic_ss ctxt
+            |> Simplifier.add_simps (tnum_def :: def_eq :: #case_thms sugar @
+                 @{thms zi_lits simp_thms})) i));
+  in (th, ztnum_c, lthy') end;
 
 val parser_int_tables = Attrib.setup_config_bool \<^binding>\<open>parser_int_tables\<close> (K false);
+
+(* the run computes the decoders' values itself (LR_Fuse); off: the run builds the tree
+   and the decoders walk it *)
+val parser_fuse = Attrib.setup_config_bool \<^binding>\<open>parser_fuse\<close> (K true);
 
 (* the six tables as evaluated literals, as before they were definitions by their terms *)
 val parser_literal_tables =

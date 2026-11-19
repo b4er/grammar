@@ -44,6 +44,8 @@ let () =
   | "ast" :: p :: files -> List.iter (fun file -> print_endline (tree p file)) files
   | ["parse"; p; file; reps] ->
       let run = parser p (lex file) in
+      (* finish the major GC cycle the table loading started, outside the timed parses *)
+      Gc.full_major ();
       for _ = 1 to int_of_string reps do ignore (Sys.opaque_identity (run ())) done
   | _ ->
       prerr_endline "usage: ocaml ast PARSER FILE... | tokens FILE | parse PARSER FILE REPS";

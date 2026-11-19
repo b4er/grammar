@@ -2949,7 +2949,7 @@ partial_function (option) vrun_k ::
           | VSRed pr fs' \<Rightarrow> vrun_k K fs' w v
               (Node (fst pr) (rev (take (length (snd pr)) tstk)) # drop (length (snd pr)) tstk)))))\<close>
 
-lemmas vrun_k_simps [code] = vrun_k.simps
+lemmas vrun_k_simps = vrun_k.simps
 
 lemma k_v_mk [simp]: \<open>k_v (mk_vktab V) = V\<close>
   by (simp add: mk_vktab_def)
@@ -3087,6 +3087,1211 @@ proof (rule vrun_k.raw_induct[where P = \<open>\<lambda>K fs w v tstk r. K = mk_
       qed
     qed
   qed
+qed
+
+subsection \<open>Lazy frames\<close>
+
+text \<open>A frame built by \<^const>\<open>vgo_k\<close> fills the set of every item of its closure,
+  but the run reads only some of them, about half on PureCake.  A lazy frame keeps
+  the sets of the kernel and the description of the closure, and fills the set of
+  an item when it is read, again on every read.  The run over lazy frames is
+  \<^const>\<open>vrun_k\<close> over the filled ones (\<open>vrun_k_lazy\<close>), and it is the code of
+  \<^const>\<open>vrun_k\<close>.\<close>
+
+datatype lframe = LEager \<open>indrep list\<close> | LLazy \<open>indrep list\<close> \<open>(bool \<times> (nat \<times> eff) list) list\<close>
+
+fun lf_av :: \<open>lframe \<Rightarrow> indrep list\<close> where
+  \<open>lf_av (LEager av) = av\<close>
+| \<open>lf_av (LLazy kav pl) = vfill_p kav pl kav\<close>
+
+type_synonym lframes = \<open>(nat \<times> lframe) list\<close>
+
+definition lfs :: \<open>lframes \<Rightarrow> vframes\<close> where
+  \<open>lfs = map (\<lambda>(j, f). (j, lf_av f))\<close>
+
+lemma lfs_simps [simp]: \<open>lfs [] = []\<close> \<open>lfs ((j, f) # fs) = (j, lf_av f) # lfs fs\<close>
+  \<open>drop n (lfs fs) = lfs (drop n fs)\<close>
+  by (simp_all add: lfs_def drop_map)
+
+text \<open>The set of the \<open>s\<close>-th item of \<^term>\<open>vfill_p kav pl Rs\<close>, filled alone.\<close>
+
+fun vlitem :: \<open>indrep list \<Rightarrow> (bool \<times> (nat \<times> eff) list) list \<Rightarrow> indrep list \<Rightarrow> nat \<Rightarrow> indrep\<close> where
+  \<open>vlitem kav [] Rs s = FinRep []\<close>
+| \<open>vlitem kav ((b, cs) # pl) Rs s = (case s of
+     0 \<Rightarrow> (if b then (case Rs of [] \<Rightarrow> vfill_row kav cs (FinRep []) | R # _ \<Rightarrow> vfill_row kav cs R)
+          else vfill_row kav cs (FinRep []))
+   | Suc s' \<Rightarrow> vlitem kav pl (if b then tl Rs else Rs) s')\<close>
+
+lemma vlitem_getR: \<open>vlitem kav pl Rs s = getR (vfill_p kav pl Rs) s\<close>
+proof (induction pl arbitrary: Rs s)
+  case (Cons p pl)
+  obtain b cs where p: \<open>p = (b, cs)\<close> by (cases p)
+  show ?case
+    using Cons.IH by (cases s; cases b; cases Rs) (simp_all add: p getR_code)
+qed (simp add: getR_code)
+
+fun lget :: \<open>lframe \<Rightarrow> nat \<Rightarrow> indrep\<close> where
+  \<open>lget (LEager av) s = getR av s\<close>
+| \<open>lget (LLazy kav pl) s = vlitem kav pl kav s\<close>
+
+lemma lget_getR: \<open>lget f s = getR (lf_av f) s\<close>
+  by (cases f) (simp_all add: vlitem_getR)
+
+definition vgo_l :: \<open>kentry \<Rightarrow> lframe \<Rightarrow> indrep \<Rightarrow> (nat \<times> lframe) option\<close> where
+  \<open>vgo_l e f RA = (case e of (j', ks, pl) \<Rightarrow> let kav = map (\<lambda>(ps, q). cpre q RA (lget f ps)) ks in
+     if list_ex irep_nonempty kav then Some (j', LLazy kav pl) else None)\<close>
+
+lemma vgo_l: \<open>map_option (\<lambda>(j, f). (j, lf_av f)) (vgo_l e f RA) = vgo_k e (lf_av f) RA\<close>
+  by (cases e) (simp add: vgo_l_def vgo_k_def lget_getR Let_def)
+
+definition vlive_l :: \<open>('n, 't) vktab \<Rightarrow> nat \<Rightarrow> lframe \<Rightarrow> (nat \<times> nat) list \<Rightarrow> nat \<Rightarrow> bool\<close> where
+  \<open>vlive_l K j f w s = (let RS = lget f s in irep_nonempty RS \<and> vlic_n (k_v K) j w s RS)\<close>
+
+lemma vlive_l: \<open>vlive_l K j f w s = vlive_k K j (lf_av f) w s\<close>
+  by (simp add: vlive_l_def vlive_k_def lget_getR)
+
+definition vred_l :: \<open>('n, 't) vktab \<Rightarrow> lframes \<Rightarrow> lframe \<Rightarrow> nat \<Rightarrow> nat \<Rightarrow> 'n \<times> ('n, 't) rhs \<Rightarrow>
+    lframes option\<close> where
+  \<open>vred_l K fs f s b pr = (let fs' = drop (length (snd pr)) fs in (case fs' of [] \<Rightarrow> None
+     | (j\<^sub>0, f\<^sub>0) # _ \<Rightarrow> (case iget (iget (k_go K) j\<^sub>0 (IArray [])) b None of None \<Rightarrow> None
+        | Some e \<Rightarrow> map_option (\<lambda>g. g # fs') (vgo_l e f\<^sub>0 (lget f s)))))\<close>
+
+lemma lfs_Cons: \<open>lfs (g # fs) = (case g of (j, f) \<Rightarrow> (j, lf_av f)) # lfs fs\<close>
+  by (simp add: lfs_def)
+
+lemma vred_l: \<open>map_option lfs (vred_l K fs f s b pr) = vred_k K (lfs fs) (lf_av f) s b pr\<close>
+proof -
+  have g: \<open>map_option (\<lambda>g. lfs (g # fs')) (vgo_l e f\<^sub>0 RA) =
+      map_option (\<lambda>g. g # lfs fs') (vgo_k e (lf_av f\<^sub>0) RA)\<close> for e f\<^sub>0 RA fs'
+    unfolding lfs_Cons vgo_l[symmetric] by (simp add: option.map_comp comp_def)
+  show ?thesis
+  proof (cases \<open>drop (length (snd pr)) fs\<close>)
+    case Nil
+    then show ?thesis by (simp add: vred_l_def vred_k_def)
+  next
+    case (Cons x fs\<^sub>1)
+    obtain j\<^sub>0 f\<^sub>0 where x: \<open>x = (j\<^sub>0, f\<^sub>0)\<close> by (cases x)
+    have d: \<open>drop (length (snd pr)) (lfs fs) = (j\<^sub>0, lf_av f\<^sub>0) # lfs fs\<^sub>1\<close>
+      using Cons by (simp add: x)
+    show ?thesis
+      unfolding vred_l_def vred_k_def Let_def Cons d x list.case prod.case lget_getR
+      by (simp add: option.map_comp comp_def g[where f\<^sub>0 = f\<^sub>0 and fs' = \<open>(j\<^sub>0, f\<^sub>0) # fs\<^sub>1\<close>]
+          split: option.split)
+  qed
+qed
+
+datatype ('n, 't) lsres = LSConf | LSRej | LSRed \<open>'n \<times> ('n, 't) rhs\<close> lframes
+
+fun lsres_k :: \<open>('n, 't) lsres \<Rightarrow> ('n, 't) vsres\<close> where
+  \<open>lsres_k LSConf = VSConf\<close>
+| \<open>lsres_k LSRej = VSRej\<close>
+| \<open>lsres_k (LSRed pr fs) = VSRed pr (lfs fs)\<close>
+
+fun vscan_l :: \<open>('n, 't) vktab \<Rightarrow> lframes \<Rightarrow> (nat \<times> nat) list \<Rightarrow> nat \<Rightarrow> lframe \<Rightarrow>
+    (nat \<times> nat \<times> ('n \<times> ('n, 't) rhs)) list \<Rightarrow> ('n, 't) lsres\<close> where
+  \<open>vscan_l K fs w j f [] = LSRej\<close>
+| \<open>vscan_l K fs w j f ((s, b, pr) # cs) = (if vlive_l K j f w s
+     then (case vred_l K fs f s b pr of None \<Rightarrow> vscan_l K fs w j f cs
+       | Some fs' \<Rightarrow> if list_ex (\<lambda>(s, b, pr). vlive_l K j f w s \<and> vred_l K fs f s b pr \<noteq> None) cs
+                    then LSConf else LSRed pr fs')
+     else vscan_l K fs w j f cs)\<close>
+
+lemma vred_l_None: \<open>vred_l K fs f s b pr = None \<longleftrightarrow> vred_k K (lfs fs) (lf_av f) s b pr = None\<close>
+  by (metis None_eq_map_option_iff vred_l)
+
+lemma vred_l_ex: \<open>(\<exists>y. vred_l K fs f s b pr = Some y) \<longleftrightarrow> (\<exists>y. vred_k K (lfs fs) (lf_av f) s b pr = Some y)\<close>
+  by (metis vred_l_None not_None_eq)
+
+lemma vscan_l: \<open>lsres_k (vscan_l K fs w j f cs) = vscan_k K (lfs fs) w j (lf_av f) cs\<close>
+proof (induction cs)
+  case (Cons c cs)
+  obtain s b pr where c: \<open>c = (s, b, pr)\<close> by (cases c)
+  have ex: \<open>list_ex (\<lambda>(s, b, pr). vlive_l K j f w s \<and> vred_l K fs f s b pr \<noteq> None) cs =
+      list_ex (\<lambda>(s, b, pr). vlive_k K j (lf_av f) w s \<and> vred_k K (lfs fs) (lf_av f) s b pr \<noteq> None) cs\<close>
+    by (induction cs) (auto simp: vlive_l vred_l_None)
+  show ?case
+  proof (cases \<open>vred_l K fs f s b pr\<close>)
+    case None
+    then have k: \<open>vred_k K (lfs fs) (lf_av f) s b pr = None\<close> by (simp add: vred_l_None)
+    show ?thesis
+      unfolding c vscan_l.simps vscan_k.simps vlive_l None k option.case
+      by (simp add: Cons.IH)
+  next
+    case (Some fs')
+    then have k: \<open>vred_k K (lfs fs) (lf_av f) s b pr = Some (lfs fs')\<close>
+      using vred_l[of K fs f s b pr] by simp
+    show ?thesis
+      unfolding c vscan_l.simps vscan_k.simps ex vlive_l Some k option.case
+      by (simp add: Cons.IH vred_l_ex)
+  qed
+qed simp
+
+definition vshift_l :: \<open>('n, 't) vktab \<Rightarrow> nat \<Rightarrow> lframe \<Rightarrow> (nat \<times> nat) list \<Rightarrow> (nat \<times> lframe) option\<close> where
+  \<open>vshift_l K j f w = (case w of [] \<Rightarrow> None | (a, c) # _ \<Rightarrow>
+     (case iget (iget (k_sh K) j (IArray [])) a None of None \<Rightarrow> None | Some e \<Rightarrow> vgo_l e f (FinRep [c])))\<close>
+
+lemma vshift_l: \<open>map_option (\<lambda>(j, f). (j, lf_av f)) (vshift_l K j f w) = vshift_k K j (lf_av f) w\<close>
+  by (simp add: vshift_l_def vshift_k_def vgo_l split: list.splits option.splits)
+
+partial_function (option) vrun_l ::
+  \<open>('n, 't) vktab \<Rightarrow> lframes \<Rightarrow> (nat \<times> nat) list \<Rightarrow> ('m, 'ch, 't) tword \<Rightarrow> ('m, 'ch, 'n, 't) ast list \<Rightarrow>
+    ('m, 'ch, 'n, 't) ast option option\<close>
+  where
+  \<open>vrun_l K fs w v tstk = (if w = [] \<and> (case fs of [] \<Rightarrow> False
+       | (j, f) # _ \<Rightarrow> irep_mem (v_ind0 (k_v K)) (lget f (iget (v_fin (k_v K)) j 0)))
+     then Some (case tstk of t # _ \<Rightarrow> Some t | [] \<Rightarrow> None)
+     else (case fs of [] \<Rightarrow> Some None | (j, f) # _ \<Rightarrow>
+       (case vshift_l K j f w of
+          Some g \<Rightarrow> vrun_l K (g # fs) (tl w) (tl v) (Leaf (hd v) # tstk)
+        | None \<Rightarrow> (case vscan_l K fs w j f (iget (v_cp (k_v K)) j []) of
+            LSConf \<Rightarrow> None
+          | LSRej \<Rightarrow> Some None
+          | LSRed pr fs' \<Rightarrow> vrun_l K fs' w v
+              (Node (fst pr) (rev (take (length (snd pr)) tstk)) # drop (length (snd pr)) tstk)))))\<close>
+
+lemmas vrun_l_simps [code] = vrun_l.simps
+
+lemma vrun_l_k:
+  assumes run: \<open>vrun_l K fs w v tstk = Some r\<close>
+  shows \<open>vrun_k K (lfs fs) w v tstk = Some r\<close>
+proof (rule vrun_l.raw_induct[where P = \<open>\<lambda>K fs w v tstk r. vrun_k K (lfs fs) w v tstk = Some r\<close>,
+    OF _ run], goal_cases)
+  case (1 vr K fs w v tstk r)
+  show ?case
+  proof (cases fs)
+    case Nil
+    with "1"(2) show ?thesis by (subst vrun_k.simps) (auto split: if_splits)
+  next
+    case (Cons fr fs\<^sub>1)
+    obtain j f where fr: \<open>fr = (j, f)\<close> by (cases fr)
+    note body = "1"(2)[unfolded Cons fr list.case prod.case lget_getR]
+    have unf: \<open>vrun_k K (lfs fs) w v tstk = (if w = [] \<and> irep_mem (v_ind0 (k_v K)) (getR (lf_av f) (iget (v_fin (k_v K)) j 0))
+       then Some (case tstk of t # _ \<Rightarrow> Some t | [] \<Rightarrow> None)
+       else (case vshift_k K j (lf_av f) w of
+          Some g \<Rightarrow> vrun_k K (g # lfs fs) (tl w) (tl v) (Leaf (hd v) # tstk)
+        | None \<Rightarrow> (case vscan_k K (lfs fs) w j (lf_av f) (iget (v_cp (k_v K)) j []) of
+            VSConf \<Rightarrow> None
+          | VSRej \<Rightarrow> Some None
+          | VSRed pr fs' \<Rightarrow> vrun_k K fs' w v
+              (Node (fst pr) (rev (take (length (snd pr)) tstk)) # drop (length (snd pr)) tstk))))\<close>
+      unfolding Cons fr lfs_simps by (subst vrun_k.simps) (simp only: list.case prod.case)
+    have sc: \<open>vscan_k K (lfs fs) w j (lf_av f) (iget (v_cp (k_v K)) j []) =
+        lsres_k (vscan_l K ((j, f) # fs\<^sub>1) w j f (iget (v_cp (k_v K)) j []))\<close>
+      unfolding Cons fr by (rule vscan_l[symmetric])
+    show ?thesis
+    proof (cases \<open>w = [] \<and> irep_mem (v_ind0 (k_v K)) (getR (lf_av f) (iget (v_fin (k_v K)) j 0))\<close>)
+      case True
+      with body unf show ?thesis by simp
+    next
+      case nf: False
+      note body = body[unfolded if_not_P[OF nf]]
+      note unf = unf[unfolded if_not_P[OF nf]]
+      show ?thesis
+      proof (cases \<open>vshift_l K j f w\<close>)
+        case (Some g)
+        obtain j' g' where g: \<open>g = (j', g')\<close> by (cases g)
+        have sk: \<open>vshift_k K j (lf_av f) w = Some (j', lf_av g')\<close>
+          using vshift_l[of K j f w] Some g by simp
+        from Some body have \<open>vr K (g # (j, f) # fs\<^sub>1) (tl w) (tl v) (Leaf (hd v) # tstk) = Some r\<close>
+          by simp
+        then have \<open>vrun_k K (lfs (g # (j, f) # fs\<^sub>1)) (tl w) (tl v) (Leaf (hd v) # tstk) = Some r\<close>
+          by (rule "1"(1))
+        with unf sk show ?thesis by (simp add: Cons fr g)
+      next
+        case sh: None
+        have sk: \<open>vshift_k K j (lf_av f) w = None\<close>
+          using vshift_l[of K j f w] sh by simp
+        show ?thesis
+        proof (cases \<open>vscan_l K ((j, f) # fs\<^sub>1) w j f (iget (v_cp (k_v K)) j [])\<close>)
+          case LSConf
+          with sh body show ?thesis by simp
+        next
+          case LSRej
+          with sh body sk sc unf show ?thesis by simp
+        next
+          case (LSRed pr fs')
+          with sh body have \<open>vr K fs' w v
+              (Node (fst pr) (rev (take (length (snd pr)) tstk)) # drop (length (snd pr)) tstk) = Some r\<close>
+            by simp
+          then have \<open>vrun_k K (lfs fs') w v
+              (Node (fst pr) (rev (take (length (snd pr)) tstk)) # drop (length (snd pr)) tstk) = Some r\<close>
+            by (rule "1"(1))
+          with sk sc LSRed unf show ?thesis by simp
+        qed
+      qed
+    qed
+  qed
+qed
+
+lemma vrun_k_l:
+  assumes run: \<open>vrun_k K fs\<^sub>0 w v tstk = Some r\<close>
+  shows \<open>\<forall>fs. fs\<^sub>0 = lfs fs \<longrightarrow> vrun_l K fs w v tstk = Some r\<close>
+proof (rule vrun_k.raw_induct[where P = \<open>\<lambda>K fs\<^sub>0 w v tstk r. \<forall>fs. fs\<^sub>0 = lfs fs \<longrightarrow> vrun_l K fs w v tstk = Some r\<close>,
+    OF _ run], goal_cases)
+  case (1 vr K fs\<^sub>0 w v tstk r)
+  show ?case
+  proof (intro allI impI)
+    fix fs
+    assume fs\<^sub>0: \<open>fs\<^sub>0 = lfs fs\<close>
+    show \<open>vrun_l K fs w v tstk = Some r\<close>
+    proof (cases fs)
+      case Nil
+      with "1"(2) fs\<^sub>0 show ?thesis by (subst vrun_l.simps) (auto split: if_splits)
+    next
+      case (Cons fr fs\<^sub>1)
+      obtain j f where fr: \<open>fr = (j, f)\<close> by (cases fr)
+      note body = "1"(2)[unfolded fs\<^sub>0 Cons fr lfs_simps list.case prod.case]
+      have unl: \<open>vrun_l K fs w v tstk = (if w = [] \<and> irep_mem (v_ind0 (k_v K)) (getR (lf_av f) (iget (v_fin (k_v K)) j 0))
+         then Some (case tstk of t # _ \<Rightarrow> Some t | [] \<Rightarrow> None)
+         else (case vshift_l K j f w of
+            Some g \<Rightarrow> vrun_l K (g # fs) (tl w) (tl v) (Leaf (hd v) # tstk)
+          | None \<Rightarrow> (case vscan_l K fs w j f (iget (v_cp (k_v K)) j []) of
+              LSConf \<Rightarrow> None
+            | LSRej \<Rightarrow> Some None
+            | LSRed pr fs' \<Rightarrow> vrun_l K fs' w v
+                (Node (fst pr) (rev (take (length (snd pr)) tstk)) # drop (length (snd pr)) tstk))))\<close>
+        unfolding Cons fr by (subst vrun_l.simps) (simp only: list.case prod.case lget_getR)
+      have sc: \<open>vscan_k K ((j, lf_av f) # lfs fs\<^sub>1) w j (lf_av f) (iget (v_cp (k_v K)) j []) =
+          lsres_k (vscan_l K fs w j f (iget (v_cp (k_v K)) j []))\<close>
+        using vscan_l[symmetric, of K fs w j f] by (simp add: Cons fr)
+      show ?thesis
+      proof (cases \<open>w = [] \<and> irep_mem (v_ind0 (k_v K)) (getR (lf_av f) (iget (v_fin (k_v K)) j 0))\<close>)
+        case True
+        with body unl show ?thesis by simp
+      next
+        case nf: False
+        note body = body[unfolded if_not_P[OF nf]]
+        note unl = unl[unfolded if_not_P[OF nf]]
+        show ?thesis
+        proof (cases \<open>vshift_l K j f w\<close>)
+          case (Some g)
+          obtain j' g' where g: \<open>g = (j', g')\<close> by (cases g)
+          have sk: \<open>vshift_k K j (lf_av f) w = Some (j', lf_av g')\<close>
+            using vshift_l[of K j f w] Some g by simp
+          from sk body have \<open>vr K ((j', lf_av g') # (j, lf_av f) # lfs fs\<^sub>1) (tl w) (tl v) (Leaf (hd v) # tstk) = Some r\<close>
+            by simp
+          then have \<open>vrun_l K ((j', g') # (j, f) # fs\<^sub>1) (tl w) (tl v) (Leaf (hd v) # tstk) = Some r\<close>
+            by (rule "1"(1)[rule_format]) simp
+          with Some unl show ?thesis by (simp add: g Cons fr)
+        next
+          case sh: None
+          have sk: \<open>vshift_k K j (lf_av f) w = None\<close>
+            using vshift_l[of K j f w] sh by simp
+          show ?thesis
+          proof (cases \<open>vscan_l K fs w j f (iget (v_cp (k_v K)) j [])\<close>)
+            case LSConf
+            with sk sc body show ?thesis by simp
+          next
+            case LSRej
+            with sk sc body sh unl show ?thesis by simp
+          next
+            case (LSRed pr fs')
+            with sk sc body have \<open>vr K (lfs fs') w v
+                (Node (fst pr) (rev (take (length (snd pr)) tstk)) # drop (length (snd pr)) tstk) = Some r\<close>
+              by simp
+            then have \<open>vrun_l K fs' w v
+                (Node (fst pr) (rev (take (length (snd pr)) tstk)) # drop (length (snd pr)) tstk) = Some r\<close>
+              by (rule "1"(1)[rule_format]) simp
+            with sh LSRed unl show ?thesis by simp
+          qed
+        qed
+      qed
+    qed
+  qed
+qed
+
+lemma vrun_k_lazy: \<open>vrun_k K (lfs fs) w v tstk = vrun_l K fs w v tstk\<close>
+proof (cases \<open>vrun_l K fs w v tstk\<close>)
+  case None
+  show ?thesis
+  proof (cases \<open>vrun_k K (lfs fs) w v tstk\<close>)
+    case (Some r)
+    with None show ?thesis using vrun_k_l[OF Some, rule_format, OF refl] by simp
+  qed (simp add: None)
+next
+  case (Some r)
+  then show ?thesis by (simp add: vrun_l_k)
+qed
+
+lemma vrun_k_code:
+  \<open>vrun_k K fs w v tstk = vrun_l K (map (\<lambda>(j, av). (j, LEager av)) fs) w v tstk\<close>
+proof -
+  have \<open>lfs (map (\<lambda>(j, av). (j, LEager av)) fs) = fs\<close>
+    by (induction fs) (auto simp: lfs_def)
+  then show ?thesis using vrun_k_lazy[of K \<open>map (\<lambda>(j, av). (j, LEager av)) fs\<close>] by simp
+qed
+
+subsection \<open>Interval frame sets\<close>
+
+text \<open>The large anchor sets of a frame are ranges: \<^const>\<open>cbelow\<close> of an up-set lists
+  every number below its bound.  The run below keeps the sets of its frames as
+  runs of intervals with an optional up-set, filled lazily as in
+  \<^const>\<open>vrun_l\<close>.  Only the set each denotes enters the argument: the operations are
+  correct on any lists of intervals and keep sorted ones sorted.\<close>
+
+datatype ivr = Iv \<open>(nat \<times> nat) list\<close> \<open>nat option\<close>
+
+definition ivr_fset :: \<open>(nat \<times> nat) list \<Rightarrow> nat set\<close> where
+  \<open>ivr_fset I = {i. \<exists>(a, b) \<in> set I. a \<le> i \<and> i < b}\<close>
+
+fun ivr_uset :: \<open>nat option \<Rightarrow> nat set\<close> where
+  \<open>ivr_uset None = {}\<close>
+| \<open>ivr_uset (Some n) = {m. n \<le> m}\<close>
+
+fun ivr_set :: \<open>ivr \<Rightarrow> nat set\<close> where
+  \<open>ivr_set (Iv I u) = ivr_fset I \<union> ivr_uset u\<close>
+
+lemma ivr_fset_simps [simp]:
+  \<open>ivr_fset [] = {}\<close>
+  \<open>ivr_fset ((a, b) # I) = {a..<b} \<union> ivr_fset I\<close>
+  \<open>ivr_fset (I @ J) = ivr_fset I \<union> ivr_fset J\<close>
+  by (auto simp: ivr_fset_def)
+
+lemma ivl_join: \<open>a \<le> c \<Longrightarrow> c \<le> b \<Longrightarrow> {a..<b} \<union> {c..<d} = {a..<max b d}\<close> for a b c d :: nat
+  by auto
+
+lemma ivl_below: \<open>{a..<b} \<inter> {i. i < n} = {a..<min b n}\<close> for a b n :: nat
+  by auto
+
+lemma ivl_above: \<open>{a..<b} \<inter> {i. m \<le> i} = {max a m..<b}\<close> for a b m :: nat
+  by auto
+
+lemma ivr_fset_singletons [simp]: \<open>ivr_fset (map (\<lambda>x. (x, Suc x)) xs) = set xs\<close>
+  by (induction xs) simp_all
+
+definition ivr_empty :: ivr where
+  \<open>ivr_empty = Iv [] None\<close>
+
+lemma ivr_empty_set [simp]: \<open>ivr_set ivr_empty = {}\<close>
+  by (simp add: ivr_empty_def)
+
+fun ivr_merge :: \<open>(nat \<times> nat) list \<Rightarrow> (nat \<times> nat) list \<Rightarrow> (nat \<times> nat) list\<close> where
+  \<open>ivr_merge [] J = J\<close>
+| \<open>ivr_merge I [] = I\<close>
+| \<open>ivr_merge ((a, b) # I) ((c, d) # J) =
+    (if a \<le> c then (a, b) # ivr_merge I ((c, d) # J) else (c, d) # ivr_merge ((a, b) # I) J)\<close>
+
+lemma ivr_merge_set [simp]: \<open>ivr_fset (ivr_merge I J) = ivr_fset I \<union> ivr_fset J\<close>
+  by (induction I J rule: ivr_merge.induct) auto
+
+fun ivr_coal :: \<open>(nat \<times> nat) list \<Rightarrow> (nat \<times> nat) list\<close> where
+  \<open>ivr_coal ((a, b) # (c, d) # I) =
+    (if a \<le> c \<and> c \<le> b then ivr_coal ((a, max b d) # I) else (a, b) # ivr_coal ((c, d) # I))\<close>
+| \<open>ivr_coal I = I\<close>
+
+lemma ivr_coal_set [simp]: \<open>ivr_fset (ivr_coal I) = ivr_fset I\<close>
+  by (induction I rule: ivr_coal.induct) (simp_all add: ivl_join Un_assoc[symmetric] split: if_split)
+
+text \<open>The intervals cut to below \<open>n\<close>, and to from \<open>m\<close> on.\<close>
+
+definition ivr_cons :: \<open>nat \<Rightarrow> nat \<Rightarrow> (nat \<times> nat) list \<Rightarrow> (nat \<times> nat) list\<close> where
+  \<open>ivr_cons a b I = (if a < b then (a, b) # I else I)\<close>
+
+lemma ivr_cons_set [simp]: \<open>ivr_fset (ivr_cons a b I) = {a..<b} \<union> ivr_fset I\<close>
+  by (cases \<open>a < b\<close>) (simp_all add: ivr_cons_def)
+
+lemma ivl_up_below: \<open>{m. n \<le> m} \<inter> {i. i < t} = {n..<t}\<close> for n t :: nat
+  by auto
+
+fun ivr_clip :: \<open>nat \<Rightarrow> (nat \<times> nat) list \<Rightarrow> (nat \<times> nat) list\<close> where
+  \<open>ivr_clip n [] = []\<close>
+| \<open>ivr_clip n ((a, b) # I) = ivr_cons a (min b n) (ivr_clip n I)\<close>
+
+lemma ivr_clip_set [simp]: \<open>ivr_fset (ivr_clip n I) = ivr_fset I \<inter> {i. i < n}\<close>
+  by (induction n I rule: ivr_clip.induct) (simp_all add: Int_Un_distrib2 ivl_below)
+
+fun ivr_cut :: \<open>nat \<Rightarrow> (nat \<times> nat) list \<Rightarrow> (nat \<times> nat) list\<close> where
+  \<open>ivr_cut m [] = []\<close>
+| \<open>ivr_cut m ((a, b) # I) = ivr_cons (max a m) b (ivr_cut m I)\<close>
+
+lemma ivr_cut_set [simp]: \<open>ivr_fset (ivr_cut m I) = ivr_fset I \<inter> {i. m \<le> i}\<close>
+  by (induction m I rule: ivr_cut.induct) (simp_all add: Int_Un_distrib2 ivl_above)
+
+fun ivr_cross1 :: \<open>nat \<Rightarrow> nat \<Rightarrow> (nat \<times> nat) list \<Rightarrow> (nat \<times> nat) list\<close> where
+  \<open>ivr_cross1 a b [] = []\<close>
+| \<open>ivr_cross1 a b ((c, d) # J) =
+    ivr_cons (max a c) (min b d) (ivr_cross1 a b J)\<close>
+
+lemma ivr_cross1_set [simp]: \<open>ivr_fset (ivr_cross1 a b J) = {a..<b} \<inter> ivr_fset J\<close>
+  by (induction a b J rule: ivr_cross1.induct) (simp_all add: Int_Un_distrib)
+
+fun ivr_cross :: \<open>(nat \<times> nat) list \<Rightarrow> (nat \<times> nat) list \<Rightarrow> (nat \<times> nat) list\<close> where
+  \<open>ivr_cross [] J = []\<close>
+| \<open>ivr_cross ((a, b) # I) J = ivr_cross1 a b J @ ivr_cross I J\<close>
+
+lemma ivr_cross_set [simp]: \<open>ivr_fset (ivr_cross I J) = ivr_fset I \<inter> ivr_fset J\<close>
+  by (induction I J rule: ivr_cross.induct) (simp_all add: Int_Un_distrib2)
+
+fun ivr_umin :: \<open>nat option \<Rightarrow> nat option \<Rightarrow> nat option\<close> where
+  \<open>ivr_umin None v = v\<close>
+| \<open>ivr_umin u None = u\<close>
+| \<open>ivr_umin (Some n) (Some m) = Some (min n m)\<close>
+
+lemma ivr_umin_set [simp]: \<open>ivr_uset (ivr_umin u v) = ivr_uset u \<union> ivr_uset v\<close>
+  by (induction u v rule: ivr_umin.induct) auto
+
+fun ivr_umax :: \<open>nat option \<Rightarrow> nat option \<Rightarrow> nat option\<close> where
+  \<open>ivr_umax (Some n) (Some m) = Some (max n m)\<close>
+| \<open>ivr_umax _ _ = None\<close>
+
+lemma ivr_umax_set [simp]: \<open>ivr_uset (ivr_umax u v) = ivr_uset u \<inter> ivr_uset v\<close>
+  by (induction u v rule: ivr_umax.induct) auto
+
+fun ivr_clipu :: \<open>nat option \<Rightarrow> (nat \<times> nat) list \<Rightarrow> (nat \<times> nat) list\<close> where
+  \<open>ivr_clipu None I = I\<close>
+| \<open>ivr_clipu (Some n) I = ivr_clip n I\<close>
+
+lemma ivr_clipu_set [simp]: \<open>ivr_fset (ivr_clipu u I) \<union> ivr_uset u = ivr_fset I \<union> ivr_uset u\<close>
+  by (cases u) auto
+
+fun ivr_cutu :: \<open>nat option \<Rightarrow> (nat \<times> nat) list \<Rightarrow> (nat \<times> nat) list\<close> where
+  \<open>ivr_cutu None I = []\<close>
+| \<open>ivr_cutu (Some m) I = ivr_cut m I\<close>
+
+lemma ivr_cutu_set [simp]: \<open>ivr_fset (ivr_cutu u I) = ivr_fset I \<inter> ivr_uset u\<close>
+  by (cases u) auto
+
+fun ivr_mem :: \<open>nat \<Rightarrow> ivr \<Rightarrow> bool\<close> where
+  \<open>ivr_mem i (Iv I u) = (list_ex (\<lambda>(a, b). a \<le> i \<and> i < b) I \<or> (case u of None \<Rightarrow> False | Some n \<Rightarrow> n \<le> i))\<close>
+
+lemma ivr_mem_set [simp]: \<open>ivr_mem i X \<longleftrightarrow> i \<in> ivr_set X\<close>
+  by (cases X) (auto simp: list_ex_iff ivr_fset_def split: option.split)
+
+text \<open>Single points get a fast path in union and intersection.\<close>
+
+fun ivr_pt :: \<open>ivr \<Rightarrow> nat option\<close> where
+  \<open>ivr_pt (Iv [(c, d)] None) = (if d = Suc c then Some c else None)\<close>
+| \<open>ivr_pt _ = None\<close>
+
+lemma ivr_pt_set: \<open>ivr_pt X = Some c \<Longrightarrow> ivr_set X = {c}\<close>
+  by (induction X rule: ivr_pt.induct) (auto split: if_splits)
+
+definition ivr_union_g :: \<open>(nat \<times> nat) list \<Rightarrow> nat option \<Rightarrow> (nat \<times> nat) list \<Rightarrow> nat option \<Rightarrow> ivr\<close> where
+  \<open>ivr_union_g I u J v = (let w = ivr_umin u v in Iv (ivr_clipu w (ivr_coal (ivr_merge I J))) w)\<close>
+
+definition ivr_union_n :: \<open>ivr \<Rightarrow> ivr \<Rightarrow> ivr\<close> where
+  \<open>ivr_union_n X Y = (case X of Iv I u \<Rightarrow> (case Y of Iv J v \<Rightarrow>
+     if List.null I \<and> Option.is_none u then Y else if List.null J \<and> Option.is_none v then X
+     else ivr_union_g I u J v))\<close>
+
+lemma ivr_union_g_set [simp]: \<open>ivr_set (ivr_union_g I u J v) = ivr_fset I \<union> ivr_uset u \<union> ivr_fset J \<union> ivr_uset v\<close>
+proof -
+  have \<open>ivr_set (ivr_union_g I u J v) = ivr_fset (ivr_clipu (ivr_umin u v) (ivr_coal (ivr_merge I J))) \<union> ivr_uset (ivr_umin u v)\<close>
+    by (simp add: ivr_union_g_def Let_def)
+  also have \<open>\<dots> = ivr_fset I \<union> ivr_fset J \<union> ivr_uset (ivr_umin u v)\<close>
+    by (simp only: ivr_clipu_set ivr_coal_set ivr_merge_set)
+  finally show ?thesis by auto
+qed
+
+lemma ivr_union_n_set [simp]: \<open>ivr_set (ivr_union_n X Y) = ivr_set X \<union> ivr_set Y\<close>
+  by (cases X; cases Y) (auto simp: ivr_union_n_def Option.is_none_def)
+
+definition ivr_union :: \<open>ivr \<Rightarrow> ivr \<Rightarrow> ivr\<close> where
+  \<open>ivr_union X Y = (case ivr_pt Y of
+     Some c \<Rightarrow> if ivr_mem c X then X else ivr_union_n X Y
+   | None \<Rightarrow> (case ivr_pt X of
+       Some c \<Rightarrow> if ivr_mem c Y then Y else ivr_union_n X Y
+     | None \<Rightarrow> ivr_union_n X Y))\<close>
+
+lemma ivr_union_set [simp]: \<open>ivr_set (ivr_union X Y) = ivr_set X \<union> ivr_set Y\<close>
+  by (auto simp: ivr_union_def dest!: ivr_pt_set split: option.split)
+
+definition ivr_inter_g :: \<open>(nat \<times> nat) list \<Rightarrow> nat option \<Rightarrow> (nat \<times> nat) list \<Rightarrow> nat option \<Rightarrow> ivr\<close> where
+  \<open>ivr_inter_g I u J v =
+     Iv (ivr_coal (ivr_merge (ivr_cross I J) (ivr_merge (ivr_cutu v I) (ivr_cutu u J)))) (ivr_umax u v)\<close>
+
+definition ivr_inter_n :: \<open>ivr \<Rightarrow> ivr \<Rightarrow> ivr\<close> where
+  \<open>ivr_inter_n X Y = (case X of Iv I u \<Rightarrow> (case Y of Iv J v \<Rightarrow>
+     if List.null I \<and> Option.is_none u then ivr_empty else if List.null J \<and> Option.is_none v then ivr_empty
+     else if Option.is_none u \<and> Option.is_none v then Iv (ivr_cross I J) None
+     else ivr_inter_g I u J v))\<close>
+
+lemma ivr_inter_n_set [simp]: \<open>ivr_set (ivr_inter_n X Y) = ivr_set X \<inter> ivr_set Y\<close>
+  by (cases X; cases Y) (auto simp: ivr_inter_n_def ivr_inter_g_def Option.is_none_def)
+
+definition ivr_inter :: \<open>ivr \<Rightarrow> ivr \<Rightarrow> ivr\<close> where
+  \<open>ivr_inter X Y = (case ivr_pt Y of
+     Some c \<Rightarrow> if ivr_mem c X then Y else ivr_empty
+   | None \<Rightarrow> (case ivr_pt X of
+       Some c \<Rightarrow> if ivr_mem c Y then X else ivr_empty
+     | None \<Rightarrow> ivr_inter_n X Y))\<close>
+
+lemma ivr_inter_set [simp]: \<open>ivr_set (ivr_inter X Y) = ivr_set X \<inter> ivr_set Y\<close>
+  by (auto simp: ivr_inter_def dest!: ivr_pt_set split: option.split)
+
+fun ivr_below :: \<open>nat \<Rightarrow> ivr \<Rightarrow> ivr\<close> where
+  \<open>ivr_below t (Iv I None) = Iv (ivr_clip t I) None\<close>
+| \<open>ivr_below t (Iv I (Some n)) = Iv (ivr_clip t I @ ivr_cons n t []) None\<close>
+
+lemma ivr_below_set [simp]: \<open>ivr_set (ivr_below t X) = ivr_set X \<inter> {i. i < t}\<close>
+  by (induction t X rule: ivr_below.induct) (simp_all add: Int_Un_distrib2 ivl_up_below)
+
+definition ivr_cup :: \<open>nat \<Rightarrow> ivr \<Rightarrow> ivr\<close> where
+  \<open>ivr_cup t X = ivr_union X (Iv [] (Some t))\<close>
+
+lemma ivr_cup_set [simp]: \<open>ivr_set (ivr_cup t X) = ivr_set X \<union> {m. t \<le> m}\<close>
+  by (simp add: ivr_cup_def)
+
+fun ivr_ne :: \<open>ivr \<Rightarrow> bool\<close> where
+  \<open>ivr_ne (Iv I (Some n)) = True\<close>
+| \<open>ivr_ne (Iv I None) = list_ex (\<lambda>(a, b). a < b) I\<close>
+
+lemma ivr_ne_set [simp]: \<open>ivr_ne X \<longleftrightarrow> ivr_set X \<noteq> {}\<close>
+proof (cases X)
+  case (Iv I u)
+  then show ?thesis
+    by (cases u) (fastforce simp: list_ex_iff ivr_fset_def)+
+qed
+
+text \<open>An anchor in \<open>[a, b)\<close> related to the column \<open>c\<close>, for \<open>a < b\<close>.\<close>
+
+fun ivr_rsat :: \<open>wrel \<Rightarrow> nat \<Rightarrow> nat \<Rightarrow> nat \<Rightarrow> bool\<close> where
+  \<open>ivr_rsat WEq c a b \<longleftrightarrow> a \<le> c \<and> c < b\<close>
+| \<open>ivr_rsat WGe c a b \<longleftrightarrow> a \<le> c\<close>
+| \<open>ivr_rsat WGt c a b \<longleftrightarrow> a < c\<close>
+| \<open>ivr_rsat WLe c a b \<longleftrightarrow> c < b\<close>
+| \<open>ivr_rsat WLt c a b \<longleftrightarrow> Suc c < b\<close>
+| \<open>ivr_rsat WAny c a b \<longleftrightarrow> True\<close>
+
+lemma ivr_rsat_correct: \<open>a < b \<Longrightarrow> ivr_rsat \<tau> c a b \<longleftrightarrow> (\<exists>j. a \<le> j \<and> j < b \<and> wsat \<tau> c j)\<close>
+  by (cases \<tau>) (auto intro: exI[of _ a] exI[of _ c] exI[of _ \<open>max a c\<close>] exI[of _ \<open>max a (Suc c)\<close>])
+
+fun ivr_wsat :: \<open>wrel \<Rightarrow> nat \<Rightarrow> ivr \<Rightarrow> bool\<close> where
+  \<open>ivr_wsat \<tau> c (Iv I u) = (list_ex (\<lambda>(a, b). a < b \<and> ivr_rsat \<tau> c a b) I
+     \<or> (case u of None \<Rightarrow> False | Some n \<Rightarrow> wsat_up \<tau> c n))\<close>
+
+lemma ivr_wsat_set [simp]: \<open>ivr_wsat \<tau> c X \<longleftrightarrow> (\<exists>j \<in> ivr_set X. wsat \<tau> c j)\<close>
+proof (cases X)
+  case (Iv I u)
+  have \<open>list_ex (\<lambda>(a, b). a < b \<and> ivr_rsat \<tau> c a b) I \<longleftrightarrow> (\<exists>j \<in> ivr_fset I. wsat \<tau> c j)\<close>
+  proof
+    assume \<open>list_ex (\<lambda>(a, b). a < b \<and> ivr_rsat \<tau> c a b) I\<close>
+    then obtain a b where ab: \<open>(a, b) \<in> set I\<close> \<open>a < b\<close> \<open>ivr_rsat \<tau> c a b\<close> by (auto simp: list_ex_iff)
+    then obtain j where j: \<open>a \<le> j\<close> \<open>j < b\<close> \<open>wsat \<tau> c j\<close> by (auto simp: ivr_rsat_correct)
+    have \<open>j \<in> ivr_fset I\<close> using ab(1) j by (force simp: ivr_fset_def)
+    with j show \<open>\<exists>j \<in> ivr_fset I. wsat \<tau> c j\<close> by blast
+  next
+    assume \<open>\<exists>j \<in> ivr_fset I. wsat \<tau> c j\<close>
+    then obtain j a b where ab: \<open>(a, b) \<in> set I\<close> \<open>a \<le> j\<close> \<open>j < b\<close> \<open>wsat \<tau> c j\<close> by (auto simp: ivr_fset_def)
+    then have \<open>a < b \<and> ivr_rsat \<tau> c a b\<close> by (auto simp: ivr_rsat_correct)
+    with ab(1) show \<open>list_ex (\<lambda>(a, b). a < b \<and> ivr_rsat \<tau> c a b) I\<close> by (force simp: list_ex_iff)
+  qed
+  moreover have \<open>(case u of None \<Rightarrow> False | Some n \<Rightarrow> wsat_up \<tau> c n) \<longleftrightarrow> (\<exists>j \<in> ivr_uset u. wsat \<tau> c j)\<close>
+    by (cases u) (auto simp: wsat_up_correct)
+  ultimately show ?thesis using Iv by auto
+qed
+
+text \<open>The least anchor of a non-empty set.\<close>
+
+fun ivr_minl :: \<open>(nat \<times> nat) list \<Rightarrow> nat option \<Rightarrow> nat option\<close> where
+  \<open>ivr_minl [] m = m\<close>
+| \<open>ivr_minl ((a, b) # I) m =
+    ivr_minl I (if a < b then Some (case m of None \<Rightarrow> a | Some k \<Rightarrow> min a k) else m)\<close>
+
+lemma ivr_minl_le:
+  \<open>(\<exists>k. ivr_minl I m = Some k \<and> k \<le> i) \<longleftrightarrow>
+     (\<exists>k. m = Some k \<and> k \<le> i) \<or> (\<exists>(a, b) \<in> set I. a < b \<and> a \<le> i)\<close>
+proof (induction I arbitrary: m)
+  case (Cons p I)
+  obtain a b where p: \<open>p = (a, b)\<close> by (cases p)
+  show ?case
+  proof (cases \<open>a < b\<close>)
+    case True
+    have \<open>(case m of None \<Rightarrow> a | Some k \<Rightarrow> min a k) \<le> i \<longleftrightarrow> a \<le> i \<or> (\<exists>k. m = Some k \<and> k \<le> i)\<close>
+      by (cases m) auto
+    with Cons.IH True show ?thesis by (auto simp: p)
+  next
+    case False
+    with Cons.IH show ?thesis by (auto simp: p)
+  qed
+qed simp
+
+lemma ivr_minl_None: \<open>ivr_minl I m = None \<longleftrightarrow> m = None \<and> (\<forall>(a, b) \<in> set I. \<not> a < b)\<close>
+  by (induction I m rule: ivr_minl.induct) (simp_all split: if_split)
+
+definition ivr_min :: \<open>ivr \<Rightarrow> nat\<close> where
+  \<open>ivr_min X = (case X of Iv I u \<Rightarrow> (case ivr_minl I u of None \<Rightarrow> 0 | Some k \<Rightarrow> k))\<close>
+
+lemma ivr_min_le_iff: \<open>ivr_set X \<noteq> {} \<Longrightarrow> ivr_min X \<le> i \<longleftrightarrow> (\<exists>j \<in> ivr_set X. j \<le> i)\<close>
+proof (cases X)
+  case (Iv I u)
+  assume ne: \<open>ivr_set X \<noteq> {}\<close>
+  have ex: \<open>(\<exists>j \<in> ivr_fset I \<union> ivr_uset u. j \<le> i) \<longleftrightarrow>
+      (\<exists>k. u = Some k \<and> k \<le> i) \<or> (\<exists>(a, b) \<in> set I. a < b \<and> a \<le> i)\<close>
+  proof -
+    have f: \<open>(\<exists>j \<in> ivr_fset I. j \<le> i) \<longleftrightarrow> (\<exists>(a, b) \<in> set I. a < b \<and> a \<le> i)\<close>
+    proof
+      assume \<open>\<exists>j \<in> ivr_fset I. j \<le> i\<close>
+      then obtain j a b where \<open>(a, b) \<in> set I\<close> \<open>a \<le> j\<close> \<open>j < b\<close> \<open>j \<le> i\<close>
+        unfolding ivr_fset_def by blast
+      then show \<open>\<exists>(a, b) \<in> set I. a < b \<and> a \<le> i\<close> by (intro bexI[of _ \<open>(a, b)\<close>]) auto
+    next
+      assume \<open>\<exists>(a, b) \<in> set I. a < b \<and> a \<le> i\<close>
+      then obtain a b where \<open>(a, b) \<in> set I\<close> \<open>a < b\<close> \<open>a \<le> i\<close> by blast
+      then have \<open>a \<in> ivr_fset I\<close> unfolding ivr_fset_def by blast
+      with \<open>a \<le> i\<close> show \<open>\<exists>j \<in> ivr_fset I. j \<le> i\<close> by blast
+    qed
+    have g: \<open>(\<exists>j \<in> ivr_uset u. j \<le> i) \<longleftrightarrow> (\<exists>k. u = Some k \<and> k \<le> i)\<close>
+      by (cases u) auto
+    show ?thesis unfolding bex_Un f g by blast
+  qed
+  have \<open>ivr_minl I u \<noteq> None\<close>
+  proof
+    assume \<open>ivr_minl I u = None\<close>
+    then have u: \<open>u = None\<close> and e: \<open>\<forall>(a, b) \<in> set I. \<not> a < b\<close>
+      by (simp_all add: ivr_minl_None)
+    from e have \<open>ivr_fset I = {}\<close> by (force simp: ivr_fset_def)
+    with u ne Iv show False by simp
+  qed
+  then obtain k where k: \<open>ivr_minl I u = Some k\<close> by blast
+  show ?thesis
+    using ivr_minl_le[of I u i] by (simp add: Iv ivr_min_def k ex)
+qed
+
+lemma sh_min_iff:
+  assumes ne: \<open>S \<noteq> {}\<close> and le: \<open>\<And>i. m \<le> i \<longleftrightarrow> (\<exists>j \<in> S. j \<le> i)\<close>
+  shows \<open>sh d S = {x. m + d \<le> x}\<close>
+proof -
+  have \<open>m \<le> j\<close> if \<open>j \<in> S\<close> for j using le[of j] that by blast
+  moreover obtain j\<^sub>0 where \<open>j\<^sub>0 \<in> S\<close> \<open>j\<^sub>0 \<le> m\<close> using le[of m] by blast
+  ultimately show ?thesis
+    by (auto simp: sh_def intro: le_trans[OF add_right_mono])
+qed
+
+definition ivr_eapp :: \<open>eff \<Rightarrow> ivr \<Rightarrow> ivr\<close> where
+  \<open>ivr_eapp e X = (if ivr_ne X then (case e of (i, s, c) \<Rightarrow>
+     let X\<^sub>1 = (if i then X else ivr_empty);
+         X\<^sub>2 = (case s of None \<Rightarrow> X\<^sub>1 | Some d \<Rightarrow> ivr_cup (ivr_min X + d) X\<^sub>1)
+     in (case c of None \<Rightarrow> X\<^sub>2 | Some d \<Rightarrow> ivr_cup d X\<^sub>2))
+   else ivr_empty)\<close>
+
+lemma ivr_eapp_set [simp]: \<open>ivr_set (ivr_eapp e X) = eff_set e (ivr_set X)\<close>
+proof (cases \<open>ivr_set X = {}\<close>)
+  case False
+  obtain i s c where e: \<open>e = (i, s, c)\<close> by (cases e)
+  have sh: \<open>sh d (ivr_set X) = {m. ivr_min X + d \<le> m}\<close> for d
+    by (rule sh_min_iff[OF False ivr_min_le_iff[OF False]])
+  show ?thesis
+    using False sh by (cases s; cases c) (auto simp: ivr_eapp_def e eff_set.simps osh_def ocn_def cn_def)
+qed (simp add: ivr_eapp_def)
+
+text \<open>The bound of the finite part: an anchor is at most some element iff it is below it.\<close>
+
+fun ivr_sup :: \<open>(nat \<times> nat) list \<Rightarrow> nat\<close> where
+  \<open>ivr_sup [] = 0\<close>
+| \<open>ivr_sup ((a, b) # I) = (if a < b then max b (ivr_sup I) else ivr_sup I)\<close>
+
+lemma ivr_sup_lt: \<open>i < ivr_sup I \<longleftrightarrow> (\<exists>j \<in> ivr_fset I. i \<le> j)\<close>
+proof (induction I)
+  case (Cons p I)
+  obtain a b where p: \<open>p = (a, b)\<close> by (cases p)
+  show ?case
+  proof (cases \<open>a < b\<close>)
+    case True
+    have \<open>i < b \<longleftrightarrow> (\<exists>j \<in> {a..<b}. i \<le> j)\<close> using True by (auto intro: bexI[of _ \<open>max a i\<close>])
+    with Cons.IH True show ?thesis by (auto simp: p)
+  next
+    case False
+    with Cons.IH show ?thesis by (simp add: p)
+  qed
+qed simp
+
+definition ivr_cpre :: \<open>irel \<Rightarrow> ivr \<Rightarrow> ivr \<Rightarrow> ivr\<close> where
+  \<open>ivr_cpre q RA R = (case q of
+     Eq \<Rightarrow> ivr_inter R RA
+   | Gt \<Rightarrow> (case RA of Iv J None \<Rightarrow> ivr_below (ivr_sup J - 1) R | Iv J (Some _) \<Rightarrow> R)
+   | Ge \<Rightarrow> (case RA of Iv J None \<Rightarrow> ivr_below (ivr_sup J) R | Iv J (Some _) \<Rightarrow> R)
+   | Any \<Rightarrow> (if ivr_ne RA then R else ivr_empty))\<close>
+
+lemma ivr_cpre_set [simp]: \<open>ivr_set (ivr_cpre q RA R) = ivr_set R \<inter> {i. \<exists>j \<in> ivr_set RA. irel_sat q j i}\<close>
+proof -
+  obtain J u where RA: \<open>RA = Iv J u\<close> by (cases RA)
+  have up: \<open>\<exists>j \<in> A \<union> ivr_uset (Some n). x < j\<close> \<open>\<exists>j \<in> A \<union> ivr_uset (Some n). x \<le> j\<close> for A n x
+    by (rule bexI[of _ \<open>max (Suc x) n\<close>]; simp)+
+  have gt: \<open>i < ivr_sup J - 1 \<longleftrightarrow> (\<exists>j \<in> ivr_fset J. i < j)\<close> for i
+    using ivr_sup_lt[of \<open>Suc i\<close> J] by (auto simp: Suc_le_eq)
+  show ?thesis
+  proof (cases q)
+    case Gt
+    then show ?thesis using up(1) gt by (cases u) (auto simp: ivr_cpre_def RA)
+  next
+    case Ge
+    then show ?thesis using up(2) ivr_sup_lt[of _ J] by (cases u) (auto simp: ivr_cpre_def RA)
+  qed (auto simp: ivr_cpre_def)
+qed
+
+text \<open>A frame of interval sets, its rows and its lazy items.\<close>
+
+definition ivr_get :: \<open>ivr list \<Rightarrow> nat \<Rightarrow> ivr\<close> where
+  \<open>ivr_get av k = (if k < length av then av ! k else ivr_empty)\<close>
+
+lemma ivr_get_code [code]:
+  \<open>ivr_get [] k = ivr_empty\<close>
+  \<open>ivr_get (R # av) k = (if k = 0 then R else ivr_get av (k - 1))\<close>
+  by (simp add: ivr_get_def) (cases k, simp_all add: ivr_get_def)
+
+fun ivr_row :: \<open>ivr list \<Rightarrow> (nat \<times> eff) list \<Rightarrow> ivr \<Rightarrow> ivr\<close> where
+  \<open>ivr_row kav [] acc = acc\<close>
+| \<open>ivr_row kav ((kk, e) # cs) acc = ivr_row kav cs (let R = ivr_get kav kk in
+     if ivr_ne R then ivr_union acc (ivr_eapp e R) else acc)\<close>
+
+fun ivr_fill_p :: \<open>ivr list \<Rightarrow> (bool \<times> (nat \<times> eff) list) list \<Rightarrow> ivr list \<Rightarrow> ivr list\<close> where
+  \<open>ivr_fill_p kav [] Rs = []\<close>
+| \<open>ivr_fill_p kav ((b, cs) # pl) Rs = (if b
+     then (case Rs of [] \<Rightarrow> ivr_row kav cs ivr_empty # ivr_fill_p kav pl []
+           | R # Rs' \<Rightarrow> ivr_row kav cs R # ivr_fill_p kav pl Rs')
+     else ivr_row kav cs ivr_empty # ivr_fill_p kav pl Rs)\<close>
+
+fun ivr_item :: \<open>ivr list \<Rightarrow> (bool \<times> (nat \<times> eff) list) list \<Rightarrow> ivr list \<Rightarrow> nat \<Rightarrow> ivr\<close> where
+  \<open>ivr_item kav [] Rs s = ivr_empty\<close>
+| \<open>ivr_item kav ((b, cs) # pl) Rs s = (case s of
+     0 \<Rightarrow> (if b then (case Rs of [] \<Rightarrow> ivr_row kav cs ivr_empty | R # _ \<Rightarrow> ivr_row kav cs R)
+          else ivr_row kav cs ivr_empty)
+   | Suc s' \<Rightarrow> ivr_item kav pl (if b then tl Rs else Rs) s')\<close>
+
+lemma ivr_item_get: \<open>ivr_item kav pl Rs s = ivr_get (ivr_fill_p kav pl Rs) s\<close>
+proof (induction pl arbitrary: Rs s)
+  case (Cons p pl)
+  obtain b cs where p: \<open>p = (b, cs)\<close> by (cases p)
+  show ?case using Cons.IH by (cases s; cases b; cases Rs) (simp_all add: p ivr_get_code)
+qed (simp add: ivr_get_code)
+
+datatype ivf = IvEager \<open>ivr list\<close> | IvLazy \<open>ivr list\<close> \<open>(bool \<times> (nat \<times> eff) list) list\<close>
+
+fun ivf_av :: \<open>ivf \<Rightarrow> ivr list\<close> where
+  \<open>ivf_av (IvEager av) = av\<close>
+| \<open>ivf_av (IvLazy kav pl) = ivr_fill_p kav pl kav\<close>
+
+fun ivf_get :: \<open>ivf \<Rightarrow> nat \<Rightarrow> ivr\<close> where
+  \<open>ivf_get (IvEager av) s = ivr_get av s\<close>
+| \<open>ivf_get (IvLazy kav pl) s = ivr_item kav pl kav s\<close>
+
+lemma ivf_get: \<open>ivf_get g s = ivr_get (ivf_av g) s\<close>
+  by (cases g) (simp_all add: ivr_item_get)
+
+text \<open>Frames with the same sets.\<close>
+
+lemma getR_iv: \<open>map irep_set av = map ivr_set gv \<Longrightarrow> irep_set (getR av k) = ivr_set (ivr_get gv k)\<close>
+  by (simp add: getR_def ivr_get_def) (metis length_map nth_map)
+
+lemma row_iv:
+  \<open>map irep_set kav = map ivr_set kv \<Longrightarrow> irep_set acc = ivr_set acc' \<Longrightarrow>
+     irep_set (vfill_row kav cs acc) = ivr_set (ivr_row kv cs acc')\<close>
+proof (induction cs arbitrary: acc acc')
+  case (Cons c cs)
+  obtain kk e where c: \<open>c = (kk, e)\<close> by (cases c)
+  have r: \<open>irep_set (getR kav kk) = ivr_set (ivr_get kv kk)\<close> by (rule getR_iv[OF Cons.prems(1)])
+  show ?case
+    unfolding c vfill_row.simps ivr_row.simps
+    by (rule Cons.IH[OF Cons.prems(1)]) (use Cons.prems(2) r in \<open>auto simp: Let_def split: indrep.split\<close>)
+qed simp
+
+lemma fill_iv:
+  \<open>map irep_set kav = map ivr_set kv \<Longrightarrow> map irep_set Rs = map ivr_set Rs' \<Longrightarrow>
+     map irep_set (vfill_p kav pl Rs) = map ivr_set (ivr_fill_p kv pl Rs')\<close>
+proof (induction pl arbitrary: Rs Rs')
+  case (Cons p pl)
+  obtain b cs where p: \<open>p = (b, cs)\<close> by (cases p)
+  have e: \<open>irep_set (FinRep []) = ivr_set ivr_empty\<close> by simp
+  note row = row_iv[OF Cons.prems(1)]
+  show ?case
+  proof (cases Rs)
+    case Nil
+    with Cons.prems(2) have \<open>Rs' = []\<close> by simp
+    with Nil show ?thesis
+      using Cons.IH[OF Cons.prems(1), of \<open>[]\<close> \<open>[]\<close>] row[OF e] by (simp add: p)
+  next
+    case (Cons R Rs\<^sub>1)
+    with Cons.prems(2) obtain R' Rs\<^sub>1' where Rs': \<open>Rs' = R' # Rs\<^sub>1'\<close>
+        and h: \<open>irep_set R = ivr_set R'\<close> and t: \<open>map irep_set Rs\<^sub>1 = map ivr_set Rs\<^sub>1'\<close>
+      by (cases Rs') auto
+    show ?thesis
+      using Cons.IH[OF Cons.prems(1) t] Cons.IH[OF Cons.prems(1) Cons.prems(2)] row[OF h] row[OF e]
+      by (cases b) (simp_all add: p Cons Rs')
+  qed
+qed simp
+
+definition ivr_frel :: \<open>indrep list \<Rightarrow> ivf \<Rightarrow> bool\<close> where
+  \<open>ivr_frel av g \<longleftrightarrow> map irep_set av = map ivr_set (ivf_av g)\<close>
+
+lemma ivr_frel_get: \<open>ivr_frel av g \<Longrightarrow> irep_set (getR av s) = ivr_set (ivf_get g s)\<close>
+  unfolding ivr_frel_def ivf_get by (rule getR_iv)
+
+definition ivr_fr :: \<open>nat \<times> indrep list \<Rightarrow> nat \<times> ivf \<Rightarrow> bool\<close> where
+  \<open>ivr_fr x y \<longleftrightarrow> fst x = fst y \<and> ivr_frel (snd x) (snd y)\<close>
+
+lemma ivr_fr_simp [simp]: \<open>ivr_fr (j, av) (j', g) \<longleftrightarrow> j = j' \<and> ivr_frel av g\<close>
+  by (simp add: ivr_fr_def)
+
+abbreviation ivr_rel :: \<open>vframes \<Rightarrow> (nat \<times> ivf) list \<Rightarrow> bool\<close> where
+  \<open>ivr_rel \<equiv> list_all2 ivr_fr\<close>
+
+lemma list_ex_ne_iv: \<open>map irep_set xs = map ivr_set ys \<Longrightarrow> list_ex irep_nonempty xs = list_ex ivr_ne ys\<close>
+proof (induction xs arbitrary: ys)
+  case (Cons x xs)
+  then show ?case by (cases ys) auto
+qed simp
+
+lemma rel_option_None: \<open>rel_option R x y \<Longrightarrow> x = None \<longleftrightarrow> y = None\<close>
+  by (cases x; cases y) auto
+
+subsection \<open>The run over interval frames\<close>
+
+definition ivr_go :: \<open>kentry \<Rightarrow> ivf \<Rightarrow> ivr \<Rightarrow> (nat \<times> ivf) option\<close> where
+  \<open>ivr_go e g RA = (case e of (j', ks, pl) \<Rightarrow> let kav = map (\<lambda>(ps, q). ivr_cpre q RA (ivf_get g ps)) ks in
+     if list_ex ivr_ne kav then Some (j', IvLazy kav pl) else None)\<close>
+
+lemma ivr_go:
+  assumes fr: \<open>ivr_frel av g\<close> and ra: \<open>irep_set RA = ivr_set RA'\<close>
+  shows \<open>rel_option ivr_fr (vgo_k e av RA) (ivr_go e g RA')\<close>
+proof -
+  obtain j' ks pl where e: \<open>e = (j', ks, pl)\<close> by (cases e)
+  let ?kav = \<open>map (\<lambda>(ps, q). cpre q RA (getR av ps)) ks\<close>
+  let ?kv = \<open>map (\<lambda>(ps, q). ivr_cpre q RA' (ivf_get g ps)) ks\<close>
+  have k: \<open>map irep_set ?kav = map ivr_set ?kv\<close>
+    by (auto simp: ivr_frel_get[OF fr] ra)
+  have ex: \<open>list_ex irep_nonempty ?kav = list_ex ivr_ne ?kv\<close> by (rule list_ex_ne_iv[OF k])
+  have f: \<open>ivr_frel (vfill_p ?kav pl ?kav) (IvLazy ?kv pl)\<close>
+    unfolding ivr_frel_def ivf_av.simps by (rule fill_iv[OF k k])
+  show ?thesis
+    unfolding e vgo_k_def ivr_go_def Let_def prod.case ex using f by simp
+qed
+
+definition ivr_lic :: \<open>('n, 't) vtab \<Rightarrow> nat \<Rightarrow> (nat \<times> nat) list \<Rightarrow> nat \<Rightarrow> ivr \<Rightarrow> bool\<close> where
+  \<open>ivr_lic V j w s X = (case w of [] \<Rightarrow> s \<in> set (iget (v_ce V) j [])
+     | (a, c) # _ \<Rightarrow> list_ex (\<lambda>(s', \<tau>). s' = s \<and> ivr_wsat \<tau> c X)
+         (iget (iget (v_cl V) j (IArray [])) a []))\<close>
+
+lemma ivr_lic: \<open>irep_set RS = ivr_set X \<Longrightarrow> vlic_n V j w s RS = ivr_lic V j w s X\<close>
+  by (simp add: vlic_n_def ivr_lic_def split: list.split)
+
+definition ivr_live :: \<open>('n, 't) vktab \<Rightarrow> nat \<Rightarrow> ivf \<Rightarrow> (nat \<times> nat) list \<Rightarrow> nat \<Rightarrow> bool\<close> where
+  \<open>ivr_live K j g w s = (let X = ivf_get g s in ivr_ne X \<and> ivr_lic (k_v K) j w s X)\<close>
+
+lemma ivr_live: \<open>ivr_frel av g \<Longrightarrow> vlive_k K j av w s = ivr_live K j g w s\<close>
+proof -
+  assume fr: \<open>ivr_frel av g\<close>
+  have \<open>vlic_n (k_v K) j w s (getR av s) = ivr_lic (k_v K) j w s (ivf_get g s)\<close>
+    by (rule ivr_lic) (simp add: ivr_frel_get[OF fr] set_eq_iff)
+  with fr show ?thesis by (simp add: vlive_k_def ivr_live_def Let_def ivr_frel_get)
+qed
+
+definition ivr_red :: \<open>('n, 't) vktab \<Rightarrow> (nat \<times> ivf) list \<Rightarrow> ivf \<Rightarrow> nat \<Rightarrow> nat \<Rightarrow> 'n \<times> ('n, 't) rhs \<Rightarrow>
+    (nat \<times> ivf) list option\<close> where
+  \<open>ivr_red K gs g s b pr = (let gs' = drop (length (snd pr)) gs in (case gs' of [] \<Rightarrow> None
+     | (j\<^sub>0, g\<^sub>0) # _ \<Rightarrow> (case iget (iget (k_go K) j\<^sub>0 (IArray [])) b None of None \<Rightarrow> None
+        | Some e \<Rightarrow> map_option (\<lambda>h. h # gs') (ivr_go e g\<^sub>0 (ivf_get g s)))))\<close>
+
+lemma ivr_red:
+  assumes rel: \<open>ivr_rel fs gs\<close> and fr: \<open>ivr_frel av g\<close>
+  shows \<open>rel_option ivr_rel (vred_k K fs av s b pr) (ivr_red K gs g s b pr)\<close>
+proof -
+  have d: \<open>ivr_rel (drop (length (snd pr)) fs) (drop (length (snd pr)) gs)\<close>
+    using rel by (rule list_all2_dropI)
+  show ?thesis
+  proof (cases \<open>drop (length (snd pr)) fs\<close>)
+    case Nil
+    with d show ?thesis by (simp add: vred_k_def ivr_red_def)
+  next
+    case (Cons x fs\<^sub>1)
+    obtain j\<^sub>0 av\<^sub>0 where x: \<open>x = (j\<^sub>0, av\<^sub>0)\<close> by (cases x)
+    from d Cons x obtain g\<^sub>0 gs\<^sub>1 where dg: \<open>drop (length (snd pr)) gs = (j\<^sub>0, g\<^sub>0) # gs\<^sub>1\<close>
+        and f0: \<open>ivr_frel av\<^sub>0 g\<^sub>0\<close> and r1: \<open>ivr_rel fs\<^sub>1 gs\<^sub>1\<close>
+      by (auto simp: list_all2_Cons1)
+    show ?thesis
+    proof (cases \<open>iget (iget (k_go K) j\<^sub>0 (IArray [])) b None\<close>)
+      case None
+      then show ?thesis by (simp add: vred_k_def ivr_red_def Cons x dg)
+    next
+      case (Some e)
+      have go: \<open>rel_option ivr_fr (vgo_k e av\<^sub>0 (getR av s)) (ivr_go e g\<^sub>0 (ivf_get g s))\<close>
+        by (rule ivr_go[OF f0 ivr_frel_get[OF fr]])
+      show ?thesis
+        using go d unfolding vred_k_def ivr_red_def Let_def Cons x dg Some list.case prod.case option.case
+        by (cases \<open>vgo_k e av\<^sub>0 (getR av s)\<close>; cases \<open>ivr_go e g\<^sub>0 (ivf_get g s)\<close>) (auto simp: Cons x dg)
+    qed
+  qed
+qed
+
+datatype ('n, 't) ivsres = IvConf | IvRej | IvRed \<open>'n \<times> ('n, 't) rhs\<close> \<open>(nat \<times> ivf) list\<close>
+
+fun ivr_sres :: \<open>('n, 't) vsres \<Rightarrow> ('n, 't) ivsres \<Rightarrow> bool\<close> where
+  \<open>ivr_sres VSConf IvConf = True\<close>
+| \<open>ivr_sres VSRej IvRej = True\<close>
+| \<open>ivr_sres (VSRed pr fs) (IvRed pr' gs) = (pr = pr' \<and> ivr_rel fs gs)\<close>
+| \<open>ivr_sres _ _ = False\<close>
+
+fun ivr_scan :: \<open>('n, 't) vktab \<Rightarrow> (nat \<times> ivf) list \<Rightarrow> (nat \<times> nat) list \<Rightarrow> nat \<Rightarrow> ivf \<Rightarrow>
+    (nat \<times> nat \<times> ('n \<times> ('n, 't) rhs)) list \<Rightarrow> ('n, 't) ivsres\<close> where
+  \<open>ivr_scan K gs w j g [] = IvRej\<close>
+| \<open>ivr_scan K gs w j g ((s, b, pr) # cs) = (if ivr_live K j g w s
+     then (case ivr_red K gs g s b pr of None \<Rightarrow> ivr_scan K gs w j g cs
+       | Some gs' \<Rightarrow> if list_ex (\<lambda>(s, b, pr). ivr_live K j g w s \<and> ivr_red K gs g s b pr \<noteq> None) cs
+                    then IvConf else IvRed pr gs')
+     else ivr_scan K gs w j g cs)\<close>
+
+lemma ivr_scan:
+  assumes rel: \<open>ivr_rel fs gs\<close> and fr: \<open>ivr_frel av g\<close>
+  shows \<open>ivr_sres (vscan_k K fs w j av cs) (ivr_scan K gs w j g cs)\<close>
+proof (induction cs)
+  case (Cons c cs)
+  obtain s b pr where c: \<open>c = (s, b, pr)\<close> by (cases c)
+  have rd: \<open>rel_option ivr_rel (vred_k K fs av s b pr) (ivr_red K gs g s b pr)\<close> for s b pr
+    by (rule ivr_red[OF rel fr])
+  have rn: \<open>vred_k K fs av s b pr = None \<longleftrightarrow> ivr_red K gs g s b pr = None\<close> for s b pr
+    by (rule rel_option_None[OF rd])
+  have ex: \<open>list_ex (\<lambda>(s, b, pr). vlive_k K j av w s \<and> vred_k K fs av s b pr \<noteq> None) cs =
+      list_ex (\<lambda>(s, b, pr). ivr_live K j g w s \<and> ivr_red K gs g s b pr \<noteq> None) cs\<close>
+    by (induction cs) (auto simp: ivr_live[OF fr] rn simp del: not_None_eq)
+  show ?case
+  proof (cases \<open>ivr_live K j g w s\<close>)
+    case False
+    then show ?thesis using Cons.IH by (simp add: c ivr_live[OF fr])
+  next
+    case live: True
+    show ?thesis
+    proof (cases \<open>ivr_red K gs g s b pr\<close>)
+      case None
+      with rn have \<open>vred_k K fs av s b pr = None\<close> by simp
+      with None live show ?thesis using Cons.IH by (simp add: c ivr_live[OF fr])
+    next
+      case (Some gs')
+      with rd[of s b pr] obtain fs' where k: \<open>vred_k K fs av s b pr = Some fs'\<close> and r': \<open>ivr_rel fs' gs'\<close>
+        by (cases \<open>vred_k K fs av s b pr\<close>) auto
+      show ?thesis
+        unfolding c vscan_k.simps ivr_scan.simps
+        using live Some k r' ex by (simp add: ivr_live[OF fr] del: not_None_eq)
+    qed
+  qed
+qed simp
+
+definition ivr_shift :: \<open>('n, 't) vktab \<Rightarrow> nat \<Rightarrow> ivf \<Rightarrow> (nat \<times> nat) list \<Rightarrow> (nat \<times> ivf) option\<close> where
+  \<open>ivr_shift K j g w = (case w of [] \<Rightarrow> None | (a, c) # _ \<Rightarrow>
+     (case iget (iget (k_sh K) j (IArray [])) a None of None \<Rightarrow> None
+      | Some e \<Rightarrow> ivr_go e g (Iv [(c, Suc c)] None)))\<close>
+
+lemma ivr_shift: \<open>ivr_frel av g \<Longrightarrow> rel_option ivr_fr (vshift_k K j av w) (ivr_shift K j g w)\<close>
+  by (auto simp: vshift_k_def ivr_shift_def intro!: ivr_go split: list.split option.split)
+
+partial_function (option) ivr_run ::
+  \<open>('n, 't) vktab \<Rightarrow> (nat \<times> ivf) list \<Rightarrow> (nat \<times> nat) list \<Rightarrow> ('m, 'ch, 't) tword \<Rightarrow> ('m, 'ch, 'n, 't) ast list \<Rightarrow>
+    ('m, 'ch, 'n, 't) ast option option\<close>
+  where
+  \<open>ivr_run K gs w v tstk = (if w = [] \<and> (case gs of [] \<Rightarrow> False
+       | (j, g) # _ \<Rightarrow> ivr_mem (v_ind0 (k_v K)) (ivf_get g (iget (v_fin (k_v K)) j 0)))
+     then Some (case tstk of t # _ \<Rightarrow> Some t | [] \<Rightarrow> None)
+     else (case gs of [] \<Rightarrow> Some None | (j, g) # _ \<Rightarrow>
+       (case ivr_shift K j g w of
+          Some h \<Rightarrow> ivr_run K (h # gs) (tl w) (tl v) (Leaf (hd v) # tstk)
+        | None \<Rightarrow> (case ivr_scan K gs w j g (iget (v_cp (k_v K)) j []) of
+            IvConf \<Rightarrow> None
+          | IvRej \<Rightarrow> Some None
+          | IvRed pr gs' \<Rightarrow> ivr_run K gs' w v
+              (Node (fst pr) (rev (take (length (snd pr)) tstk)) # drop (length (snd pr)) tstk)))))\<close>
+
+lemmas ivr_run_simps [code] = ivr_run.simps
+
+lemma ivr_run_k:
+  assumes run: \<open>ivr_run K gs w v tstk = Some r\<close>
+  shows \<open>\<forall>fs. ivr_rel fs gs \<longrightarrow> vrun_k K fs w v tstk = Some r\<close>
+proof (rule ivr_run.raw_induct[where P = \<open>\<lambda>K gs w v tstk r. \<forall>fs. ivr_rel fs gs \<longrightarrow> vrun_k K fs w v tstk = Some r\<close>,
+    OF _ run], goal_cases)
+  case (1 vr K gs w v tstk r)
+  show ?case
+  proof (intro allI impI)
+    fix fs
+    assume rel: \<open>ivr_rel fs gs\<close>
+    show \<open>vrun_k K fs w v tstk = Some r\<close>
+    proof (cases gs)
+      case Nil
+      with rel have \<open>fs = []\<close> by simp
+      with Nil "1"(2) show ?thesis by (subst vrun_k.simps) (auto split: if_splits)
+    next
+      case (Cons gr gs\<^sub>1)
+      obtain j g where gr: \<open>gr = (j, g)\<close> by (cases gr)
+      from rel Cons gr obtain av fs\<^sub>1 where fs: \<open>fs = (j, av) # fs\<^sub>1\<close> and fr: \<open>ivr_frel av g\<close>
+        by (auto simp: list_all2_Cons2)
+      note body = "1"(2)[unfolded Cons gr list.case prod.case, folded gr, folded Cons]
+      have acc: \<open>ivr_mem i (ivf_get g k) \<longleftrightarrow> irep_mem i (getR av k)\<close> for i k
+        by (simp add: ivr_frel_get[OF fr])
+      have unk: \<open>vrun_k K fs w v tstk = (if w = [] \<and> irep_mem (v_ind0 (k_v K)) (getR av (iget (v_fin (k_v K)) j 0))
+         then Some (case tstk of t # _ \<Rightarrow> Some t | [] \<Rightarrow> None)
+         else (case vshift_k K j av w of
+            Some f \<Rightarrow> vrun_k K (f # fs) (tl w) (tl v) (Leaf (hd v) # tstk)
+          | None \<Rightarrow> (case vscan_k K fs w j av (iget (v_cp (k_v K)) j []) of
+              VSConf \<Rightarrow> None
+            | VSRej \<Rightarrow> Some None
+            | VSRed pr fs' \<Rightarrow> vrun_k K fs' w v
+                (Node (fst pr) (rev (take (length (snd pr)) tstk)) # drop (length (snd pr)) tstk))))\<close>
+        by (subst vrun_k.simps) (simp only: fs list.case prod.case)
+      show ?thesis
+      proof (cases \<open>w = [] \<and> irep_mem (v_ind0 (k_v K)) (getR av (iget (v_fin (k_v K)) j 0))\<close>)
+        case True
+        with body unk acc show ?thesis by simp
+      next
+        case nf: False
+        note body = body[unfolded acc if_not_P[OF nf]]
+        note unk = unk[unfolded if_not_P[OF nf]]
+        have sh: \<open>rel_option ivr_fr (vshift_k K j av w) (ivr_shift K j g w)\<close> by (rule ivr_shift[OF fr])
+        show ?thesis
+        proof (cases \<open>ivr_shift K j g w\<close>)
+          case (Some h)
+          with sh obtain f where sk: \<open>vshift_k K j av w = Some f\<close> and fh: \<open>ivr_fr f h\<close>
+            by (cases \<open>vshift_k K j av w\<close>) auto
+          from Some body have \<open>vr K (h # gs) (tl w) (tl v) (Leaf (hd v) # tstk) = Some r\<close> by simp
+          then have \<open>\<forall>fs'. ivr_rel fs' (h # gs) \<longrightarrow> vrun_k K fs' (tl w) (tl v) (Leaf (hd v) # tstk) = Some r\<close>
+            by (rule "1"(1))
+          with fh rel have \<open>vrun_k K (f # fs) (tl w) (tl v) (Leaf (hd v) # tstk) = Some r\<close> by simp
+          with unk sk show ?thesis by simp
+        next
+          case shn: None
+          with sh have sk: \<open>vshift_k K j av w = None\<close> by (cases \<open>vshift_k K j av w\<close>) auto
+          have sc: \<open>ivr_sres (vscan_k K fs w j av (iget (v_cp (k_v K)) j []))
+              (ivr_scan K gs w j g (iget (v_cp (k_v K)) j []))\<close>
+            by (rule ivr_scan[OF rel fr])
+          show ?thesis
+          proof (cases \<open>ivr_scan K gs w j g (iget (v_cp (k_v K)) j [])\<close>)
+            case IvConf
+            with shn body show ?thesis by simp
+          next
+            case IvRej
+            with sc have \<open>vscan_k K fs w j av (iget (v_cp (k_v K)) j []) = VSRej\<close>
+              by (cases \<open>vscan_k K fs w j av (iget (v_cp (k_v K)) j [])\<close>) auto
+            with IvRej shn body sk unk show ?thesis by simp
+          next
+            case (IvRed pr gs')
+            with sc obtain fs' where vs: \<open>vscan_k K fs w j av (iget (v_cp (k_v K)) j []) = VSRed pr fs'\<close>
+                and r': \<open>ivr_rel fs' gs'\<close>
+              by (cases \<open>vscan_k K fs w j av (iget (v_cp (k_v K)) j [])\<close>) auto
+            from IvRed shn body have \<open>vr K gs' w v
+                (Node (fst pr) (rev (take (length (snd pr)) tstk)) # drop (length (snd pr)) tstk) = Some r\<close>
+              by simp
+            then have \<open>\<forall>fs''. ivr_rel fs'' gs' \<longrightarrow> vrun_k K fs'' w v
+                (Node (fst pr) (rev (take (length (snd pr)) tstk)) # drop (length (snd pr)) tstk) = Some r\<close>
+              by (rule "1"(1))
+            with r' vs sk unk show ?thesis by simp
+          qed
+        qed
+      qed
+    qed
+  qed
+qed
+
+lemma vrun_k_iv:
+  assumes run: \<open>vrun_k K fs w v tstk = Some r\<close>
+  shows \<open>\<forall>gs. ivr_rel fs gs \<longrightarrow> ivr_run K gs w v tstk = Some r\<close>
+proof (rule vrun_k.raw_induct[where P = \<open>\<lambda>K fs w v tstk r. \<forall>gs. ivr_rel fs gs \<longrightarrow> ivr_run K gs w v tstk = Some r\<close>,
+    OF _ run], goal_cases)
+  case (1 vr K fs w v tstk r)
+  show ?case
+  proof (intro allI impI)
+    fix gs
+    assume rel: \<open>ivr_rel fs gs\<close>
+    show \<open>ivr_run K gs w v tstk = Some r\<close>
+    proof (cases fs)
+      case Nil
+      with rel have \<open>gs = []\<close> by simp
+      with Nil "1"(2) show ?thesis by (subst ivr_run.simps) (auto split: if_splits)
+    next
+      case (Cons fr fs\<^sub>1)
+      obtain j av where fr: \<open>fr = (j, av)\<close> by (cases fr)
+      from rel Cons fr obtain g gs\<^sub>1 where gs: \<open>gs = (j, g) # gs\<^sub>1\<close> and frl: \<open>ivr_frel av g\<close>
+        by (auto simp: list_all2_Cons1)
+      note body = "1"(2)[unfolded Cons fr list.case prod.case, folded fr, folded Cons]
+      have acc: \<open>ivr_mem i (ivf_get g k) \<longleftrightarrow> irep_mem i (getR av k)\<close> for i k
+        by (simp add: ivr_frel_get[OF frl])
+      have uni: \<open>ivr_run K gs w v tstk = (if w = [] \<and> irep_mem (v_ind0 (k_v K)) (getR av (iget (v_fin (k_v K)) j 0))
+         then Some (case tstk of t # _ \<Rightarrow> Some t | [] \<Rightarrow> None)
+         else (case ivr_shift K j g w of
+            Some h \<Rightarrow> ivr_run K (h # gs) (tl w) (tl v) (Leaf (hd v) # tstk)
+          | None \<Rightarrow> (case ivr_scan K gs w j g (iget (v_cp (k_v K)) j []) of
+              IvConf \<Rightarrow> None
+            | IvRej \<Rightarrow> Some None
+            | IvRed pr gs' \<Rightarrow> ivr_run K gs' w v
+                (Node (fst pr) (rev (take (length (snd pr)) tstk)) # drop (length (snd pr)) tstk))))\<close>
+        by (subst ivr_run.simps) (simp only: gs list.case prod.case acc)
+      show ?thesis
+      proof (cases \<open>w = [] \<and> irep_mem (v_ind0 (k_v K)) (getR av (iget (v_fin (k_v K)) j 0))\<close>)
+        case True
+        with body uni show ?thesis by simp
+      next
+        case nf: False
+        note body = body[unfolded if_not_P[OF nf]]
+        note uni = uni[unfolded if_not_P[OF nf]]
+        have sh: \<open>rel_option ivr_fr (vshift_k K j av w) (ivr_shift K j g w)\<close> by (rule ivr_shift[OF frl])
+        show ?thesis
+        proof (cases \<open>vshift_k K j av w\<close>)
+          case (Some f)
+          with sh obtain h where si: \<open>ivr_shift K j g w = Some h\<close> and fh: \<open>ivr_fr f h\<close>
+            by (cases \<open>ivr_shift K j g w\<close>) auto
+          from Some body have \<open>vr K (f # fs) (tl w) (tl v) (Leaf (hd v) # tstk) = Some r\<close> by simp
+          then have \<open>\<forall>gs'. ivr_rel (f # fs) gs' \<longrightarrow> ivr_run K gs' (tl w) (tl v) (Leaf (hd v) # tstk) = Some r\<close>
+            by (rule "1"(1))
+          with fh rel have \<open>ivr_run K (h # gs) (tl w) (tl v) (Leaf (hd v) # tstk) = Some r\<close> by simp
+          with uni si show ?thesis by simp
+        next
+          case skn: None
+          with sh have si: \<open>ivr_shift K j g w = None\<close> by (cases \<open>ivr_shift K j g w\<close>) auto
+          have sc: \<open>ivr_sres (vscan_k K fs w j av (iget (v_cp (k_v K)) j []))
+              (ivr_scan K gs w j g (iget (v_cp (k_v K)) j []))\<close>
+            by (rule ivr_scan[OF rel frl])
+          show ?thesis
+          proof (cases \<open>vscan_k K fs w j av (iget (v_cp (k_v K)) j [])\<close>)
+            case VSConf
+            with skn body show ?thesis by simp
+          next
+            case VSRej
+            with sc have \<open>ivr_scan K gs w j g (iget (v_cp (k_v K)) j []) = IvRej\<close>
+              by (cases \<open>ivr_scan K gs w j g (iget (v_cp (k_v K)) j [])\<close>) auto
+            with VSRej skn body si uni show ?thesis by simp
+          next
+            case (VSRed pr fs')
+            with sc obtain gs' where vs: \<open>ivr_scan K gs w j g (iget (v_cp (k_v K)) j []) = IvRed pr gs'\<close>
+                and r': \<open>ivr_rel fs' gs'\<close>
+              by (cases \<open>ivr_scan K gs w j g (iget (v_cp (k_v K)) j [])\<close>) auto
+            from VSRed skn body have \<open>vr K fs' w v
+                (Node (fst pr) (rev (take (length (snd pr)) tstk)) # drop (length (snd pr)) tstk) = Some r\<close>
+              by simp
+            then have \<open>\<forall>gs''. ivr_rel fs' gs'' \<longrightarrow> ivr_run K gs'' w v
+                (Node (fst pr) (rev (take (length (snd pr)) tstk)) # drop (length (snd pr)) tstk) = Some r\<close>
+              by (rule "1"(1))
+            with r' vs si uni show ?thesis by simp
+          qed
+        qed
+      qed
+    qed
+  qed
+qed
+
+lemma vrun_k_iv_eq: \<open>ivr_rel fs gs \<Longrightarrow> vrun_k K fs w v tstk = ivr_run K gs w v tstk\<close>
+proof (cases \<open>ivr_run K gs w v tstk\<close>)
+  case None
+  assume rel: \<open>ivr_rel fs gs\<close>
+  show ?thesis
+  proof (cases \<open>vrun_k K fs w v tstk\<close>)
+    case (Some r)
+    with None rel show ?thesis using vrun_k_iv[OF Some] by simp
+  qed (simp add: None)
+next
+  case (Some r)
+  assume rel: \<open>ivr_rel fs gs\<close>
+  with Some show ?thesis using ivr_run_k[OF Some] by simp
+qed
+
+text \<open>An anchor set as intervals: its elements as unit intervals, joined where they touch.\<close>
+
+fun ivr_of :: \<open>indrep \<Rightarrow> ivr\<close> where
+  \<open>ivr_of (FinRep xs) = Iv (ivr_coal (map (\<lambda>x. (x, Suc x)) xs)) None\<close>
+| \<open>ivr_of (UpRep xs n) = Iv (ivr_clip n (ivr_coal (map (\<lambda>x. (x, Suc x)) xs))) (Some n)\<close>
+
+lemma ivr_of_set [simp]: \<open>ivr_set (ivr_of R) = irep_set R\<close>
+  by (cases R) auto
+
+lemma vrun_k_code_iv [code]:
+  \<open>vrun_k K fs w v tstk = ivr_run K (map (\<lambda>(j, av). (j, IvEager (map ivr_of av))) fs) w v tstk\<close>
+proof (rule vrun_k_iv_eq)
+  show \<open>ivr_rel fs (map (\<lambda>(j, av). (j, IvEager (map ivr_of av))) fs)\<close>
+    by (induction fs) (auto simp: ivr_frel_def comp_def)
 qed
 
 text \<open>The parser for the code generator: \<^const>\<open>vrun_k\<close> over the kernel-only tables,

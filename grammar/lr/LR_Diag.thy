@@ -79,7 +79,7 @@ datatype ('c, 'a) dstop =
 
 partial_function (option) drun_diag ::
   \<open>('c \<Rightarrow> (('n, 't) dact \<times> 'c) option) \<Rightarrow> ('c \<Rightarrow> bool) \<Rightarrow> ('c \<Rightarrow> 'k list) \<Rightarrow>
-    ('c \<Rightarrow> 'w list) \<Rightarrow> ('w \<Rightarrow> ('t, 'ch, 'm) token_scheme) \<Rightarrow> 'k list option \<times> nat \<times> nat \<Rightarrow>
+    ('c \<Rightarrow> 'w list) \<Rightarrow> ('w \<Rightarrow> ('t, 'ch, 'm) token_scheme) \<Rightarrow> 'k list option \<times> integer \<times> integer \<Rightarrow>
     'c \<times> ('m, 'ch, 'n, 't) ast list \<Rightarrow> 'c \<times> ('m, 'ch, 'n, 't) ast list \<Rightarrow>
     ('c, ('m, 'ch, 'n, 't) ast) dstop option\<close>
   where
@@ -114,7 +114,7 @@ text \<open>What would have been accepted at the error is computed on the actual
 
 partial_function (option) dtrial ::
   \<open>('c \<Rightarrow> (('n, 't) dact \<times> 'c) option) \<Rightarrow> ('c \<Rightarrow> bool) \<Rightarrow> ('c \<Rightarrow> 'k list) \<Rightarrow>
-    'k list option \<times> nat \<times> nat \<Rightarrow> 'c \<Rightarrow> bool option\<close>
+    'k list option \<times> integer \<times> integer \<Rightarrow> 'c \<Rightarrow> bool option\<close>
   where
   \<open>dtrial ctl fin key d c =
      (if fin c then Some True

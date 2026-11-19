@@ -42,7 +42,7 @@ text \<open>As \<^const>\<open>dtrial\<close>, but it returns the configuration 
 
 partial_function (option) dadv ::
   \<open>('c \<Rightarrow> (('n, 't) dact \<times> 'c) option) \<Rightarrow> ('c \<Rightarrow> bool) \<Rightarrow> ('c \<Rightarrow> 'k list) \<Rightarrow>
-    'k list option \<times> nat \<times> nat \<Rightarrow> 'c \<Rightarrow> 'c option\<close>
+    'k list option \<times> integer \<times> integer \<Rightarrow> 'c \<Rightarrow> 'c option\<close>
   where
   \<open>dadv ctl fin key d c =
      (if fin c \<or> fst d = Some (key c) then None
