@@ -20,8 +20,8 @@ text \<open>The code of the run on values (\<^const>\<open>frun\<close> over \<^
   reduces on the spot, without \<^const>\<open>sfind\<close> and the options and pairs of the
   control, and the final test is made only at the end of the input. A cell with several
   actions takes the step of \<open>uactl\<close>. The backend rewrites the parser's code
-  equation with \<open>frun_unode\<close> and \<open>frun_ukrun_unode\<close>, and the padded tables are a
-  constant.\<close>
+  equation with \<open>frun_unode\<close> and \<open>frun_ukrun_unode\<close>, then runs on a stack of cells
+  (\<open>ukrun_ckrun\<close>), and the padded tables are a constant.\<close>
 
 subsection \<open>Padded arrays\<close>
 
@@ -561,5 +561,154 @@ corollary frun_ukrun_unode:
   \<open>frun (actl A) (afinal A) (unode a) fst ([k0], map (atenc g) w, []) =
     ukrun (upad A) (unode a) [clamp (ut_n (upad A)) k0] (map (atenc (\<lambda>t. clamp (ut_w (upad A)) (g t))) w) []\<close>
   by (rule frun_ukrun) (rule unode_def)
+
+subsection \<open>The cell stack\<close>
+
+text \<open>The states and the values as one stack: a cell holds a state and the value of the
+  symbol that led to it, the bottom cell only the start state. A shift and a reduction
+  of a short right-hand side take the cells apart by pattern, a longer one pops them in
+  one walk (\<open>cstk_pop\<close>) that lists the children in order. The end of the input and
+  a cell with several actions go to \<^const>\<open>ukrun\<close> (\<open>ckrun_code\<close>).\<close>
+
+datatype 'a cstk = CBot integer | CCell integer 'a \<open>'a cstk\<close>
+
+primrec cstk_top :: \<open>'a cstk \<Rightarrow> integer\<close> where
+  \<open>cstk_top (CBot k) = k\<close>
+| \<open>cstk_top (CCell k _ _) = k\<close>
+
+primrec cstk_sts :: \<open>'a cstk \<Rightarrow> integer list\<close> where
+  \<open>cstk_sts (CBot k) = [k]\<close>
+| \<open>cstk_sts (CCell k _ r) = k # cstk_sts r\<close>
+
+primrec cstk_vals :: \<open>'a cstk \<Rightarrow> 'a list\<close> where
+  \<open>cstk_vals (CBot _) = []\<close>
+| \<open>cstk_vals (CCell _ u r) = u # cstk_vals r\<close>
+
+fun cstk_pop :: \<open>'b list \<Rightarrow> 'a cstk \<Rightarrow> 'a list \<Rightarrow> ('a cstk \<times> 'a list) option\<close> where
+  \<open>cstk_pop [] c acc = Some (c, acc)\<close>
+| \<open>cstk_pop (_ # xs) (CCell _ u r) acc = cstk_pop xs r (u # acc)\<close>
+| \<open>cstk_pop (_ # _) (CBot _) _ = None\<close>
+
+lemma sts_ctop [simp]: \<open>cstk_top c # tl (cstk_sts c) = cstk_sts c\<close>
+  by (cases c) simp_all
+
+lemma case_sts: \<open>(case cstk_sts c of [] \<Rightarrow> a | k # ks \<Rightarrow> f k ks) = f (cstk_top c) (tl (cstk_sts c))\<close>
+  by (cases c) simp_all
+
+lemma cpop_Some:
+  \<open>cstk_pop xs c acc = Some (r, us) \<Longrightarrow>
+    drop_as xs (cstk_sts c) = cstk_sts r \<and> drop_as xs (cstk_vals c) = cstk_vals r \<and> us = rev (take_as xs (cstk_vals c)) @ acc\<close>
+  by (induction xs c acc rule: cstk_pop.induct) auto
+
+lemma cpop_None: \<open>cstk_pop xs c acc = None \<Longrightarrow> drop_as xs (cstk_sts c) = []\<close>
+proof (induction xs c acc rule: cstk_pop.induct)
+  case (3 x xs k acc)
+  then show ?case by (cases xs) simp_all
+qed simp_all
+
+definition ckrun :: \<open>(integer, 't) utabs \<Rightarrow>
+    (integer \<Rightarrow> ('m, 'ch, 't, 'v) fv list \<Rightarrow> ('m, 'ch, 't, 'v) fv) \<Rightarrow>
+    ('m, 'ch, 't, 'v) fv cstk \<Rightarrow> (('t, 'ch, 'm) token_scheme \<times> integer) list \<Rightarrow>
+    ('m, 'ch, 't, 'v) fv option\<close> where
+  \<open>ckrun U N c v = ukrun U N (cstk_sts c) v (cstk_vals c)\<close>
+
+lemma ukrun_ckrun: \<open>ukrun U N [k] v [] = ckrun U N (CBot k) v\<close>
+  by (simp add: ckrun_def)
+
+lemma ckrun_red:
+  \<open>(case xs of
+      [] \<Rightarrow> (case IArray.sub' (IArray.sub' (ut_N U, cstk_top c), B) of None \<Rightarrow> None
+            | Some k' \<Rightarrow> ckrun U N (CCell k' (N lab []) c) v)
+    | [_] \<Rightarrow> (case c of CBot _ \<Rightarrow> None | CCell _ u r \<Rightarrow>
+          (case IArray.sub' (IArray.sub' (ut_N U, cstk_top r), B) of None \<Rightarrow> None
+           | Some k' \<Rightarrow> ckrun U N (CCell k' (N lab [u]) r) v))
+    | [_, _] \<Rightarrow> (case c of CCell _ u2 (CCell _ u1 r) \<Rightarrow>
+          (case IArray.sub' (IArray.sub' (ut_N U, cstk_top r), B) of None \<Rightarrow> None
+           | Some k' \<Rightarrow> ckrun U N (CCell k' (N lab [u1, u2]) r) v)
+        | _ \<Rightarrow> None)
+    | _ \<Rightarrow> (case cstk_pop xs c [] of None \<Rightarrow> None | Some (r, us) \<Rightarrow>
+          (case IArray.sub' (IArray.sub' (ut_N U, cstk_top r), B) of None \<Rightarrow> None
+           | Some k' \<Rightarrow> ckrun U N (CCell k' (N lab us) r) v))) =
+   (case drop_as xs (cstk_sts c) of [] \<Rightarrow> None
+    | k'' # rest \<Rightarrow> (case IArray.sub' (IArray.sub' (ut_N U, k''), B) of None \<Rightarrow> None
+        | Some k' \<Rightarrow> ukrun U N (k' # k'' # rest) v
+            (N lab (rev (take_as xs (cstk_vals c))) # drop_as xs (cstk_vals c))))\<close>
+proof -
+  have gen: \<open>(case cstk_pop xs c [] of None \<Rightarrow> None | Some (r, us) \<Rightarrow>
+          (case IArray.sub' (IArray.sub' (ut_N U, cstk_top r), B) of None \<Rightarrow> None
+           | Some k' \<Rightarrow> ckrun U N (CCell k' (N lab us) r) v)) =
+   (case drop_as xs (cstk_sts c) of [] \<Rightarrow> None
+    | k'' # rest \<Rightarrow> (case IArray.sub' (IArray.sub' (ut_N U, k''), B) of None \<Rightarrow> None
+        | Some k' \<Rightarrow> ukrun U N (k' # k'' # rest) v
+            (N lab (rev (take_as xs (cstk_vals c))) # drop_as xs (cstk_vals c))))\<close>
+  proof (cases \<open>cstk_pop xs c []\<close>)
+    case None
+    then show ?thesis by (simp add: cpop_None)
+  next
+    case (Some p)
+    obtain r us where p: \<open>p = (r, us)\<close> by (cases p)
+    from cpop_Some[OF Some[unfolded p]] Some p show ?thesis
+      by (simp add: case_sts ckrun_def cong: option.case_cong)
+  qed
+  show ?thesis
+  proof (cases xs rule: remdups_adj.cases)
+    case 1
+    then show ?thesis by (simp add: case_sts ckrun_def cong: option.case_cong)
+  next
+    case (2 x)
+    then show ?thesis by (cases c) (simp_all add: case_sts ckrun_def cong: option.case_cong)
+  next
+    case (3 x y ys)
+    show ?thesis
+    proof (cases ys)
+      case Nil
+      then show ?thesis using 3
+        by (cases c rule: cstk.exhaust[case_product cstk.exhaust]; cases c)
+          (auto simp: case_sts ckrun_def cong: option.case_cong split: cstk.split)
+    next
+      case (Cons z zs)
+      with 3 gen show ?thesis by simp
+    qed
+  qed
+qed
+
+lemma ckrun_code [code]:
+  \<open>ckrun U N c v = (case v of
+      [] \<Rightarrow> ukrun U N (cstk_sts c) [] (cstk_vals c)
+    | (t, l) # v' \<Rightarrow> (case IArray.sub' (IArray.sub' (ut_A U, cstk_top c), l) of
+        None \<Rightarrow> None
+      | Some cs \<Rightarrow> (case cs of
+          [] \<Rightarrow> None
+        | a # cs' \<Rightarrow> if List.null cs' then
+              (case a of
+                AShift k' \<Rightarrow> ckrun U N (CCell k' (FLeaf t) c) v'
+              | AReduce (lab, xs) B \<Rightarrow> (case xs of
+                  [] \<Rightarrow> (case IArray.sub' (IArray.sub' (ut_N U, cstk_top c), B) of None \<Rightarrow> None
+                        | Some k' \<Rightarrow> ckrun U N (CCell k' (N lab []) c) v)
+                | [_] \<Rightarrow> (case c of CBot _ \<Rightarrow> None | CCell _ u r \<Rightarrow>
+                      (case IArray.sub' (IArray.sub' (ut_N U, cstk_top r), B) of None \<Rightarrow> None
+                       | Some k' \<Rightarrow> ckrun U N (CCell k' (N lab [u]) r) v))
+                | [_, _] \<Rightarrow> (case c of CCell _ u2 (CCell _ u1 r) \<Rightarrow>
+                      (case IArray.sub' (IArray.sub' (ut_N U, cstk_top r), B) of None \<Rightarrow> None
+                       | Some k' \<Rightarrow> ckrun U N (CCell k' (N lab [u1, u2]) r) v)
+                    | _ \<Rightarrow> None)
+                | _ \<Rightarrow> (case cstk_pop xs c [] of None \<Rightarrow> None | Some (r, us) \<Rightarrow>
+                      (case IArray.sub' (IArray.sub' (ut_N U, cstk_top r), B) of None \<Rightarrow> None
+                       | Some k' \<Rightarrow> ckrun U N (CCell k' (N lab us) r) v))))
+            else (case sfind (uatarget U (cstk_sts c)) cs of None \<Rightarrow> None
+              | Some (a, stk') \<Rightarrow> ukrun U N stk' (case a of DShift \<Rightarrow> v' | DReduce _ \<Rightarrow> v)
+                  (ftree fst N a v (cstk_vals c))))))\<close>
+proof (cases v)
+  case Nil
+  then show ?thesis by (simp add: ckrun_def)
+next
+  case (Cons w v')
+  obtain t l where w: \<open>w = (t, l)\<close> by (cases w)
+  show ?thesis
+    unfolding Cons w ckrun_red
+    by (rule trans[OF ckrun_def], rule trans[OF ukrun_unfold])
+      (simp add: case_sts ckrun_def case_prod_beta
+        cong: option.case_cong list.case_cong aact.case_cong if_cong)
+qed
 
 end

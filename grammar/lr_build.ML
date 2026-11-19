@@ -785,7 +785,7 @@ fun lr_build_parse
                    Proof_Context.get_thm lthy0 "LR_Prec_Parse.frun_ukrun_opnode"]
               | NONE => [ofn "frun_unode" @{thm frun_unode} [names_eq, latabs_eq, fntab_eq],
                 @{thm frun_ukrun_unode}]);
-          in (th :: uks @ [utabs_eq], lthy) end;
+          in (th :: uks @ [@{thm ukrun_ckrun}, utabs_eq], lthy) end;
         val (ths, fuse_msg, lthy) =
           (case timed lthy "fuse" (fn lthy => SOME (fuse lthy)
               handle Fail msg => (if msg = "fuse: not applicable" orelse msg = "fuse: span" then ()
