@@ -8,6 +8,39 @@ struct
 
 open LR_Util LR_Diagnostics;
 
+(* LR_Fuse: the type of the fused values over the carriers Ts (most frequent first), an
+   injection and a projection for each: up to 16 carriers are the alternatives of one
+   LR_Fuse.vs, more fill 15 alternatives and nest the rest in the last one; unused
+   alternatives are unit *)
+val vs_width = 16;
+
+fun mk_val_wide [U] = (U, [(U, (Abs ("x", U, Bound 0), Grammar_Common.mk_Some U))])
+  | mk_val_wide Ts =
+      let
+        val groups =
+          if length Ts <= vs_width then map single Ts
+          else map single (take (vs_width - 1) Ts) @ [drop (vs_width - 1) Ts];
+        val subs = map mk_val_wide groups;
+        val slotTs = map fst subs @ replicate (vs_width - length subs) HOLogic.unitT;
+        val VT = Type (\<^type_name>\<open>vs\<close>, slotTs);
+        val ctr_names =
+          map (fst o dest_Const) (#ctrs (the (Ctr_Sugar.ctr_sugar_of_global
+            \<^theory> \<^type_name>\<open>vs\<close>)));
+        val case_name = \<^const_name>\<open>case_vs\<close>;
+        fun lift j (U, (inj, proj)) =
+          let
+            val optT = Type (\<^type_name>\<open>option\<close>, [U]);
+            val ctr = Const (nth ctr_names j, nth slotTs j --> VT);
+            val arms =
+              map_index (fn (j', S) =>
+                if j' = j then proj else Abs ("v", S, Grammar_Common.mk_None U)) slotTs;
+            val case_c = Const (case_name, map (fn S => S --> optT) slotTs ---> VT --> optT);
+          in
+            (U, (Envir.beta_eta_contract (Abs ("x", U, ctr $ (inj $ Bound 0))),
+              Term.list_comb (case_c, arms)))
+          end;
+      in (VT, flat (map_index (fn (j, (_, injs)) => map (lift j) injs) subs)) end;
+
 fun lr_build_parse
   ({gram, parse_bind, shn, options, errors, recover, repair, on_error_reduce, token_info}:
     Parser_Generators.build_input) lthy =
@@ -366,7 +399,8 @@ fun lr_build_parse
                 (names_eq, latabs_eq,
                  fn nd => Proof_Context.get_thm lthy0 "LR_Prec_Parse.bind_nrun_lab_plain" OF [rnames_eq, rs_ne, latabs_eq, names_eq, oarr_eq, nd],
                  SOME (Const ("LR_Prec_Parse.oget",
-                   Type (\<^type_name>\<open>iarray\<close>, [integerT]) --> integerT --> integerT) $ rhs_of_eq oarr_eq),
+                   Type (\<^type_name>\<open>iarray\<close>, [integerT]) --> integerT --> integerT) $ rhs_of_eq oarr_eq,
+                   rnames_eq, oarr_eq),
                  lthy)
               end);
         val names = rhs_of_eq names_eq;
@@ -500,7 +534,13 @@ fun lr_build_parse
               | dest_optT _ = raise Fail "fuse: decoder type";
             fun optT T = Type (\<^type_name>\<open>option\<close>, [T]);
             val carTs = map (fn nd => dest_optT (range_type (fastype_of nd))) ndecs;
-            val (valT, injs) = Grammar_Decoders.mk_val_sum (distinct (op =) carTs);
+            (* the carriers by the number of their productions, most first: a guess at how
+               many nodes carry them *)
+            val nprods = map (fn (A, _) => length (filter (fn p => #lhs p = A) (#prods gram))) decs;
+            val carW =
+              fold (fn (T, n) => AList.map_default (op =) (T, 0) (fn m => m + n)) (carTs ~~ nprods) []
+              |> rev |> sort (rev_order o int_ord o apply2 snd) |> map fst;
+            val (valT, injs) = mk_val_wide carW;
             fun inj_of T = fst (the (AList.lookup (op =) injs T));
             fun proj_of T = snd (the (AList.lookup (op =) injs T));
             val fvT = Type (\<^type_name>\<open>fv\<close>, [mT, chT, tT, valT]);
@@ -722,7 +762,7 @@ fun lr_build_parse
             (* a restricted grammar: the translation to the original names is part of
                the fold (LR_Prec_Parse.pnode) *)
             fun plain_thm nm =
-              Drule.infer_instantiate lthy [(("og", 0), ct (the origs))]
+              Drule.infer_instantiate lthy [(("og", 0), ct (#1 (the origs)))]
                 (Proof_Context.get_thm lthy0 ("LR_Prec_Parse." ^ nm));
             val th =
               if is_some origs then ofn "bind_frun_plain" (plain_thm "bind_frun_plain") [V, L_start, fnk]
@@ -734,10 +774,18 @@ fun lr_build_parse
               | _ => raise Fail "fuse: tables type");
             val (utabs_eq, lthy) =
               define "utabs" (Const (\<^const_name>\<open>upad\<close>, fastype_of lat --> utabsT) $ lat) lthy;
-            val uk =
-              if is_some origs then ofn "frun_ukrun_plain" (plain_thm "frun_ukrun_plain") [fnk]
-              else ofn "frun_ukrun" @{thm frun_ukrun} [fnk];
-          in ([th, uk, utabs_eq], lthy) end;
+            (* the labels in the tables are indices into fntab (into oarr, whose entries
+               index fntab, for a restricted grammar): no lookup of an action needs a
+               bounds check (LR_Kern.frun_unode, LR_Prec_Parse.frun_opnode) *)
+            val uks =
+              (case origs of
+                SOME (_, rnames_eq, oarr_eq) =>
+                  [ofn "frun_opnode" (Proof_Context.get_thm lthy0 "LR_Prec_Parse.frun_opnode")
+                    [rnames_eq, latabs_eq, names_eq, oarr_eq, fntab_eq],
+                   Proof_Context.get_thm lthy0 "LR_Prec_Parse.frun_ukrun_opnode"]
+              | NONE => [ofn "frun_unode" @{thm frun_unode} [names_eq, latabs_eq, fntab_eq],
+                @{thm frun_ukrun_unode}]);
+          in (th :: uks @ [utabs_eq], lthy) end;
         val (ths, fuse_msg, lthy) =
           (case timed lthy "fuse" (fn lthy => SOME (fuse lthy)
               handle Fail msg => (if msg = "fuse: not applicable" orelse msg = "fuse: span" then ()

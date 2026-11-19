@@ -20,7 +20,8 @@ text \<open>The code of the run on values (\<^const>\<open>frun\<close> over \<^
   reduces on the spot, without \<^const>\<open>sfind\<close> and the options and pairs of the
   control, and the final test is made only at the end of the input. A cell with several
   actions takes the step of \<open>uactl\<close>. The backend rewrites the parser's code
-  equation with \<open>frun_ukrun\<close> and the padded tables are a constant.\<close>
+  equation with \<open>frun_unode\<close> and \<open>frun_ukrun_unode\<close>, and the padded tables are a
+  constant.\<close>
 
 subsection \<open>Padded arrays\<close>
 
@@ -322,7 +323,7 @@ lemma ukrun_red:
             | Some k' \<Rightarrow> ukrun U N (k' # k'' # rest) v (N l (rev (take_as xs us)) # drop_as xs us))))\<close>
   by (auto simp: take_as_eq drop_as_eq split: list.split option.split)
 
-lemma ukrun_code [code]:
+lemma ukrun_code:
   \<open>ukrun U N stk v us = (case stk of [] \<Rightarrow> None | k # _ \<Rightarrow>
      (case v of
        [] \<Rightarrow> if IArray.sub' (ut_pf U, k) = Some True then fresult us
@@ -361,6 +362,49 @@ lemma ukrun_code [code]:
                    (ftree fst N a v us))))))\<close>
   unfolding ukrun_red[symmetric] by (rule ukrun_unfold)
 
+text \<open>The same with the pairs taken apart by pattern: OCaml calls a function on a pair
+  (\<^const>\<open>fst\<close>, \<^const>\<open>snd\<close>) directly only when its argument is written as a
+  pair, and otherwise through a generic application.\<close>
+
+lemma ukrun_code_pat [code]:
+  \<open>ukrun U N stk v us = (case stk of [] \<Rightarrow> None | k # _ \<Rightarrow>
+     (case v of
+       [] \<Rightarrow> if IArray.sub' (ut_pf U, k) = Some True then fresult us
+            else (case sfind (uatarget U stk) (uaecands U k) of None \<Rightarrow> None
+              | Some (a, stk') \<Rightarrow> ukrun U N stk' v (ftree fst N a v us))
+     | (t, l) # v' \<Rightarrow> (case IArray.sub' (IArray.sub' (ut_A U, k), l) of
+         None \<Rightarrow> None
+       | Some cs \<Rightarrow> (case cs of
+           [] \<Rightarrow> None
+         | c # cs' \<Rightarrow> if List.null cs' then
+               (case c of
+                 AShift k' \<Rightarrow> ukrun U N (k' # stk) v' (FLeaf t # us)
+               | AReduce (lab, xs) B \<Rightarrow> (case xs of
+                    [] \<Rightarrow> (case stk of [] \<Rightarrow> None
+                      | k'' # rest \<Rightarrow> (case IArray.sub' (IArray.sub' (ut_N U, k''), B) of None \<Rightarrow> None
+                          | Some k' \<Rightarrow> ukrun U N (k' # k'' # rest) v (N lab [] # us)))
+                  | [_] \<Rightarrow> (case stk of _ # k'' # rest \<Rightarrow>
+                        (case IArray.sub' (IArray.sub' (ut_N U, k''), B) of None \<Rightarrow> None
+                         | Some k' \<Rightarrow> (case us of
+                             u # us' \<Rightarrow> ukrun U N (k' # k'' # rest) v (N lab [u] # us')
+                           | [] \<Rightarrow> ukrun U N (k' # k'' # rest) v [N lab []]))
+                      | _ \<Rightarrow> None)
+                  | [_, _] \<Rightarrow> (case stk of _ # _ # k'' # rest \<Rightarrow>
+                        (case IArray.sub' (IArray.sub' (ut_N U, k''), B) of None \<Rightarrow> None
+                         | Some k' \<Rightarrow> (case us of
+                             u2 # u1 # us' \<Rightarrow> ukrun U N (k' # k'' # rest) v (N lab [u1, u2] # us')
+                           | _ \<Rightarrow> ukrun U N (k' # k'' # rest) v
+                               (N lab (rev (take_as xs us)) # drop_as xs us)))
+                      | _ \<Rightarrow> None)
+                  | _ \<Rightarrow> (case drop_as xs stk of [] \<Rightarrow> None
+                      | k'' # rest \<Rightarrow> (case IArray.sub' (IArray.sub' (ut_N U, k''), B) of None \<Rightarrow> None
+                          | Some k' \<Rightarrow> ukrun U N (k' # k'' # rest) v
+                              (N lab (rev (take_as xs us)) # drop_as xs us)))))
+             else (case sfind (uatarget U stk) cs of None \<Rightarrow> None
+               | Some (a, stk') \<Rightarrow> ukrun U N stk' (case a of DShift \<Rightarrow> v' | DReduce _ \<Rightarrow> v)
+                   (ftree fst N a v us))))))\<close>
+  unfolding case_prod_beta by (rule ukrun_code[unfolded case_prod_beta])
+
 text \<open>The rewrite of the parser's code equation.\<close>
 
 theorem frun_ukrun_hom:
@@ -379,5 +423,143 @@ corollary frun_ukrun:
   shows \<open>frun (actl A) (afinal A) N fst ([k0], map (atenc g) w, []) =
     ukrun (upad A) N [clamp (ut_n (upad A)) k0] (map (atenc (\<lambda>t. clamp (ut_w (upad A)) (g t))) w) []\<close>
   by (rule frun_ukrun_hom[where U = \<open>afold K\<close>]) (simp_all add: N)
+
+subsection \<open>The actions without a bounds check\<close>
+
+text \<open>The run applies its node function only to the labels of the reductions in the
+  tables (\<open>frun_node_cong\<close>). The labels of a parser's tables are indices into its list of
+  names, and the array of its actions is as long as that list, so the lookup of an action
+  needs no bounds check (\<open>frun_unode\<close>).\<close>
+
+lemma sfind_SomeD: \<open>sfind f xs = Some y \<Longrightarrow> \<exists>x \<in> set xs. f x = Some y\<close>
+  by (induction xs) (auto split: option.splits)
+
+lemma aget_list_of: \<open>aget a i = Some x \<Longrightarrow> Some x \<in> set (IArray.list_of a)\<close>
+  by (cases a) (auto simp: aget_def less_zi split: if_splits; metis nth_mem)
+
+lemma acands_aacts: \<open>set (acands A k l) \<subseteq> set (aacts A)\<close>
+proof
+  fix x assume x: \<open>x \<in> set (acands A k l)\<close>
+  then obtain es where es: \<open>aget2 (at_A A) k l = Some es\<close> \<open>x \<in> set es\<close>
+    using x by (cases \<open>aget2 (at_A A) k l\<close>) (auto simp: acands_def)
+  then obtain r where r: \<open>aget (at_A A) k = Some r\<close> \<open>aget r l = Some es\<close>
+    by (auto simp: aget2_def split: option.splits)
+  from aget_list_of[OF r(1)] aget_list_of[OF r(2)] es(2) show \<open>x \<in> set (aacts A)\<close>
+    by (force simp: aacts_def oelems_def)
+qed
+
+lemma aecands_aacts: \<open>set (aecands A k) \<subseteq> set (aacts A)\<close>
+proof
+  fix x assume x: \<open>x \<in> set (aecands A k)\<close>
+  then obtain es where es: \<open>aget (at_E A) k = Some es\<close> \<open>x \<in> set es\<close>
+    using x by (cases \<open>aget (at_E A) k\<close>) (auto simp: aecands_def)
+  from aget_list_of[OF es(1)] es(2) show \<open>x \<in> set (aacts A)\<close>
+    by (force simp: aacts_def oelems_def)
+qed
+
+lemma atarget_reduce: \<open>atarget A kstk a = Some (DReduce pr, s) \<Longrightarrow> \<exists>B. a = AReduce pr B\<close>
+  by (auto simp: atarget_def split: aact.splits list.splits)
+
+lemma actl_reduce:
+  assumes \<open>actl A c = Some (DReduce pr, r)\<close> shows \<open>\<exists>B. AReduce pr B \<in> set (aacts A)\<close>
+proof -
+  obtain kstk v where c: \<open>c = (kstk, v)\<close> by (cases c)
+  from assms obtain xs where sf: \<open>sfind (atarget A kstk) xs = Some (DReduce pr, fst r)\<close>
+      and xs: \<open>set xs \<subseteq> set (aacts A)\<close>
+    unfolding c actl_def
+    by (auto split: list.splits prod.splits intro: that[OF _ acands_aacts] that[OF _ aecands_aacts])
+  from sfind_SomeD[OF sf] obtain x where \<open>x \<in> set xs\<close> \<open>atarget A kstk x = Some (DReduce pr, fst r)\<close> ..
+  with xs atarget_reduce show ?thesis by blast
+qed
+
+theorem frun_node_cong:
+  assumes N: \<open>\<And>pr B us. AReduce pr B \<in> set (aacts A) \<Longrightarrow> N (fst pr) us = N' (fst pr) us\<close>
+  shows \<open>frun (actl A) fin N dec st = frun (actl A) fin N' dec st\<close>
+proof -
+  have dir: \<open>frun (actl A) fin M' dec st = Some t\<close>
+    if h: \<open>frun (actl A) fin M dec st = Some t\<close>
+      and MM: \<open>\<And>pr B us. AReduce pr B \<in> set (aacts A) \<Longrightarrow> M (fst pr) us = M' (fst pr) us\<close>
+    for M M' st t
+  proof -
+    have \<open>ctl = actl A \<longrightarrow> f = fin \<longrightarrow> n = M \<longrightarrow> d = dec \<longrightarrow> frun (actl A) fin M' dec st = Some t\<close>
+      if \<open>frun ctl f n d st = Some t\<close> for ctl f n d
+    proof (rule frun.raw_induct[OF _ that, where P = \<open>\<lambda>ctl f n d st t. ctl = actl A \<longrightarrow> f = fin \<longrightarrow>
+        n = M \<longrightarrow> d = dec \<longrightarrow> frun (actl A) fin M' dec st = Some t\<close>], goal_cases)
+      case (1 F ctl f n d st t)
+      obtain stk v us where st: \<open>st = (stk, v, us)\<close> by (cases st)
+      show ?case
+      proof (intro impI)
+        assume c: \<open>ctl = actl A\<close> and f: \<open>f = fin\<close> and n: \<open>n = M\<close> and d: \<open>d = dec\<close>
+        show \<open>frun (actl A) fin M' dec st = Some t\<close>
+        proof (cases \<open>fin (stk, v)\<close>)
+          case True
+          with "1"(2) show ?thesis unfolding st c f by (subst frun.simps) simp
+        next
+          case False
+          from False "1"(2) obtain a stk' v' where
+              sc: \<open>actl A (stk, v) = Some (a, stk', v')\<close>
+            and rec: \<open>F ctl f n d (stk', v', ftree d n a v us) = Some t\<close>
+            unfolding st c f by (auto simp: bind_eq_Some_conv)
+          from "1"(1)[OF rec] c f n d
+          have \<open>frun (actl A) fin M' dec (stk', v', ftree dec M a v us) = Some t\<close> by simp
+          have fe: \<open>ftree dec M a v us = ftree dec M' a v us\<close>
+          proof (cases a)
+            case (DReduce pr)
+            with sc actl_reduce[of A \<open>(stk, v)\<close> pr \<open>(stk', v')\<close>]
+            obtain B where \<open>AReduce pr B \<in> set (aacts A)\<close> by auto
+            with DReduce show ?thesis by (simp add: ftree_def MM)
+          qed (simp add: ftree_def)
+          show ?thesis unfolding st using False sc fe \<open>frun (actl A) fin M' dec (stk', v', ftree dec M a v us) = Some t\<close>
+            by (subst frun.simps) simp
+        qed
+      qed
+    qed
+    then show ?thesis using h by blast
+  qed
+  show ?thesis
+  proof (cases \<open>frun (actl A) fin N dec st\<close>)
+    case None
+    have \<open>frun (actl A) fin N' dec st = None\<close>
+    proof (rule ccontr)
+      assume \<open>frun (actl A) fin N' dec st \<noteq> None\<close>
+      then obtain t where \<open>frun (actl A) fin N' dec st = Some t\<close> by blast
+      from dir[OF this, of N] N None show False by (metis option.distinct(1))
+    qed
+    with None show ?thesis by simp
+  next
+    case (Some t)
+    from dir[OF Some N] Some show ?thesis by simp
+  qed
+qed
+
+definition unode :: \<open>(('m, 'ch, 't, 'v) fv list \<Rightarrow> 'v option) option iarray \<Rightarrow>
+    integer \<Rightarrow> ('m, 'ch, 't, 'v) fv list \<Rightarrow> ('m, 'ch, 't, 'v) fv\<close> where
+  \<open>unode a i us = FNode i (case IArray.sub' (a, i) of None \<Rightarrow> None | Some f \<Rightarrow> f us)\<close>
+
+lemma unode_fnode: \<open>0 \<le> i \<Longrightarrow> i < IArray.length' a \<Longrightarrow> unode a i us = fnode a i us\<close>
+  by (simp add: unode_def fnode_def kget_def aget_def)
+
+theorem frun_unode:
+  assumes ns: \<open>remdups (alabels A0 @ ds) = ns\<close> and A: \<open>alab (lix ns) A0 = A\<close>
+    and a: \<open>ftab (length ns) ps = a\<close>
+  shows \<open>frun (actl A) fin (fnode a) dec st = frun (actl A) fin (unode a) dec st\<close>
+proof (rule frun_node_cong)
+  fix pr B us assume m: \<open>AReduce pr B \<in> set (aacts A)\<close>
+  then obtain a0 where a0: \<open>a0 \<in> set (aacts A0)\<close> \<open>aact_lab (lix ns) a0 = AReduce pr B\<close>
+    unfolding A[symmetric] aacts_alab by auto
+  from a0(2) obtain pr0 where pr0: \<open>a0 = AReduce pr0 B\<close> \<open>pr = pr_lab (lix ns) pr0\<close>
+    by (cases a0) auto
+  have \<open>fst pr0 \<in> set (pr_names pr0)\<close> by (simp add: pr_names_def)
+  with a0(1) pr0(1) have \<open>fst pr0 \<in> set ns\<close> using alabels_mem ns by fastforce
+  then have \<open>0 \<le> fst pr \<and> fst pr < IArray.length' a\<close>
+    using lix_range[of \<open>fst pr0\<close> ns] pr0(2) a[symmetric]
+    by (simp add: pr_lab_def less_zi ftab_def)
+  then show \<open>fnode a (fst pr) us = unode a (fst pr) us\<close> by (simp add: unode_fnode)
+qed
+
+corollary frun_ukrun_unode:
+  \<open>frun (actl A) (afinal A) (unode a) fst ([k0], map (atenc g) w, []) =
+    ukrun (upad A) (unode a) [clamp (ut_n (upad A)) k0] (map (atenc (\<lambda>t. clamp (ut_w (upad A)) (g t))) w) []\<close>
+  by (rule frun_ukrun) (rule unode_def)
 
 end

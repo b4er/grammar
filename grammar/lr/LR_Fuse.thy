@@ -26,6 +26,14 @@ subsection \<open>Values and the fold\<close>
 
 datatype ('m, 'ch, 't, 'v) fv = FLeaf \<open>('t, 'ch, 'm) token_scheme\<close> | FNode integer \<open>'v option\<close>
 
+text \<open>The values of the nonterminals, one type per carrier: a wide sum, so that a value
+  is one constructor away from its carrier, not one per level of a binary sum. A parser
+  with more than 16 carriers nests the rest in the last alternative.\<close>
+
+datatype ('a, 'b, 'c, 'd, 'e, 'f, 'g, 'h, 'i, 'j, 'k, 'l, 'm, 'n, 'o, 'p) vs =
+  V0 'a | V1 'b | V2 'c | V3 'd | V4 'e | V5 'f | V6 'g | V7 'h
+| V8 'i | V9 'j | V10 'k | V11 'l | V12 'm | V13 'n | V14 'o | V15 'p
+
 primrec afold :: \<open>(integer \<Rightarrow> ('m, 'ch, 't, 'v) fv list \<Rightarrow> 'v option) \<Rightarrow>
     ('m, 'ch, integer, 't) ast \<Rightarrow> ('m, 'ch, 't, 'v) fv\<close> where
   \<open>afold K (Leaf w) = FLeaf w\<close>

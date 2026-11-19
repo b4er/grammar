@@ -566,4 +566,54 @@ theorem frun_ukrun_plain:
     ukrun (upad A) (pnode og F) [clamp (ut_n (upad A)) k0] (map (atenc (\<lambda>t. clamp (ut_w (upad A)) (g t))) w) []\<close>
   by (rule frun_ukrun_hom[where U = \<open>afold K \<circ> plain_ast og\<close>]) (simp_all add: plain_hom[OF F])
 
+text \<open>The run of a restricted grammar without bounds checks: its labels index the array
+  of the original names, and the original names index the actions, so both lookups of
+  \<^const>\<open>pnode\<close> can be unchecked (\<open>frun_opnode\<close>).\<close>
+
+definition opnode :: \<open>integer iarray \<Rightarrow> (('m, 'ch, 't, 'v) fv list \<Rightarrow> 'v option) option iarray \<Rightarrow>
+    integer \<Rightarrow> ('m, 'ch, 't, 'v) fv list \<Rightarrow> ('m, 'ch, 't, 'v) fv\<close> where
+  \<open>opnode oa a = pnode (\<lambda>i. IArray.sub' (oa, i)) (unode a)\<close>
+
+lemma opnode_code [code]:
+  \<open>opnode oa a i us = (let k = IArray.sub' (oa, i) in (case us of
+      [FNode j x] \<Rightarrow> if j = k then FNode j x else unode a k us
+    | _ \<Rightarrow> unode a k us))\<close>
+  by (simp add: opnode_def pnode_def Let_def)
+
+theorem frun_opnode:
+  assumes rns: \<open>remdups (alabels A0 @ rs) = rns\<close> and A: \<open>alab (lix rns) A0 = A\<close>
+    and ns: \<open>remdups (map orig rns @ ds) = ns\<close>
+    and oa: \<open>IArray (map (\<lambda>n. lix ns (orig n)) rns) = oa\<close>
+    and a: \<open>ftab (length ns) ps = a\<close>
+  shows \<open>frun (actl A) fin (pnode (oget oa) (fnode a)) dec st = frun (actl A) fin (opnode oa a) dec st\<close>
+proof (rule frun_node_cong)
+  fix pr B us assume m: \<open>AReduce pr B \<in> set (aacts A)\<close>
+  then obtain a0 where a0: \<open>a0 \<in> set (aacts A0)\<close> \<open>aact_lab (lix rns) a0 = AReduce pr B\<close>
+    unfolding A[symmetric] aacts_alab by auto
+  from a0(2) obtain pr0 where pr0: \<open>a0 = AReduce pr0 B\<close> \<open>pr = pr_lab (lix rns) pr0\<close>
+    by (cases a0) auto
+  have \<open>fst pr0 \<in> set (pr_names pr0)\<close> by (simp add: pr_names_def)
+  with a0(1) pr0(1) have n: \<open>fst pr0 \<in> set rns\<close> using alabels_mem rns by fastforce
+  define i where \<open>i = fst pr\<close>
+  have i: \<open>i = lix rns (fst pr0)\<close> using pr0(2) by (simp add: i_def pr_lab_def)
+  have ir: \<open>0 \<le> i \<and> nat_of_integer i < length rns\<close> using lix_range[OF n] i by simp
+  have nth: \<open>rns ! nat_of_integer i = fst pr0\<close> using lnm_lix[OF n] ir i by (simp add: lnm_def)
+  have sub: \<open>IArray.sub' (oa, i) = lix ns (orig (fst pr0))\<close>
+    using ir nth oa[symmetric] by (simp add: IArray.sub'_def)
+  have og: \<open>oget oa i = IArray.sub' (oa, i)\<close>
+    using ir oa[symmetric] by (simp add: oget_def IArray.sub'_def)
+  have on: \<open>orig (fst pr0) \<in> set ns\<close> using n ns by auto
+  have kr: \<open>0 \<le> IArray.sub' (oa, i) \<and> IArray.sub' (oa, i) < IArray.length' a\<close>
+    using lix_range[OF on] a[symmetric] sub by (simp add: less_zi ftab_def)
+  have fe: \<open>fnode a (IArray.sub' (oa, i)) vs = unode a (IArray.sub' (oa, i)) vs\<close> for vs
+    using kr by (simp add: unode_fnode)
+  show \<open>pnode (oget oa) (fnode a) (fst pr) us = opnode oa a (fst pr) us\<close>
+    unfolding i_def[symmetric] opnode_def pnode_def og fe ..
+qed
+
+theorem frun_ukrun_opnode:
+  \<open>frun (actl A) (afinal A) (opnode oa a) fst ([k0], map (atenc g) w, []) =
+    ukrun (upad A) (opnode oa a) [clamp (ut_n (upad A)) k0] (map (atenc (\<lambda>t. clamp (ut_w (upad A)) (g t))) w) []\<close>
+  unfolding opnode_def by (rule frun_ukrun_plain) (rule unode_def)
+
 end
