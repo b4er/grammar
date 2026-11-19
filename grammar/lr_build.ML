@@ -318,7 +318,7 @@ fun lr_build_parse
        code equation's bind of the run and the start decoder.  NONE outside a theory
        target, under parser (ast), or when a decoder's equations do not have the shape
        of define_decoders *)
-    fun lab_rewrite atabs_t lthy0 =
+    fun lab_rewrite vec atabs_t lthy0 =
       let
         val arts = Grammar_Common.artifacts_of gram;
         fun base_dec (Const (\<^const_name>\<open>comp\<close>, _) $ d $ _) = d
@@ -331,6 +331,8 @@ fun lr_build_parse
             forall (fn (_, d) => is_Const d andalso
               fst (dest_Const d) <> \<^const_name>\<open>Some\<close>) decs
           orelse raise Fail "labels: not applicable";
+        (* the state-indexed driver: no restricted grammars yet *)
+        val _ = not vec orelse is_none (#restricted arts) orelse raise Fail "labels: not applicable";
         val thy = Proof_Context.theory_of lthy0;
         fun simps d = Global_Theory.get_thms thy (fst (dest_Const d) ^ ".simps");
         val nameT = Grammar_Common.name_typ gram;
@@ -364,12 +366,16 @@ fun lr_build_parse
               let
                 val (names_eq, lthy) =
                   define "lnames"
-                    (remdups_app lthy0 (app' lthy0 \<^const_name>\<open>alabels\<close> [atabs_t]) ds) lthy0;
+                    (remdups_app lthy0
+                      (app' lthy0 (if vec then \<^const_name>\<open>vklabels\<close> else \<^const_name>\<open>alabels\<close>)
+                        [atabs_t]) ds) lthy0;
                 val names = rhs_of_eq names_eq;
                 val (latabs_eq, lthy) =
-                  define "latabs"
-                    (app' lthy \<^const_name>\<open>alab\<close> [app' lthy \<^const_name>\<open>lix\<close> [names], atabs_t]) lthy;
-              in (names_eq, latabs_eq, fn nd => @{thm bind_nrun_lab} OF [names_eq, latabs_eq, nd], NONE, lthy) end
+                  define (if vec then "lvktab" else "latabs")
+                    (app' lthy (if vec then \<^const_name>\<open>vklab\<close> else \<^const_name>\<open>alab\<close>)
+                      [app' lthy \<^const_name>\<open>lix\<close> [names], atabs_t]) lthy;
+                val fin_th = if vec then @{thm bind_vrun_lab} else @{thm bind_nrun_lab};
+              in (names_eq, latabs_eq, fn nd => fin_th OF [names_eq, latabs_eq, nd], NONE, lthy) end
           | SOME {orig, ...} =>
               let
                 val rs = HOLogic.mk_list HOLogic.stringT [HOLogic.mk_string "#"];
@@ -765,8 +771,10 @@ fun lr_build_parse
               Drule.infer_instantiate lthy [(("og", 0), ct (#1 (the origs)))]
                 (Proof_Context.get_thm lthy0 ("LR_Prec_Parse." ^ nm));
             val th =
-              if is_some origs then ofn "bind_frun_plain" (plain_thm "bind_frun_plain") [V, L_start, fnk]
+              if vec then ofn "bind_vfrun" @{thm bind_vfrun} [V, L_start, fnk]
+              else if is_some origs then ofn "bind_frun_plain" (plain_thm "bind_frun_plain") [V, L_start, fnk]
               else ofn "bind_frun" @{thm bind_frun} [V, L_start, fnk];
+          in if vec then ([th], lthy) else let
             (* LR_Kern: the padded tables, a constant, and the run on them *)
             val lat = rhs_of_eq latabs_eq;
             val utabsT =
@@ -785,7 +793,7 @@ fun lr_build_parse
                    Proof_Context.get_thm lthy0 "LR_Prec_Parse.frun_ukrun_opnode"]
               | NONE => [ofn "frun_unode" @{thm frun_unode} [names_eq, latabs_eq, fntab_eq],
                 @{thm frun_ukrun_unode}]);
-          in (th :: uks @ [@{thm ukrun_ckrun}, utabs_eq], lthy) end;
+          in (th :: uks @ [@{thm ukrun_ckrun}, utabs_eq], lthy) end end;
         val (ths, fuse_msg, lthy) =
           (case timed lthy "fuse" (fn lthy => SOME (fuse lthy)
               handle Fail msg => (if msg = "fuse: not applicable" orelse msg = "fuse: span" then ()
@@ -902,7 +910,7 @@ fun lr_build_parse
               val (lab_ths, lab_msg, lthy) =
                 (case cycle of
                   NONE =>
-                    (case timed lthy "labels" (lab_rewrite (rhs_of_eq atabs_eq)) lthy of
+                    (case timed lthy "labels" (lab_rewrite false (rhs_of_eq atabs_eq)) lthy of
                       SOME ((ths, fmsg), lthy) => (ths, ", over integer labels" ^ fmsg, lthy)
                     | NONE => ([], "", lthy))
                 | SOME _ => ([], "", lthy));
@@ -1023,17 +1031,25 @@ fun lr_build_parse
                               (\<^const_name>\<open>vnum\<close>, vtab_eq, nums_e, vnums_l) []) ()
                           |> (fn (th, c, _, lthy) => (th, c, lthy))
                         end);
+                  (* its trees over integer labels and, if the decoders allow, the
+                     decoders' values computed by the run (LR_Vec_Fuse) *)
+                  val (lab_ths, lab_msg, lthy) =
+                    (case timed lthy "labels" (lab_rewrite true (rhs_of_eq vktab_eq)) lthy of
+                      SOME ((ths, fmsg), lthy) => (ths, ", over integer labels" ^ fmsg, lthy)
+                    | NONE => ([], "", lthy));
                   val _ =
                     writeln ("parser: the code equation of \<open>" ^ Binding.name_of parse_bind ^
-                      "\<close> runs the state-indexed driver (LR_Vec), and the sparse one \
-                      \(LR_Sparse) should two reductions be live at once");
+                      "\<close> runs the state-indexed driver (LR_Vec" ^
+                      (if null lab_ths then "" else ", LR_Vec_Fuse") ^ ")" ^ lab_msg ^
+                      ", and the sparse one (LR_Sparse) should two reductions be live at once");
                 in
                   ((@{thm dparse_via_tables_vkn} OF
                     [states_eq, gtab_eq, redtab_eq, i0_eq, fresh_th, stab_eq, vtab_eq, vktab_eq,
                      sinit_eq, sclos_eq, tnum_th],
                     [fresh_th RS @{thm eqTrueI}],
                     SOME (Vec (rhs_of_eq vtab_eq, rhs_of_eq vktab_eq, rhs_of_eq stab_eq,
-                      rhs_of_eq sinit_eq, rhs_of_eq sclos_eq, rhs_of_eq i0_eq, f, tnum_th))), lthy)
+                      rhs_of_eq sinit_eq, rhs_of_eq sclos_eq, rhs_of_eq i0_eq, f, tnum_th)),
+                    if null lab_ths then NONE else SOME lab_ths), lthy)
                 end
             | NONE =>
                 let
@@ -1048,7 +1064,7 @@ fun lr_build_parse
                     [states_eq, gtab_eq, redtab_eq, xinit_eq, xclos_eq, i0_eq, dtab_eq], [],
                     SOME (Dense (gram_t, shn_t, rhs_of_eq gtab_eq, rhs_of_eq states_eq,
                       rhs_of_eq redtab_eq, rhs_of_eq dtab_eq, rhs_of_eq xinit_eq,
-                      rhs_of_eq xclos_eq, rhs_of_eq i0_eq))), lthy)
+                      rhs_of_eq xclos_eq, rhs_of_eq i0_eq)), NONE), lthy)
                 end)
         | SOME cyc =>
             let
@@ -1068,7 +1084,7 @@ fun lr_build_parse
                 [states_eq, gtab_eq, redtab_eq, xinit_eq, xclos_eq, i0_eq], [],
                 SOME (Hist (gram_t, shn_t, rhs_of_eq gtab_eq, rhs_of_eq states_eq,
                   rhs_of_eq redtab_eq, rhs_of_eq xinit_eq, rhs_of_eq xclos_eq,
-                  rhs_of_eq i0_eq))), lthy)
+                  rhs_of_eq i0_eq)), NONE), lthy)
             end)
       end;
 
@@ -1081,7 +1097,7 @@ fun lr_build_parse
       (case simple_checks of
         SOME sc =>
           timed lthy "simple tables" (simple_tables sc) lthy |>> (fn (th, d, a) => (th, [], d, a))
-      | NONE => set_tables lthy |>> (fn (th, f, d) => (th, f, d, NONE)));
+      | NONE => set_tables lthy);
 
     fun post ({parse_const, parse_def_th}: Parser_Generators.post_input) lthy =
       let

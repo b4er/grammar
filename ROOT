@@ -43,6 +43,7 @@ session TIGER_Grammar in "grammar" = TIGER_Grammar_Model +
     LR_Lab
     LR_Fuse
     LR_Kern
+    LR_Vec_Fuse
     Grammar_Command
     LR_Parser
     LR_Prec_Parse

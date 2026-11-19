@@ -806,7 +806,8 @@ lemma \<open>w \<in> ilang (toy\<lparr>istart := ''Ty''\<rparr>) \<Longrightarro
 
 text \<open>The entries share the grammar, its decoders and its relation family: an entry
   runs \<open>dparse\<close> on the grammar with another start and decodes with the grammar's
-  decoder of that start, and defines nothing but its parse constant and its tables.\<close>
+  decoder of that start, and defines nothing but its parse constant, its tables and
+  its fused decoders.\<close>
 
 lemma \<open>toy_parse_ty \<equiv> \<lambda>w. Option.bind (dparse (toy\<lparr>istart := ''Ty''\<rparr>) ''!'' w) toy__dec_Ty\<close>
   by (fact toy_parse_ty_def)
@@ -819,11 +820,15 @@ ML \<open>
   val consts = map #1 (#constants (Consts.dest (Sign.consts_of \<^theory>)));
   fun own p = filter (fn c => Long_Name.base_name c = p orelse
     String.isPrefix (p ^ "_") (Long_Name.base_name c)) consts |> map Long_Name.base_name;
-  val tables = ["states", "gtab", "redtab", "i0", "stab", "vtab", "vktab", "sinit", "sclos", "tnum"];
+  val tables = ["states", "gtab", "redtab", "i0", "stab", "vtab", "vktab", "sinit", "sclos", "tnum",
+    "lnames", "lvktab", "fntab", "ftr"];
+  (*the fused decoders: one per nonterminal*)
+  fun fused p c = exists (fn k => String.isPrefix (p ^ "_" ^ k ^ "_") c) ["ndec", "ix", "fk"];
   val _ =
-    forall (fn p => eq_set (op =) (own p, p :: map (fn t => p ^ "_" ^ t) tables))
+    forall (fn p => eq_set (op =) (filter_out (fused p) (own p), p :: map (fn t => p ^ "_" ^ t) tables))
       ["toy_parse_ty", "toy_parse_file"]
-    orelse error "an entry defines more than its parse constant and its tables";
+    orelse error ("an entry defines more than its parse constant and its tables: "
+      ^ commas (own "toy_parse_ty" @ own "toy_parse_file"));
 \<close>
 
 text \<open>Without the option a parser has its diagnostics, which is the default.\<close>
